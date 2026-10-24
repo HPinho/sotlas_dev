@@ -243,6 +243,13 @@
       "status": "EXPERIMENTAL",
       "source": "tests/native/match_profile/array_payload.sotlas",
       "verification": "tests/test_sotlas_native_match_array_payloads.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-inline-array-patterns",
+      "document": "docs/native_match_array_patterns.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/match_profile/array_patterns.sotlas",
+      "verification": "tests/test_sotlas_native_match_array_patterns.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

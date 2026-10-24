@@ -90,6 +90,8 @@ pub struct ScalarLowering {
     pub struct_field_starts: [u32; 32];
     pub struct_field_counts: [u32; 32];
     pub struct_count: usize;
+    pub array_pattern_types: [usize;32];
+    pub array_pattern_rests: [i64;32];
     pub field_name_offsets: [usize; 256];
     pub field_name_lens: [usize; 256];
     pub field_offsets: [u32; 256];
@@ -1126,6 +1128,8 @@ impl ScalarLowering {
             struct_field_starts: [0; 32],
             struct_field_counts: [0; 32],
             struct_count: 0,
+            array_pattern_types: [0;32],
+            array_pattern_rests: [0;32],
             field_name_offsets: [0; 256],
             field_name_lens: [0; 256],
             field_offsets: [0; 256],
@@ -7422,11 +7426,13 @@ impl ScalarLowering {
         if pattern == 0 || pattern >= self.node_count || depth >= 32 { return false; }
         if self.pattern_capture(pattern) { return true; }
         let node: AstNode = unsafe{*(self.nodes+pattern)};
-        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return false; }
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+            && node.kind != AstKind::PatternArray { return false; }
         let mut child: usize = self.pattern_children(pattern);
         while child != 0 && child < self.node_count {
             let argument: usize = self.pattern_argument(child);
-            if unsafe{(*(self.nodes+argument)).kind} == AstKind::PatternRecord {
+            if unsafe{(*(self.nodes+argument)).kind} == AstKind::PatternRecord
+                || unsafe{(*(self.nodes+argument)).kind} == AstKind::PatternArray {
                 if !self.payload_pattern_total(argument,depth+1) { return false; }
             } else if !self.pattern_capture(argument) { return false; }
             child=unsafe{(*(self.nodes+child)).next_sibling};
@@ -7434,8 +7440,95 @@ impl ScalarLowering {
         return child == 0;
     }
 
+    pub fn array_pattern_count(self: &Self, pattern: usize) -> usize {
+        let mut child: usize = unsafe{(*(self.nodes+pattern)).first_child};let mut count: usize = 0;
+        while child != 0 && child < self.node_count && count <= 256 {
+            count=count+1;child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
+        if child != 0 { return 257; }
+        return count;
+    }
+
+    // Array patterns use a typed layout view containing only explicitly selected
+    // elements. Prefix/suffix offsets refer to the original inline array. Views
+    // are shared by shape/type and never change a value's ABI or copy layout.
+    pub fn array_pattern_record(self: &Self, pattern: usize) -> u32 {
+        let sem: Sema = Sema::new();
+        let typ: usize = sem.payload_binding_type(self.nodes,self.node_count,pattern,self.source,self.source_len);
+        if typ == 0 || typ >= self.node_count { return 0; }
+        let declared: AstNode = unsafe{*(self.nodes+typ)};
+        let count: usize = self.array_pattern_count(pattern);
+        let rest: i64 = unsafe{(*(self.nodes+pattern)).int_value};
+        let mut record: usize = 0;
+        while record < self.struct_count {
+            let prior: usize = self.array_pattern_types[record];
+            if prior != 0 && self.struct_field_counts[record] as usize == count
+                && self.array_pattern_rests[record] == rest {
+                let node: AstNode = unsafe{*(self.nodes+prior)};
+                if self.parse_array_element_count(node.str_offset,node.str_len) == self.parse_array_element_count(declared.str_offset,declared.str_len)
+                    && self.parse_array_element_type(node.str_offset,node.str_len) == self.parse_array_element_type(declared.str_offset,declared.str_len)
+                    && self.parse_array_element_struct(node.str_offset,node.str_len) == self.parse_array_element_struct(declared.str_offset,declared.str_len) {
+                    return record as u32+1;
+                }
+            }
+            record=record+1;
+        }
+        return 0;
+    }
+
+    pub fn register_array_patterns(mut self: &mut Self) -> bool {
+        let sem: Sema = Sema::new();let mut pattern: usize = 1;
+        while pattern < self.node_count {
+            let node: AstNode = unsafe{*(self.nodes+pattern)};
+            if node.kind == AstKind::PatternArray {
+                let typ: usize = sem.payload_binding_type(self.nodes,self.node_count,pattern,self.source,self.source_len);
+                if typ == 0 || typ >= self.node_count { return self.reject(pattern); }
+                let declared: AstNode = unsafe{*(self.nodes+typ)};
+                let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
+                let explicit: usize = self.array_pattern_count(pattern);
+                let element: TargetTypeTag = self.parse_array_element_type(declared.str_offset,declared.str_len);
+                let record: u32 = self.parse_array_element_struct(declared.str_offset,declared.str_len);
+                let mut stride: u32 = self.scalar_memory_size(element);let mut alignment: u32 = stride;
+                if record != 0 {
+                    if !self.array_record_copyable(record,0) { return self.reject(pattern); }
+                    stride=self.struct_sizes[record as usize-1];alignment=self.struct_alignments[record as usize-1];
+                } else if element == TargetTypeTag::Invalid || element == TargetTypeTag::Pointer
+                    || element == TargetTypeTag::Void || element == TargetTypeTag::Aggregate { return self.reject(pattern); }
+                let maximum: usize = 4096;
+                if count == 0 || count > 256 || explicit > count || stride == 0
+                    || count > maximum/(stride as usize) || declared.first_child == 0
+                    || (node.int_value == -1 && explicit != count)
+                    || node.int_value < -1 || node.int_value > explicit as i64 { return self.reject(pattern); }
+                if self.array_pattern_record(pattern) == 0 {
+                    let field_limit: usize = 256;
+                    if self.struct_count >= 32 || explicit > field_limit-self.field_total_count { return self.reject(pattern); }
+                    let layout: usize = self.struct_count;
+                    self.array_pattern_types[layout]=typ;self.array_pattern_rests[layout]=node.int_value;
+                    self.struct_sizes[layout]=count as u32*stride;self.struct_alignments[layout]=alignment;
+                    self.struct_field_starts[layout]=self.field_total_count as u32;
+                    self.struct_field_counts[layout]=explicit as u32;
+                    let mut ordinal: usize = 0;
+                    while ordinal < explicit {
+                        let mut position: usize = ordinal;
+                        if node.int_value >= 0 && ordinal >= node.int_value as usize { position=ordinal+count-explicit; }
+                        let field: usize = self.field_total_count;
+                        self.field_offsets[field]=position as u32*stride;
+                        self.field_type_tags[field]=element as u32;
+                        if record != 0 { self.field_type_tags[field]=TargetTypeTag::Aggregate as u32; }
+                        self.field_struct_ids[field]=record;self.field_type_refs[field]=declared.first_child;
+                        self.field_total_count=field+1;ordinal=ordinal+1;
+                    }
+                    self.struct_count=layout+1;
+                }
+            }
+            pattern=pattern+1;
+        }
+        return true;
+    }
+
     pub fn pattern_record(self: &Self, pattern: usize) -> u32 {
         let node: AstNode = unsafe{*(self.nodes+pattern)};
+        if node.kind == AstKind::PatternArray { return self.array_pattern_record(pattern); }
         if node.kind != AstKind::PatternRecord { return self.payload_record(pattern); }
         let record: u32 = self.find_struct(node.str_offset,node.str_len);
         let mut enumeration: usize = 0;
@@ -7448,7 +7541,7 @@ impl ScalarLowering {
 
     pub fn pattern_children(self: &Self, pattern: usize) -> usize {
         let node: AstNode = unsafe{*(self.nodes+pattern)};
-        if node.kind == AstKind::PatternRecord { return node.first_child; }
+        if node.kind == AstKind::PatternRecord || node.kind == AstKind::PatternArray { return node.first_child; }
         if node.kind == AstKind::PatternVariant && node.first_child != 0 {
             return unsafe{(*(self.nodes+node.first_child)).next_sibling};
         }
@@ -7461,6 +7554,11 @@ impl ScalarLowering {
     }
 
     pub fn pattern_field(self: &Self, pattern: usize, child: usize, ordinal: usize) -> u32 {
+        if unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternArray {
+            let record: u32 = self.array_pattern_record(pattern);
+            if record == 0 || ordinal >= self.struct_field_counts[record as usize-1] as usize { return 0; }
+            return self.struct_field_starts[record as usize-1]+ordinal as u32+1;
+        }
         if unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternRecord {
             let field: AstNode = unsafe{*(self.nodes+child)};
             return self.find_field(self.pattern_record(pattern),field.str_offset,field.str_len);
@@ -7524,7 +7622,8 @@ impl ScalarLowering {
             }
             return sem.source_slices_equal(self.source,self.source_len,first.str_offset,first.str_len,second.str_offset,second.str_len);
         }
-        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return true; }
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+            && node.kind != AstKind::PatternArray { return true; }
         let mut child: usize = self.pattern_children(pattern);
         while child != 0 && child < self.node_count {
             if !self.match_binding_subset(self.pattern_argument(child),other,depth+1) { return false; }
@@ -7541,7 +7640,8 @@ impl ScalarLowering {
         if depth >= 32 { return false; }
         let container: u32 = self.pattern_record(pattern);
         if container == 0 { return false; }
-        let named: bool = unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternRecord;
+        let named: bool = unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternRecord
+            || unsafe{(*(self.nodes+pattern)).kind} == AstKind::PatternArray;
         let mut expected: usize = self.struct_field_counts[container as usize-1] as usize;
         if !named {
             if variant == 0 { return false; }
@@ -7561,6 +7661,8 @@ impl ScalarLowering {
             if self.pattern_capture(binding) {
                 if sem.match_pattern_binding(self.nodes,self.node_count,binding,self.source,self.source_len)
                     && sem.find_pattern_binding(self.nodes,self.node_count,root,node,self.source,self.source_len,0) != binding { return false; }
+            } else if self.field_byte_counts[field] != 0 {
+                if node.kind != AstKind::PatternArray || !self.payload_pattern_valid_at(binding,0,root,depth+1) { return false; }
             } else if self.field_struct_ids[field] != 0 {
                 let nested: u32 = self.payload_variant(binding);
                 if self.field_byte_counts[field] != 0 || self.pattern_record(binding) != self.field_struct_ids[field] { return false; }
@@ -7584,7 +7686,8 @@ impl ScalarLowering {
     pub fn cfg_payload_bindings_at(mut self: &mut Self, pattern: usize, address: u32, depth: usize) -> bool {
         if depth >= 32 { return false; }
         let kind: AstKind = unsafe{(*(self.nodes+pattern)).kind};
-        if kind != AstKind::PatternVariant && kind != AstKind::PatternRecord { return true; }
+        if kind != AstKind::PatternVariant && kind != AstKind::PatternRecord
+            && kind != AstKind::PatternArray { return true; }
         let container: u32 = self.pattern_record(pattern);
         if container == 0 || address == 0 { return false; }
         let mut child: usize = self.pattern_children(pattern);let mut ordinal: usize = 0;
@@ -7593,7 +7696,7 @@ impl ScalarLowering {
             let binding: usize = self.pattern_argument(child);
             let node: AstNode = unsafe{*(self.nodes+binding)};
             let field: usize = self.pattern_field(pattern,child,ordinal) as usize-1;
-            if node.kind == AstKind::PatternVariant || node.kind == AstKind::PatternRecord {
+            if node.kind == AstKind::PatternVariant || node.kind == AstKind::PatternRecord || node.kind == AstKind::PatternArray {
                 let pointer: u32 = self.payload_address(address,self.field_offsets[field],binding);
                 if !self.cfg_payload_bindings_at(binding,pointer,depth+1) { return false; }
             } else if sem.match_pattern_binding(self.nodes,self.node_count,binding,self.source,self.source_len) {
@@ -7665,7 +7768,7 @@ impl ScalarLowering {
             } else {
                 let pointer: u32 = self.payload_address(address,self.field_offsets[field],child);
                 let record: u32 = self.field_struct_ids[field];
-                if kind == AstKind::PatternRecord {
+                if kind == AstKind::PatternRecord || kind == AstKind::PatternArray {
                     if !self.cfg_payload_fields_test(argument,pointer,next,no,depth+1) { return false; }
                 } else if record != 0 {
                     let nested: u32 = self.payload_variant(argument);
@@ -7744,7 +7847,7 @@ impl ScalarLowering {
         if pattern == 0 || pattern >= self.node_count || depth >= 32 { return 0; }
         if self.pattern_capture(pattern) { return 1; }
         let node: AstNode = unsafe{*(self.nodes+pattern)};
-        if node.kind != AstKind::PatternRecord {
+        if node.kind != AstKind::PatternRecord && node.kind != AstKind::PatternArray {
             let variant: u32 = self.payload_variant(pattern);
             if variant == 0 { return 0; }
             let tag: u64 = self.variant_values[variant as usize-1];
@@ -7753,7 +7856,8 @@ impl ScalarLowering {
             if tagged != 1 { return tagged; }
         }
         if node.kind == AstKind::ExprPath { return 1; }
-        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord { return 0; }
+        if node.kind != AstKind::PatternVariant && node.kind != AstKind::PatternRecord
+            && node.kind != AstKind::PatternArray { return 0; }
         let mut child: usize = self.pattern_children(pattern);let mut ordinal: usize = 0;
         while child != 0 && child < self.node_count {
             let argument: usize = self.pattern_argument(child);
@@ -7761,7 +7865,7 @@ impl ScalarLowering {
             if !self.pattern_capture(argument) {
                 let key: u32 = offset+self.field_offsets[field];
                 let mut result: u32 = 0;
-                if self.field_struct_ids[field] != 0 {
+                if self.field_struct_ids[field] != 0 || self.field_byte_counts[field] != 0 {
                     result=self.coverage_pattern(argument,key,state,wanted,lookup,depth+1);
                 } else {
                     let typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
@@ -9279,6 +9383,7 @@ pub fn lower_scalar_module(
     }
 
     if !lowering.register_payload_layouts() { return false; }
+    if !lowering.register_array_patterns() { return false; }
 
     // Layouts precede declaration registration; expressions never observe
     // a partially registered constant table or provisional constant bits.

@@ -31,6 +31,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Global record tables | Declare initialized record lists/repetition, read indexed entries, copy elements and update mutable tables through checked native accesses |
 | Match values | Select scalar, nominal enum and POD record results; destructure nested tagged payloads with exhaustive combinations of field filters; use scoped bindings, ranges, grouped/nested alternatives, named record fields, float patterns and value blocks; merge exclusive moves and cleanup |
 | Array payloads | Store bounded scalar/record arrays directly in enums; construct, copy, pass/return and capture them; read named exclusive/borrowed POD subjects without consuming their owner |
+| Array patterns (SV8.90) | Destructure embedded arrays with exact lists, prefix/suffix rest, filters and typed captures; prove combination coverage and preserve guards/cleanup |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

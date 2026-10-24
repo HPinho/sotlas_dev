@@ -9,7 +9,7 @@ enum Envelope { Missing, Data(Measurement) }
 enum Samples { Missing, Values([u32;2]) }
 
 fn sample_score(value:whisper Samples)->u32 {
-    return match value { Samples::Values(items)=>items[0]+items[1],Samples::Missing=>0 };
+    return match value { Samples::Values([first,last])=>first+last,Samples::Missing=>0 };
 }
 
 fn consume_samples(value:sole Samples)->u32 { return sample_score(value); }

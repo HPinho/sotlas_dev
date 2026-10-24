@@ -18,7 +18,7 @@ parser, semantic checker and Target IR lowering; it does not generate C.
 - A pattern names its enum variant and supplies one field pattern per payload.
   Fields accept immutable identifiers, `_`, numeric/Boolean literals, module
   constants, numeric ranges, nominal scalar enum variants, nested variants and
-  named POD record patterns.
+  named POD record patterns and inline array element patterns.
   Duplicate binding names across the entire nested pattern and incorrect arity
   are rejected.
 - Tag selection precedes field loads and guard evaluation. A false guard continues
@@ -64,6 +64,8 @@ and grouping are covered by [the alternative-pattern contract](native_match_alte
 [Named fields and float patterns](native_match_named_float.md) include rest,
 shorthand, IEEE equality and numeric intervals. Float coverage retains a path for
 NaNs; captures and guards can select them explicitly.
+[Array patterns](native_match_array_patterns.md) add exact element lists and
+prefix/suffix rest inside the existing inline POD storage contract.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.

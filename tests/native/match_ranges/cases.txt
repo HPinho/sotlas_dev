@@ -46,3 +46,7 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/array_payload.sotlas|42|
 ../match_profile/array_payload_shape.sotlas|7|unsupported native form
 ../match_profile/array_payload_guard_move.sotlas|6|match guard cannot consume ownership
+../match_profile/array_patterns.sotlas|42|
+../match_profile/array_pattern_hole.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_profile/array_pattern_arity.sotlas|7|unsupported native form
+../match_profile/array_pattern_nan_hole.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard

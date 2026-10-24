@@ -1,0 +1,9 @@
+module array_pattern_hole;
+enum Packet{Flags([bool;3]),}
+pub fn main_entry()->u32{
+    let value:Packet=Packet::Flags([true,false,false]);
+    return match value{
+        Packet::Flags([true,..,true])=>42,
+        Packet::Flags([false,..,false])=>0
+    };
+}

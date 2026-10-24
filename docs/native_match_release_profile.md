@@ -21,6 +21,7 @@ new integration gates even after this profile passes CI.
 | Defer | Tail captured before LIFO cleanup; enclosing cleanup on early return | Deferred mutation and trace gates |
 | Payload enums | Private tagged layout; scalar, POD record and inline scalar/record array fields; constructors, internal parameters/returns and match results | Payload construction, ABI, copy, array and nested enum tests |
 | Owned subjects | Read named exclusive/whisper/direct POD bindings through an independent snapshot without consuming the owner | Array-payload ownership, guard, move and defer tests |
+| Array elements | Exact lists, prefix/suffix rest, typed captures, scalar filters, alternatives and named POD record elements in inline arrays | Array-pattern suite, independent coverage oracle and rebuilt Stage 3 fixtures |
 | Destructuring | Nested positional variants, immutable bindings, ignored fields and scalar field filters; bindings available to eligible guards | Nested pattern, scope, arity, guard and rejection tests |
 | Combination coverage | Exact union of current Boolean/integer/enum field patterns and nested sum/product patterns; guards excluded | Independent Boolean/interval oracles, integer extrema and Cartesian-hole gates |
 | Exclusive results | Branch-sensitive exclusive POD moves, value-block yields and `MAYBE_MOVED` joins | Match ownership suite |

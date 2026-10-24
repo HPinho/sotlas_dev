@@ -163,7 +163,7 @@ return match d{D::V(a)=>a['''+index+''']};}''')
             'struct R{pub p:*mut u8;}enum D{V([R;2]),}pub fn main_entry()->u32{return 42;}',
             'struct A{pub n:u32;}struct B{pub n:u32;}enum D{V([A;2]),}pub fn main_entry()->u32{let d:D=D::V([B{n:21};2]);return 42;}',
             'enum D{A([u32;2]),B([u32;3]),}pub fn main_entry()->u32{let d:D=D::A([21;2]);return match d{D::A(a)|D::B(a)=>a[0]};}',
-            'enum D{V([u32;2]),}pub fn main_entry()->u32{let d:D=D::V([21;2]);return match d{D::V([a,b])=>a+b};}',
+            'enum D{V([u32;2]),}pub fn main_entry()->u32{let d:D=D::V([21;2]);return match d{D::V([a,b,c])=>a+b+c};}',
         )
         for index, source in enumerate(cases):
             with self.subTest(index=index):
