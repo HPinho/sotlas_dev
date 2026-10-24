@@ -1,0 +1,18 @@
+module array_results;
+struct Row{pub value:u32;}
+struct Packet{pub prefix:u8;pub values:[u32;2];}
+fn read(flag:bool)->u32{
+    let mut source:[Row;2]=[Row{value:20},Row{value:22}];
+    let selected:[Row;2]=match flag{
+        true=>{defer{source[0].value=0;}source},
+        false=>[Row{value:0};2]
+    };
+    if source[0].value!=0{return 1;}
+    return selected[0].value+selected[1].value;
+}
+pub fn main_entry()->u32{
+    let values:[u32;2]=match 1 as u32{0|1=>[20,22],_=>[0;2]};
+    let packet:Packet=Packet{prefix:7,values:if true{values}else{[0;2]}};
+    if packet.prefix!=7 || packet.values[0]+packet.values[1]!=42{return 2;}
+    return read(true);
+}

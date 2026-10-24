@@ -7,6 +7,35 @@
 
 
 
+## SV8.92 - contextual array match and conditional results (2026-10-24)
+
+The preceding stored-array subject block ea8df2d passed CI, as confirmed by the user.
+
+- [x] Select bounded POD arrays into explicitly typed local initializers and
+  declared inline record fields/enum array arguments with match/conditionals.
+- [x] Propagate destination element types/counts through arms, conditional branches
+  and value-block tails; reject incompatible unselected branches too.
+- [x] Copy results independently, evaluate only the selected initializer and
+  capture value-block tails before LIFO deferred cleanup.
+- [x] Preserve local scopes, enclosing early returns, guard/alternative ordering
+  and branch-sensitive ownership of element computations.
+- [x] Reuse the existing private storage layout and aggregate container ABI;
+  preserve general array-parameter/return and resource-array rejection gates.
+- [ ] General array value ABI/inference/reassignment, slices, resource ARC/drop.
+
+[Contextual array results](native_match_array_results.md) specify the completed
+bounded block.
+
+Local validation: 241 native match tests and 61 shared rebuilt Stage 3 driver
+cases pass on each Windows/Linux host. All 20 new array-result tests also pass
+against the rebuilt native seeds, including payload/array subjects and copied
+results. Another 233 focused frontend, parser, semantic, bootstrap and docs tests
+pass through the hosted bootstrap route. Native Stage 2/3 images are identical
+within each host. The exact Windows original-module CI gate passes, including
+calculator, GUI and UI-model gates. Public-example object and ELF/PE/Mach-O outputs
+match across hosts; Windows/Linux images execute with exit 42. New GitHub CI and
+actual Intel macOS execution remain pending.
+
 ## SV8.91 - stored arrays as native match subjects (2026-10-24)
 
 The preceding array-pattern block a37c4c5 passed CI, as confirmed by the user.

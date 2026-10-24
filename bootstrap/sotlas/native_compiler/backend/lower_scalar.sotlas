@@ -3639,6 +3639,12 @@ impl ScalarLowering {
                     if val_expr_index == 0 || val_expr_index >= self.node_count {
                         return TARGET_VALUE_NONE;
                     }
+                    let init_kind: AstKind = unsafe{(*(self.nodes+val_expr_index)).kind};
+                    if self.field_byte_counts[f_idx] != 0
+                        && (init_kind == AstKind::ExprMatch || init_kind == AstKind::ExprConditional) {
+                        if !self.initialize_array_value(ptr_value,f_idx,val_expr_index,first_parameter,parameter_count,0) { return 0; }
+                        init_index=init_node.next_sibling;continue;
+                    }
                     if self.field_array_structs[f_idx] != 0 {
                         if !self.initialize_record_array_field(ptr_value,f_idx,val_expr_index,
                             first_parameter,parameter_count) { return 0; }
@@ -5994,6 +6000,10 @@ impl ScalarLowering {
     // its value once; list elements are evaluated from left to right.
     pub fn initialize_payload_array(mut self: &mut Self, address: u32, field: usize,
         expression_index: usize, first_parameter: usize, parameter_count: usize) -> bool {
+        let node: AstNode = unsafe{*(self.nodes+expression_index)};
+        if node.kind == AstKind::ExprMatch || node.kind == AstKind::ExprConditional || node.kind == AstKind::UnsafeExpr {
+            return self.initialize_array_value(address,field,expression_index,first_parameter,parameter_count,0);
+        }
         if self.field_array_structs[field] != 0 {
             return self.initialize_record_array_field(address,field,expression_index,first_parameter,parameter_count);
         }
@@ -6031,6 +6041,57 @@ impl ScalarLowering {
             position=position+1;
         }
         return expression.kind == AstKind::ExprArrayRepeat || element == 0;
+    }
+
+    // A contextual array result always writes independent inline storage. Match
+    // and conditional branches share the checked destination shape, not aliases.
+    pub fn initialize_array_value(mut self: &mut Self, address: u32, field: usize,
+        index: usize, first_parameter: usize, parameter_count: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || field >= self.field_total_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind == AstKind::UnsafeExpr {
+            return self.initialize_array_value(address,field,node.first_child,first_parameter,parameter_count,depth+1);
+        }
+        let layout: u32 = self.array_subject_record(self.field_type_refs[field]);
+        if node.kind == AstKind::ExprMatch || node.kind == AstKind::ExprConditional {
+            if layout == 0 { return false; }
+            let staged: u32 = self.allocate_struct(layout,index);
+            let staged_field: usize = self.struct_field_starts[layout as usize-1] as usize;
+            if staged == 0 { return false; }
+            if node.kind == AstKind::ExprMatch {
+                if !self.cfg_match_statement(index,TargetTypeTag::Pointer,first_parameter,parameter_count,0,0,
+                    depth+1,staged,layout) { return false; }
+            } else {
+                let condition: usize = node.first_child;
+                if condition == 0 || condition >= self.node_count { return false; }
+                let yes: usize = unsafe{(*(self.nodes+condition)).next_sibling};
+                if yes == 0 || yes >= self.node_count { return false; }
+                let no: usize = unsafe{(*(self.nodes+yes)).next_sibling};
+                if no == 0 || no >= self.node_count || unsafe{(*(self.nodes+no)).next_sibling} != 0 { return false; }
+                let yes_id: u32 = self.cfg_reserve_block();let no_id: u32 = self.cfg_reserve_block();
+                let join: u32 = self.cfg_reserve_block();let mut open: bool = false;
+                if yes_id == 0 || no_id == 0 || join == 0
+                    || !self.cfg_test(condition,yes_id,no_id,first_parameter,parameter_count,depth+1) { return false; }
+                self.cfg_begin(yes_id);
+                if !self.initialize_array_value(staged,staged_field,yes,first_parameter,parameter_count,depth+1) { return false; }
+                if self.cfg_current != 0 { open=true;if !self.cfg_jump(join,index) { return false; } }
+                self.cfg_begin(no_id);
+                if !self.initialize_array_value(staged,staged_field,no,first_parameter,parameter_count,depth+1) { return false; }
+                if self.cfg_current != 0 { open=true;if !self.cfg_jump(join,index) { return false; } }
+                if open { self.cfg_begin(join); }
+            }
+            if self.cfg_current == 0 { return true; }
+            let destination: u32 = self.payload_address(address,self.field_offsets[field],index);
+            return destination != 0 && self.cfg_copy_fields(destination,staged,layout,0,0,index,0);
+        }
+        if node.kind == AstKind::ExprIdent || node.kind == AstKind::ExprFieldAccess {
+            let actual: usize = self.array_subject_type(index);
+            if actual == 0 || layout == 0 || self.array_subject_record(actual) != layout { return false; }
+            let source: u32 = self.array_subject_address(index,first_parameter,parameter_count,0);
+            let destination: u32 = self.payload_address(address,self.field_offsets[field],index);
+            return source != 0 && destination != 0 && self.cfg_copy_fields(destination,source,layout,0,0,index,0);
+        }
+        return self.initialize_payload_array(address,field,index,first_parameter,parameter_count);
     }
 
     pub fn lower_payload_constructor(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> u32 {
@@ -6667,6 +6728,20 @@ impl ScalarLowering {
                     let maximum_bytes: usize = 65536;
                     let record_stride: usize = stride as usize;
                     if record != 0 && count > maximum_bytes / record_stride { return self.reject(index); }
+                    if value_node.kind == AstKind::ExprMatch || value_node.kind == AstKind::ExprConditional {
+                        let layout: u32 = self.array_subject_record(type_index);
+                        if layout == 0 { return self.reject(index); }
+                        let field: usize = self.struct_field_starts[layout as usize-1] as usize;
+                        let address: u32 = self.allocate_struct(layout,index);
+                        if address == 0 || !self.initialize_array_value(address,field,value_index,
+                            first_parameter,parameter_count,0) { return self.reject(index); }
+                        let slot: usize = self.local_count;
+                        self.local_name_offsets[slot]=stmt.str_offset;self.local_name_lens[slot]=stmt.str_len;
+                        self.local_struct_ids[slot]=record;self.local_storage_types[slot]=0;
+                        self.local_array_types[slot]=elem as u32;self.local_array_counts[slot]=count as u32;
+                        self.local_value_ids[slot]=address;self.local_count=slot+1;
+                        return true;
+                    }
                     let zero_initializer: bool = value_node.kind == AstKind::ExprLiteral
                         && value_node.str_len == 1 && unsafe { *(self.source + value_node.str_offset) } == 48;
                     let list_initializer: bool = value_node.kind == AstKind::ExprArrayLiteral;
@@ -7355,6 +7430,10 @@ impl ScalarLowering {
     pub fn cfg_match_yield(mut self: &mut Self, expression: usize, first_parameter: usize, parameter_count: usize) -> bool {
         if self.match_yield_storage == 0 { return false; }
         if self.match_yield_record != 0 {
+            if self.array_subject_types[self.match_yield_record as usize-1] != 0 {
+                let field: usize = self.struct_field_starts[self.match_yield_record as usize-1] as usize;
+                return self.initialize_array_value(self.match_yield_storage,field,expression,first_parameter,parameter_count,0);
+            }
             if self.cfg_record_value_id(expression,0) != self.match_yield_record { return false; }
             let source: u32 = self.cfg_struct_address(expression,first_parameter,parameter_count,0);
             return source != 0 && self.cfg_copy_fields(self.match_yield_storage,source,self.match_yield_record,0,0,expression,0);
@@ -7408,7 +7487,7 @@ impl ScalarLowering {
             unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=size as u64;}
         }
         if storage == 0 { return 0; }
-        if !self.cfg_match_statement(index,typ,first_parameter,parameter_count,0,0,0,storage) { return 0; }
+        if !self.cfg_match_statement(index,typ,first_parameter,parameter_count,0,0,0,storage,0) { return 0; }
         if record != 0 { return storage; }
         let result: u32 = self.append_value(typ,0,0);
         let operand: u32 = self.operand_count as u32;
@@ -7476,8 +7555,23 @@ impl ScalarLowering {
         let mut index: usize = 1;
         while index < self.node_count {
             let node: AstNode = unsafe{*(self.nodes+index)};
+            let mut contexts: [usize;2] = 0;
+            let sem: Sema = Sema::new();
             if node.kind == AstKind::MatchStmt || node.kind == AstKind::ExprMatch {
-                let typ: usize = self.array_subject_type(node.first_child);
+                contexts[0]=self.array_subject_type(node.first_child);
+            }
+            if node.kind == AstKind::ExprMatch || node.kind == AstKind::ExprConditional {
+                let expected: usize = sem.array_value_context(self.nodes,self.node_count,index,self.source,self.source_len,0);
+                if expected != 0 && expected < self.node_count {
+                    let declared: AstNode = unsafe{*(self.nodes+expected)};
+                    if declared.int_value == 0 && declared.str_len != 0 && unsafe{*(self.source+declared.str_offset)} == 91 {
+                        contexts[1]=expected;
+                    }
+                }
+            }
+            let mut context: usize = 0;
+            while context < 2 {
+                let typ: usize = contexts[context];context=context+1;
                 if typ != 0 && self.array_subject_record(typ) == 0 {
                     let declared: AstNode = unsafe{*(self.nodes+typ)};
                     let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
@@ -8116,7 +8210,7 @@ impl ScalarLowering {
 
     pub fn cfg_match_statement(mut self: &mut Self, index: usize, return_type: TargetTypeTag,
         first_parameter: usize, parameter_count: usize, break_id: u32, continue_id: u32, depth: usize,
-        result_storage: u32) -> bool {
+        result_storage: u32, array_result: u32) -> bool {
         if index == 0 || index >= self.node_count || depth >= 64 { return self.reject(index); }
         let subject: usize = unsafe { (*(self.nodes + index)).first_child };
         let mut sem: Sema = Sema::new();
@@ -8441,8 +8535,13 @@ impl ScalarLowering {
             if guard == 0 && refutable[ordinal] == 0 && !self.cfg_payload_bindings(pattern,subject_address) { return self.reject(pattern); }
             if result_storage != 0 {
                 if unsafe{(*(self.nodes+body)).kind} == AstKind::MatchValueBlock {
-                    if !self.cfg_match_value_block(body,result_storage,return_type,self.match_record_id(index,0),
+                    let mut result_record: u32 = array_result;
+                    if result_record == 0 { result_record=self.match_record_id(index,0); }
+                    if !self.cfg_match_value_block(body,result_storage,return_type,result_record,
                         first_parameter,parameter_count,depth+1) { return self.reject(body); }
+                } else if array_result != 0 {
+                    let field: usize = self.struct_field_starts[array_result as usize-1] as usize;
+                    if !self.initialize_array_value(result_storage,field,body,first_parameter,parameter_count,depth+1) { return self.reject(body); }
                 } else if return_type == TargetTypeTag::Pointer {
                     let record: u32 = self.match_record_id(index,0);
                     let source: u32 = self.cfg_struct_address(body,first_parameter,parameter_count,0);
@@ -8519,7 +8618,7 @@ impl ScalarLowering {
                 if !self.cfg_jump(destination, index) { return self.reject(index); }
             } else if stmt.kind == AstKind::MatchStmt {
                 if !self.cfg_match_statement(index, return_type, first_parameter, parameter_count,
-                    break_id, continue_id, depth + 1,0) { return false; }
+                    break_id, continue_id, depth + 1,0,0) { return false; }
             } else if stmt.kind == AstKind::IfStmt {
                 let condition_index: usize = stmt.first_child;
                 if condition_index == 0 || condition_index >= self.node_count { return self.reject(index); }

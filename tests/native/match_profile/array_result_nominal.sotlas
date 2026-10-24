@@ -1,0 +1,7 @@
+module array_result_nominal;
+struct A{pub value:u32;}
+struct B{pub value:u32;}
+pub fn main_entry()->u32{
+    let values:[A;2]=match true{true=>[A{value:21};2],false=>[B{value:21};2]};
+    return 42;
+}

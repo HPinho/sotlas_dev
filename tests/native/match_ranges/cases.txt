@@ -55,3 +55,7 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/array_subject_guard_hole.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
 ../match_profile/array_subject_scalar.sotlas|7|unsupported native form
 ../match_profile/array_subject_float_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_profile/array_results.sotlas|42|
+../match_profile/array_result_shape.sotlas|7|unsupported native form
+../match_profile/array_result_nominal.sotlas|7|unsupported native form
+../match_profile/array_result_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
