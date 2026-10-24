@@ -2,6 +2,37 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.91 - stored arrays as native match subjects (2026-10-24)
+
+The preceding array-pattern block a37c4c5 passed CI, as confirmed by the user.
+
+- [x] Match typed local arrays, existing global array storage and array-valued
+  record fields directly in statement/expression forms.
+- [x] Snapshot the complete array independently of sparse pattern views; copy
+  whole-subject bindings before guards and preserve checked element indexing.
+- [x] Preserve element types through root bindings, nested matches, original
+  alternative trees and normalized decision rows.
+- [x] Resolve array-valued fields of supported internal record-returning calls,
+  nested fields and captured records; evaluate receivers exactly once.
+- [x] Preserve guards, OR ordering, coverage, lexical cleanup and owner checks;
+  explicitly reject scalar patterns on array subjects and unsupported array ABI.
+- [x] Check all 512 Boolean rectangle unions for direct array subjects against an
+  independent oracle; execute original/capture mutation and runtime bounds cases.
+- [ ] General array parameters/returns, slices, resource payloads and ARC/drop.
+
+[Native array subjects](native_match_array_subjects.md) define this completed
+bounded block.
+
+Local validation: 221 match tests and 57 shared rebuilt Stage 3 driver cases
+pass on each Windows/Linux host. Another 235 focused frontend, parser, semantic,
+bootstrap and documentation tests passed during this block; the final 22 new
+subject tests also pass through the hosted bootstrap route. Final native Stage
+2/3 images are identical within each host. The exact Windows original-module
+CI gate passes with the final sources and fixtures, including calculator, GUI
+and UI-model gates. Public-example object and ELF/PE/Mach-O outputs match across
+hosts; Windows/Linux images execute with exit 42. New GitHub CI and actual Intel
+macOS execution remain pending.
+
 ## SV8.90 - inline array element patterns (2026-10-24)
 
 The local main was fast-forwarded from 88bfa5c to bdd605d, preserving the online

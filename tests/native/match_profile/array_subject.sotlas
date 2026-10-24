@@ -1,0 +1,19 @@
+module array_subject;
+static mut calls:u32=0;
+struct Row{pub items:[u32;2];}
+struct Batch{pub rows:[Row;2];}
+fn make()->Row{unsafe{calls=calls+1;}return Row{items:[20,22]};}
+fn read(row:whisper Row)->u32{return match row.items{[a,b]=>a+b};}
+pub fn main_entry()->u32{
+    let values:[u32;3]=[20,99,22];
+    if match values{[first,..,last]=>first+last}!=42{return 1;}
+    let row:sole Row=Row{items:[21;2]};
+    if read(row)!=42{return 2;}
+    let result:u32=match make().items{[a,b]=>a+b};
+    if unsafe{calls}!=1{return 3;}
+    let rows:[Row;2]=[Row{items:[20,22]};2];
+    let copy:Batch=match rows{all=>Batch{rows:all}};
+    let copied:u32=match copy.rows{[Row{items:[a,_]},Row{items:[_,b]}]=>a+b};
+    if copied!=42{return 4;}
+    return result;
+}

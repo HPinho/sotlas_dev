@@ -66,6 +66,8 @@ shorthand, IEEE equality and numeric intervals. Float coverage retains a path fo
 NaNs; captures and guards can select them explicitly.
 [Array patterns](native_match_array_patterns.md) add exact element lists and
 prefix/suffix rest inside the existing inline POD storage contract.
+[Stored arrays can also be subjects directly](native_match_array_subjects.md),
+including captures extracted from a payload and matched again.
 The layout is internal and does not define a C enum ABI or a stable public format.
 Native support does not certify canonical Stage-0/C11 parity or every master
 language ownership domain.

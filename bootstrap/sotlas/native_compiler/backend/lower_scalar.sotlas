@@ -92,6 +92,7 @@ pub struct ScalarLowering {
     pub struct_count: usize;
     pub array_pattern_types: [usize;32];
     pub array_pattern_rests: [i64;32];
+    pub array_subject_types: [usize;32];
     pub field_name_offsets: [usize; 256];
     pub field_name_lens: [usize; 256];
     pub field_offsets: [u32; 256];
@@ -1130,6 +1131,7 @@ impl ScalarLowering {
             struct_count: 0,
             array_pattern_types: [0;32],
             array_pattern_rests: [0;32],
+            array_subject_types: [0;32],
             field_name_offsets: [0; 256],
             field_name_lens: [0; 256],
             field_offsets: [0; 256],
@@ -7440,6 +7442,93 @@ impl ScalarLowering {
         return child == 0;
     }
 
+    pub fn array_subject_type(self: &Self, subject: usize) -> usize {
+        let sem: Sema = Sema::new();
+        let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,subject,self.source,self.source_len);
+        if typ == 0 || typ >= self.node_count { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+typ)};
+        if node.kind != AstKind::TypeRef || node.int_value != 0 || node.str_len < 5
+            || unsafe{*(self.source+node.str_offset)} != 91 { return 0; }
+        return typ;
+    }
+
+    pub fn array_subject_record(self: &Self, typ: usize) -> u32 {
+        if typ == 0 || typ >= self.node_count { return 0; }
+        let declared: AstNode = unsafe{*(self.nodes+typ)};let mut record: usize = 0;
+        while record < self.struct_count {
+            let prior: usize = self.array_subject_types[record];
+            if prior != 0 {
+                let node: AstNode = unsafe{*(self.nodes+prior)};
+                if self.parse_array_element_count(node.str_offset,node.str_len) == self.parse_array_element_count(declared.str_offset,declared.str_len)
+                    && self.parse_array_element_type(node.str_offset,node.str_len) == self.parse_array_element_type(declared.str_offset,declared.str_len)
+                    && self.parse_array_element_struct(node.str_offset,node.str_len) == self.parse_array_element_struct(declared.str_offset,declared.str_len) {
+                    return record as u32+1;
+                }
+            }
+            record=record+1;
+        }
+        return 0;
+    }
+
+    // A subject layout contains the complete array, unlike sparse decision
+    // views. Copy all elements before testing any arm or evaluating a guard.
+    pub fn register_array_subjects(mut self: &mut Self) -> bool {
+        let mut index: usize = 1;
+        while index < self.node_count {
+            let node: AstNode = unsafe{*(self.nodes+index)};
+            if node.kind == AstKind::MatchStmt || node.kind == AstKind::ExprMatch {
+                let typ: usize = self.array_subject_type(node.first_child);
+                if typ != 0 && self.array_subject_record(typ) == 0 {
+                    let declared: AstNode = unsafe{*(self.nodes+typ)};
+                    let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
+                    let mut element: TargetTypeTag = self.parse_array_element_type(declared.str_offset,declared.str_len);
+                    let record: u32 = self.parse_array_element_struct(declared.str_offset,declared.str_len);
+                    let mut stride: u32 = self.scalar_memory_size(element);let mut alignment: u32 = stride;
+                    if record != 0 {
+                        if !self.array_record_copyable(record,0) { return self.reject(node.first_child); }
+                        stride=self.struct_sizes[record as usize-1];alignment=self.struct_alignments[record as usize-1];
+                        element=TargetTypeTag::Pointer;
+                    } else if element == TargetTypeTag::Invalid || element == TargetTypeTag::Void
+                        || element == TargetTypeTag::Pointer || element == TargetTypeTag::Aggregate { return self.reject(node.first_child); }
+                    let maximum: usize = 4096;
+                    if count == 0 || count > 256 || stride == 0 || count > maximum/(stride as usize)
+                        || self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(node.first_child); }
+                    let layout: usize = self.struct_count;let field: usize = self.field_total_count;
+                    self.array_subject_types[layout]=typ;
+                    self.struct_field_starts[layout]=field as u32;self.struct_field_counts[layout]=1;
+                    self.struct_sizes[layout]=count as u32*stride;self.struct_alignments[layout]=alignment;
+                    self.field_byte_counts[field]=count as u32;self.field_array_types[field]=element as u32;
+                    self.field_array_structs[field]=record;self.field_type_refs[field]=typ;
+                    self.field_type_tags[field]=TargetTypeTag::Aggregate as u32;
+                    self.struct_count=layout+1;self.field_total_count=field+1;
+                }
+            }
+            index=index+1;
+        }
+        return true;
+    }
+
+    pub fn array_subject_address(mut self: &mut Self, subject: usize, first_parameter: usize,
+        parameter_count: usize, depth: usize) -> u32 {
+        if subject == 0 || subject >= self.node_count || depth >= 32 { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+subject)};
+        if node.kind == AstKind::UnsafeExpr { return self.array_subject_address(node.first_child,first_parameter,parameter_count,depth+1); }
+        if node.kind == AstKind::ExprIdent {
+            let slot: usize = self.cfg_find_local(node.str_offset,node.str_len);
+            if slot < self.local_count {
+                if self.local_array_counts[slot] == 0 { return 0; }
+                return self.local_value_ids[slot];
+            }
+            let global: isize = self.find_global_bss(node.str_offset,node.str_len);
+            if global < 0 || unsafe{g_bss_sym_is_array[global as usize]} == 0 { return 0; }
+            return self.lower_expression(subject,TargetTypeTag::Pointer,first_parameter,parameter_count);
+        }
+        if node.kind == AstKind::ExprFieldAccess {
+            return self.cfg_struct_address(subject,first_parameter,parameter_count,0);
+        }
+        return 0;
+    }
+
     pub fn array_pattern_count(self: &Self, pattern: usize) -> usize {
         let mut child: usize = unsafe{(*(self.nodes+pattern)).first_child};let mut count: usize = 0;
         while child != 0 && child < self.node_count && count <= 256 {
@@ -8043,10 +8132,15 @@ impl ScalarLowering {
         if typ == TargetTypeTag::Invalid && subject_node.kind == AstKind::ExprUnary
             && subject_node.int_value == 81 { typ = TargetTypeTag::I64; }
         let subject_enum: u32 = self.match_enum_id(subject,0);
+        let array_ref: usize = self.array_subject_type(subject);
+        let array_subject: bool = array_ref != 0;
         let mut payload_record: u32 = 0;
         if subject_enum != 0 { payload_record=self.enum_record_ids[subject_enum as usize-1]; }
         let mut record_subject: bool = false;
-        if payload_record == 0 && subject_enum == 0 {
+        if array_subject {
+            payload_record=self.array_subject_record(array_ref);record_subject=true;
+            if payload_record == 0 { return self.reject(subject); }
+        } else if payload_record == 0 && subject_enum == 0 {
             let record: u32 = self.cfg_record_value_id(subject,0);
             if record != 0 {
                 if self.struct_sizes[record as usize-1] > 4096 || !self.array_record_copyable(record,0) { return self.reject(subject); }
@@ -8119,7 +8213,12 @@ impl ScalarLowering {
                 if source_after == 0 { return self.reject_match(guard, 7); }
                 guarded[count] = 1;
             } else if arm_node.int_value != 0 { return self.reject(arm); }
-            if node.kind == AstKind::PatternRecord {
+            if array_subject && node.kind != AstKind::PatternArray && !self.pattern_capture(pattern) { return self.reject(pattern); }
+            if node.kind == AstKind::PatternArray {
+                if !array_subject || !self.payload_pattern_valid(pattern,0) { return self.reject(pattern); }
+                patterns[count]=0;ends[count]=0;
+                if !self.payload_pattern_total(pattern,0) { refutable[count]=1; }
+            } else if node.kind == AstKind::PatternRecord {
                 if payload_record == 0 || self.pattern_record(pattern) != payload_record
                     || !self.payload_pattern_valid(pattern,0) { return self.reject(pattern); }
                 patterns[count]=0;ends[count]=0;
@@ -8228,8 +8327,12 @@ impl ScalarLowering {
         // Keep the subject SSA value live across the decision chain; evaluate it once.
         let mut value: u32 = 0;let mut subject_address: u32 = 0;
         if payload_record != 0 {
-            if self.cfg_record_value_id(subject,0) != payload_record { return self.reject(subject); }
-            let original: u32 = self.cfg_struct_address(subject,first_parameter,parameter_count,0);
+            let mut original: u32 = 0;
+            if array_subject { original=self.array_subject_address(subject,first_parameter,parameter_count,0); }
+            else {
+                if self.cfg_record_value_id(subject,0) != payload_record { return self.reject(subject); }
+                original=self.cfg_struct_address(subject,first_parameter,parameter_count,0);
+            }
             subject_address=self.allocate_struct(payload_record,subject);
             if original == 0 || subject_address == 0
                 || !self.cfg_copy_fields(subject_address,original,payload_record,0,0,subject,0) { return self.reject(subject); }
@@ -8277,6 +8380,13 @@ impl ScalarLowering {
                 self.local_value_ids[slot]=value;self.local_storage_types[slot]=0;
                 self.local_struct_ids[slot]=payload_record;self.local_array_counts[slot]=0;self.local_array_types[slot]=0;
                 if payload_record != 0 { self.local_value_ids[slot]=subject_address; }
+                if array_subject {
+                    let field: usize = self.struct_field_starts[payload_record as usize-1] as usize;
+                    let copy: u32 = self.allocate_struct(payload_record,pattern);
+                    if copy == 0 || !self.cfg_copy_fields(copy,subject_address,payload_record,0,0,pattern,0) { return self.reject(pattern); }
+                    self.local_value_ids[slot]=copy;self.local_struct_ids[slot]=self.field_array_structs[field];
+                    self.local_array_counts[slot]=self.field_byte_counts[field];self.local_array_types[slot]=self.field_array_types[field];
+                }
                 self.local_count=self.local_count+1;
             }
             let selected: u32 = self.cfg_reserve_block();
@@ -9383,6 +9493,7 @@ pub fn lower_scalar_module(
     }
 
     if !lowering.register_payload_layouts() { return false; }
+    if !lowering.register_array_subjects() { return false; }
     if !lowering.register_array_patterns() { return false; }
 
     // Layouts precede declaration registration; expressions never observe

@@ -32,6 +32,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Match values | Select scalar, nominal enum and POD record results; destructure nested tagged payloads with exhaustive combinations of field filters; use scoped bindings, ranges, grouped/nested alternatives, named record fields, float patterns and value blocks; merge exclusive moves and cleanup |
 | Array payloads | Store bounded scalar/record arrays directly in enums; construct, copy, pass/return and capture them; read named exclusive/borrowed POD subjects without consuming their owner |
 | Array patterns (SV8.90) | Destructure embedded arrays with exact lists, prefix/suffix rest, filters and typed captures; prove combination coverage and preserve guards/cleanup |
+| Array subjects (SV8.91) | Match stored arrays directly, snapshot all elements before guards, capture whole arrays independently and match extracted captures again |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

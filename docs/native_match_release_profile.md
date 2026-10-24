@@ -8,7 +8,7 @@ new integration gates even after this profile passes CI.
 | Capability | Current implementation | Evidence |
 | --- | --- | --- |
 | Statement/expression forms | Shared ordered decision chain; subject evaluated once | Match-value and frontend closure suites |
-| Subjects | Signed/unsigned integers, Boolean, F32/F64, nominal enums and bounded POD records | Width, float, record, coverage and enum gates |
+| Subjects | Signed/unsigned integers, Boolean, F32/F64, nominal enums, bounded POD records and stored fixed arrays | Width, float, record, array, coverage and enum gates |
 | Patterns | Literal/module constants, `_`, scoped identifier bindings, closed/open integer ranges | Match closure suite |
 | Alternatives | Root/nested `|`, grouping, equal binding sets/types, first-match binding selection and one guard evaluation per source arm | Alternative-pattern suite and rebuilt Stage 3 fixtures |
 | Named fields | Reordered fields, renaming, shorthand, `..`, nested records and independent inline array captures | Named/float suite, 512 record coverage unions and Stage 3 fixtures |
@@ -39,8 +39,9 @@ new integration gates even after this profile passes CI.
   release profile are complete; resource payload/runtime integration is next.
 - Shared/resource match values require integrated ARC/drop generation. Exclusive
   POD moves and arm joins are implemented; they do not establish general ARC.
-- Standalone arrays/slices, pointer provenance and resource-bearing aggregates
-  need their corresponding native value/ABI contracts.
+- Standalone fixed arrays support [subject matching](native_match_array_subjects.md).
+  General array parameters/returns, slices, pointer provenance and resource-bearing
+  aggregates still need their corresponding native value/ABI contracts.
 - Canonical Stage-0/C11 parity is a separate gate from native execution.
 - Intel macOS execution and release-platform certification require their actual
   runners; cross-host Mach-O generation alone is insufficient.

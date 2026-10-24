@@ -178,7 +178,7 @@ pub fn main_entry()->u32{let v:V=V::Data([A{n:21};2]);
 return match v{V::Data([B{n:a},B{n:b}])=>a+b};}''',
             '''enum V{A([u32;2]),B([f32;2]),}pub fn main_entry()->u32{
 let v:V=V::A([21;2]);return match v{V::A([a,..])|V::B([a,..])=>42};}''',
-            '''pub fn main_entry()->u32{let a:[u32;2]=0;return match a{[x,y]=>x+y};}''',
+            '''pub fn main_entry()->u32{let a:[u32;2]=0;return match a{[x]=>x};}''',
         )
         for index,source in enumerate(cases):
             with self.subTest(index=index):

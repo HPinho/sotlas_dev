@@ -2116,6 +2116,14 @@ impl Sema {
         binding: usize, source: *const u8, length: usize, depth: usize) -> usize {
         if binding == 0 || binding >= count || depth >= 32 { return 0; }
         let parent: usize = unsafe{(*(nodes+binding)).parent};
+        if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::MatchArm
+            && (unsafe{(*(nodes+parent)).first_child} == binding
+                || unsafe{(*(nodes+binding)).kind} == AstKind::PatternOr
+                || unsafe{(*(nodes+binding)).kind} == AstKind::PatternArray) {
+            let owner: usize = unsafe{(*(nodes+parent)).parent};
+            if owner == 0 || owner >= count { return 0; }
+            return self.infer_expression_type_ref(nodes,count,unsafe{(*(nodes+owner)).first_child},source,length);
+        }
         if parent != 0 && parent < count && unsafe{(*(nodes+parent)).kind} == AstKind::PatternOr {
             return self.pattern_binding_type_at(nodes,count,parent,source,length,depth+1);
         }
@@ -2901,13 +2909,16 @@ impl Sema {
         if receiver.kind == AstKind::ExprIndex && receiver.first_child != 0 && receiver.first_child < node_count {
             binding_receiver = receiver.first_child;
         }
-        if unsafe { (*(nodes + binding_receiver)).kind } != AstKind::ExprIdent {
-            return 0;
-        }
-        let binding_index: usize = self.find_visible_binding(
-            nodes, node_count, binding_receiver, source, source_len
-        );
-        let type_index: usize = self.binding_type_ref(nodes, node_count, binding_index);
+        let mut type_index: usize = 0;
+        if unsafe { (*(nodes + binding_receiver)).kind } == AstKind::ExprIdent {
+            let binding_index: usize = self.find_visible_binding(
+                nodes,node_count,binding_receiver,source,source_len
+            );
+            type_index=self.binding_type_ref(nodes,node_count,binding_index);
+            if type_index == 0 { type_index=self.payload_binding_type(nodes,node_count,binding_index,source,source_len); }
+        } else if receiver.kind == AstKind::ExprCall || receiver.kind == AstKind::ExprFieldAccess {
+            type_index=self.infer_expression_type_ref(nodes,node_count,receiver_index,source,source_len);
+        } else { return 0; }
         if type_index == 0 {
             return 0;
         }
@@ -3861,7 +3872,8 @@ impl Sema {
             if parent.kind == AstKind::MatchArm && parent.first_child != child_on_path
                 && parent.first_child != 0 && parent.first_child < node_count
                 && (unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternVariant
-                    || unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternRecord) {
+                    || unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternRecord
+                    || unsafe{(*(nodes+parent.first_child)).kind} == AstKind::PatternArray) {
                 let binding: usize = self.find_pattern_binding(nodes,node_count,parent.first_child,expression,source,source_len,0);
                 if binding != 0 { return binding; }
             }

@@ -1,0 +1,5 @@
+module array_subject_guard_hole;
+pub fn main_entry()->u32{
+    let values:[bool;2]=[true,false];
+    return match values{[true,_] if true=>42,[false,_]=>0};
+}
