@@ -621,6 +621,15 @@ impl Sema {
                     return false;
                 }
                 let assignment_target: AstNode = unsafe { *(nodes + target_index) };
+                let mut array_type: usize = 0;
+                if assignment_target.kind == AstKind::ExprIdent || assignment_target.kind == AstKind::ExprFieldAccess {
+                    array_type=self.infer_expression_type_ref(nodes,node_count,target_index,source,source_len);
+                }
+                if array_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+array_type)},source,source_len)
+                    || self.ownership_record_array(nodes,node_count,array_type,source,source_len,0)) {
+                    if !self.array_value_fits(nodes,node_count,array_type,assignment_target.next_sibling,
+                        source,source_len,0) { return self.reject_node(node); }
+                }
                 if assignment_target.kind == AstKind::ExprUnary && assignment_target.int_value == 82 {
                     if assignment_target.first_child == 0 || assignment_target.first_child >= node_count {
                         self.error_count = self.error_count + 1;
@@ -2483,6 +2492,10 @@ impl Sema {
         if parent == 0 || parent >= count { return 0; }
         let node: AstNode = unsafe{*(nodes+parent)};
         if node.kind == AstKind::LetStmt { return self.binding_type_ref(nodes,count,parent); }
+        if node.kind == AstKind::AssignStmt && node.first_child != index {
+            let mut sem: Sema = Sema::new();
+            return sem.infer_expression_type_ref(nodes,count,node.first_child,source,length);
+        }
         if node.kind == AstKind::ReturnStmt {
             let mut function: usize = node.parent;
             while function != 0 && function < count {
@@ -2591,9 +2604,10 @@ impl Sema {
         }
         if init.kind == AstKind::AssignStmt && init.first_child != 0
             && init.first_child < node_count {
-            let target_type: usize = self.find_struct_field_for_access(nodes,node_count,
+            let target_type: usize = self.infer_expression_type_ref(nodes,node_count,
                 init.first_child,source,source_len);
-            if target_type == 0 || !self.ownership_record_array(nodes,node_count,target_type,source,source_len,0)
+            if target_type == 0 || (!self.ownership_pod_array(unsafe{*(nodes+target_type)},source,source_len)
+                && !self.ownership_record_array(nodes,node_count,target_type,source,source_len,0))
                 || !self.fixed_array_type_matches_repeat(nodes,node_count,target_type,repeat_index,
                     source,source_len,false) { return self.reject_node(repeat); }
             return true;
@@ -3529,6 +3543,13 @@ impl Sema {
             let mut child: usize = value.first_child;let mut elements: usize = 0;
             if value.kind == AstKind::ExprArrayRepeat && !self.fixed_array_type_matches_repeat(nodes,count,typ,index,source,length,false) { return false; }
             while child != 0 && child < count {
+                let item: AstNode = unsafe{*(nodes+child)};
+                if item.kind == AstKind::ExprLiteral {
+                    let boolean: bool = self.source_slice_equals(source,length,item.str_offset,item.str_len,"true",4)
+                        || self.source_slice_equals(source,length,item.str_offset,item.str_len,"false",5);
+                    let expected_boolean: bool = self.source_slice_equals(source,length,element.str_offset,element.str_len,"bool",4);
+                    if boolean != expected_boolean || self.source_slice_equals(source,length,item.str_offset,item.str_len,"null",4) { return false; }
+                }
                 if !self.contextual_integer_expression_fits(nodes,count,expected.first_child,child,source,length) { return false; }
                 let actual: usize = self.infer_expression_type_ref(nodes,count,child,source,length);
                 if actual != 0 && !self.same_source_text(source,length,element,unsafe{*(nodes+actual)}) { return false; }
@@ -3544,8 +3565,21 @@ impl Sema {
         if native_fixed_array_count(unsafe{source+found.str_offset},found.str_len) != size { return false; }
         // indexed_element_matches compares the declared element with a TypeRef,
         // preserving nominal names while ignoring array spelling whitespace.
-        return expected.first_child != 0
-            && self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)});
+        if expected.first_child != 0 { return self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)}); }
+        // A stored-only assignment needs no appended element TypeRef. Compare
+        // the element spelling directly, preserving nominal identity and spaces.
+        let mut element: AstNode = expected;
+        let end: usize = expected.str_offset+expected.str_len;
+        let mut begin: usize = expected.str_offset+1;
+        while begin < end && (unsafe{*(source+begin)} == 32 || unsafe{*(source+begin)} == 9
+            || unsafe{*(source+begin)} == 10 || unsafe{*(source+begin)} == 13) { begin=begin+1; }
+        let mut finish: usize = begin;
+        while finish < end && unsafe{*(source+finish)} != 59 { finish=finish+1; }
+        if finish == end { return false; }
+        while finish > begin && (unsafe{*(source+finish-1)} == 32 || unsafe{*(source+finish-1)} == 9
+            || unsafe{*(source+finish-1)} == 10 || unsafe{*(source+finish-1)} == 13) { finish=finish-1; }
+        element.str_offset=begin;element.str_len=finish-begin;element.int_value=0;
+        return self.indexed_element_matches(source,length,found,element);
     }
 
     pub fn check_call_argument_types(
@@ -5207,6 +5241,13 @@ impl NativeOwnershipCheck {
                 let owner: usize = self.slot(left);
                 if target_node.kind == AstKind::ExprIdent && owner < self.count && self.domains[owner] != 0 {
                     if self.states[owner] == 1 { self.error_node = index; return 0; }
+                    let sem: Sema = Sema::new();
+                    let typ: usize = sem.binding_type_ref(self.nodes,self.node_count,self.bindings[owner]);
+                    if typ != 0 && self.states[owner] != 2
+                        && (sem.ownership_pod_array(unsafe{*(self.nodes+typ)},self.source,self.source_len)
+                            || sem.ownership_record_array(self.nodes,self.node_count,typ,self.source,self.source_len,0)) {
+                        self.error_node=index;return 0;
+                    }
                     if !self.expression(target_node.next_sibling, true, 0) { return 0; }
                     self.states[owner] = 1;
                 } else {

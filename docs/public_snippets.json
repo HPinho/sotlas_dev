@@ -278,6 +278,13 @@
       "status": "EXPERIMENTAL",
       "source": "tests/native/match_profile/owned_array_abi.sotlas",
       "verification": "tests/test_sotlas_native_owned_array_abi.py; tests/test_sotlas_native_resource_batches.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-whole-array-assignment",
+      "document": "docs/native_array_assignment.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/match_profile/array_assignment.sotlas",
+      "verification": "tests/test_sotlas_native_array_assignment.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

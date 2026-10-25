@@ -45,8 +45,9 @@ in one compilation unit. Foreign/bodyless array signatures are explicitly
 rejected. It does not define a stable exported ABI, C interoperability or typed
 array signatures across independently compiled objects. Internal ownership
 qualifiers now follow the [owned-array contract](native_owned_arrays_and_resources.md).
-Slices, resource or pointer elements, arbitrary array reassignment and general
-inference of untyped array expressions remain separate work.
+Bounded mutable destinations now support [whole-array assignment](native_array_assignment.md).
+Slices, resource or pointer elements and general inference of untyped array
+expressions remain separate work.
 
 Native execution does not establish canonical Stage-0/C11 frontend parity.
 

@@ -70,3 +70,7 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/owned_array_mutation.sotlas|6|borrowed value cannot be mutated
 ../match_profile/owned_array_deferred.sotlas|6|deferred borrow prevents ownership transfer
 ../match_profile/const_pointer_projection.sotlas|6|semantic error
+../match_profile/array_assignment.sotlas|42|
+../match_profile/array_assignment_shape.sotlas|6|semantic error
+../match_profile/array_assignment_bool.sotlas|6|semantic error
+../match_profile/array_assignment_live_owner.sotlas|6|semantic error

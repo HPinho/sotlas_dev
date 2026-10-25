@@ -19,6 +19,7 @@ new integration gates even after this profile passes CI.
 | Record results | Pointer-free POD records, including nested fields/arrays; independent storage | Record-copy and nominal-layout gates |
 | Contextual array results | Typed local initializers and declared inline fields/payloads select POD arrays via match/conditionals; independent copies and pre-cleanup tails | Array-result execution, shape, nominal type, ownership and defer gates |
 | Internal array calls | By-value bounded POD parameters/returns, independent copies, recursion, stack arguments and pre-defer return capture | Array ABI suite and rebuilt Stage 3 fixtures |
+| Whole-array assignment | Mutable local/parameter/field/global destinations, staged match/conditional/call values and definite-move owner reinitialization | Array-assignment suite and rebuilt Stage 3 fixtures |
 | Value blocks | Locals, supported statements, tail values and enclosing function returns | Block scope and early-return gates |
 | Defer | Tail captured before LIFO cleanup; enclosing cleanup on early return | Deferred mutation and trace gates |
 | Payload enums | Private tagged layout; scalar, POD record and inline scalar/record array fields; constructors, internal parameters/returns and match results | Payload construction, ABI, copy, array and nested enum tests |

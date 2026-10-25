@@ -445,7 +445,20 @@ impl Parser {
     pub fn prepare_array_pattern_types(mut self: &mut Self) -> bool {
         let limit: usize = self.node_count;let mut index: usize = 1;let mut needed: bool = self.array_signature_types;
         while index < limit {
-            if unsafe{(*(self.nodes+index)).kind} == AstKind::PatternArray { needed=true; }
+            let node: AstNode = unsafe{*(self.nodes+index)};
+            if node.kind == AstKind::PatternArray { needed=true; }
+            // Array assignment elements need contextual scalar/nominal checks,
+            // including unselected match branches and unreachable statements.
+            if !needed && (node.kind == AstKind::ExprArrayLiteral || node.kind == AstKind::ExprArrayRepeat) {
+                let mut parent: usize = node.parent;let mut steps: usize = 0;
+                while parent != 0 && parent < limit && steps < limit {
+                    let ancestor: AstNode = unsafe{*(self.nodes+parent)};
+                    if ancestor.kind == AstKind::AssignStmt { needed=true;break; }
+                    if ancestor.kind == AstKind::FnDecl || ancestor.kind == AstKind::TrapfnDecl
+                        || ancestor.kind == AstKind::LetStmt || ancestor.kind == AstKind::Module { break; }
+                    parent=ancestor.parent;steps=steps+1;
+                }
+            }
             index=index+1;
         }
         if !needed { return true; }

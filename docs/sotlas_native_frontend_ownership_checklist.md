@@ -2,6 +2,38 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.95 - staged whole-array updates (2026-10-25)
+
+Starting point: main commit 5f0f5a4 (SV8.94 owned array ABI and resource batches).
+
+- [x] Replace bounded POD arrays in mutable locals, value parameters, inline
+  fields and existing mutable globals under native access rules.
+- [x] Evaluate the destination once before staging the complete right-hand array;
+  preserve self-reordering, independent copies, list order and one-shot repetition.
+- [x] Accept stored/call/match/conditional values, capture value-block tails before
+  LIFO cleanup and avoid publishing assignments on enclosing return paths.
+- [x] Reinitialize definitely moved sole/exclusive arrays, consuming incoming
+  owners; reject live and MAYBE_MOVED owner replacement or borrowed destinations.
+- [x] Check shape and nominal element types before lowering, including dead code;
+  reject Boolean-to-numeric literal substitution in contextual arrays.
+- [ ] Resource-element destruction/replacement, slices, broader inferred arrays
+  and foreign/separate-object array signatures.
+
+[Whole-array assignment](native_array_assignment.md) specifies this block.
+Staging preserves source evaluation order; it is not rollback of program side
+effects, a concurrent transaction or automatic resource drop glue.
+
+Local validation: 351 native match, ABI, resource and whole-array assignment
+tests pass on each Windows/Linux host, plus 76 shared rebuilt Stage 3 driver
+cases per host. All 21 new assignment tests also pass through the hosted seed
+route, alongside 58 existing array-result/record-storage tests. Another 231
+focused parser, semantic, numeric, frontend, bootstrap and documentation tests
+pass. Native Stage 2/3 images are identical within each host. The exact Windows
+original-module CI gate passes, including calculator, GUI and UI-model checks.
+Public-example objects and ELF/PE/Mach-O images match across hosts; Windows/Linux
+images execute with exit 42. The new GitHub matrix and actual Intel macOS
+execution remain pending.
+
 ## SV8.94 - owned array ABI and transactional resource batches (2026-10-25)
 
 Starting point: main commit f3e3cab (SV8.93 internal value arrays).

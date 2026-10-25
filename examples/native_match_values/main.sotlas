@@ -94,6 +94,11 @@ fn fraction_score(value:f32)->u32 {
 
 fn read_owned_samples(values:direct [u32;2])->u32 { return values[0]+values[1]; }
 fn move_owned_samples(values:sole [u32;2])->sole [u32;2] { return values; }
+fn replace_samples(mut values:[u32;2])->u32 {
+    values=match true{true=>[20,22],false=>[0;2]};
+    values=[values[1],values[0]];
+    return values[0]+values[1];
+}
 
 pub fn main_entry() -> u32 {
     let selected = match true { true => 5, false => 0 };
@@ -117,5 +122,6 @@ pub fn main_entry() -> u32 {
     if read_owned_samples(owned_array)!=42 { return 10; }
     let moved_array:sole [u32;2]=move_owned_samples(owned_array);
     if moved_array[0]+moved_array[1]!=42 { return 11; }
+    if replace_samples([0;2])!=42 { return 12; }
     return total + adjustment(ResultKind::Small);
 }
