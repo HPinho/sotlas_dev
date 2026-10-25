@@ -1,0 +1,63 @@
+module native_event_pipeline;
+
+// Settings intentionally precedes the types that determine its storage layout.
+struct Settings{pub source:Source;pub strict:bool;}
+enum Source{Offline,Fixed([Reading;2]),}
+struct Reading{pub sample:Sample;pub valid:bool;}
+enum Sample{Missing,Number(u32),Problem(Fault),}
+struct Fault{pub code:u32;pub retry:bool;}
+enum Outcome{NoData,Ready(Report),Error(Fault),}
+struct Report{pub totals:[u32;2];pub samples:u32;}
+
+static startup:Settings=Settings{
+    source:Source::Fixed([
+        Reading{sample:Sample::Number(20),valid:true},
+        Reading{sample:Sample::Number(22),valid:true}
+    ]),
+    strict:true
+};
+
+fn collect(readings:[Reading;2],strict:bool)->Outcome{
+    return match readings{
+        [Reading{sample:Sample::Number(a),valid:true},
+         Reading{sample:Sample::Number(b),valid:true}]=>
+            Outcome::Ready(Report{totals:[a,b],samples:2}),
+        [Reading{sample:Sample::Problem(error),..},..]=>Outcome::Error(error),
+        _ if strict=>Outcome::Error(Fault{code:7,retry:false}),
+        _=>Outcome::NoData
+    };
+}
+
+fn run(settings:Settings)->Outcome{
+    return match settings.source{
+        Source::Offline=>Outcome::NoData,
+        Source::Fixed(readings)=>collect(readings,settings.strict)
+    };
+}
+
+fn transfer(result:sole Outcome)->sole Outcome{return result;}
+
+fn total(result:whisper Outcome)->u32{
+    return match result{
+        Outcome::Ready(report)=>report.totals[0]+report.totals[1],
+        Outcome::NoData | Outcome::Error(_)=>0
+    };
+}
+
+pub fn main_entry()->u32{
+    let mut settings:Settings=startup;
+    let result:sole Outcome=run(settings);
+    if total(result)!=42{return 1;}
+    let moved:sole Outcome=transfer(result);
+
+    // Replacing the source cannot mutate the independently returned report.
+    settings.source=Source::Offline;
+    if match run(settings){Outcome::NoData=>false,_=>true}{return 2;}
+
+    settings.source=Source::Fixed([
+        Reading{sample:Sample::Problem(Fault{code:9,retry:true}),valid:false},
+        Reading{sample:Sample::Missing,valid:false}
+    ]);
+    if match run(settings){Outcome::Error(Fault{code:9,retry:true})=>false,_=>true}{return 3;}
+    return total(moved);
+}

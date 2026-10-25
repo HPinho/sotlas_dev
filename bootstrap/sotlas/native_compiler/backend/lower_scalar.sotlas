@@ -1653,6 +1653,9 @@ impl ScalarLowering {
         if expression == 0 || expression >= self.node_count || record == 0
             || record as usize > self.struct_count || depth >= 32 { return false; }
         let literal: AstNode = unsafe{*(self.nodes+expression)};
+        if self.payload_record(expression) == record {
+            return self.fold_static_payload(expression,record,start,offset,depth);
+        }
         if literal.kind != AstKind::ExprStructLiteral
             || self.find_struct(literal.str_offset,literal.str_len) != record { return false; }
         let first: usize = self.struct_field_starts[record as usize-1] as usize;
@@ -1681,6 +1684,40 @@ impl ScalarLowering {
             child=init.next_sibling;
         }
         return initialized == count;
+    }
+
+    // The enclosing static allocation is zero-filled first, including padding
+    // and every inactive variant slot. Serialize only the selected tag/payload.
+    pub fn fold_static_payload(mut self: &mut Self, expression: usize, record: u32,
+        start: usize, offset: usize, depth: usize) -> bool {
+        if depth >= 32 || record == 0 || record as usize > self.struct_count
+            || start > TARGET_STATIC_LIST_CAPACITY || offset > TARGET_STATIC_LIST_CAPACITY-start
+            || self.struct_sizes[record as usize-1] as usize > TARGET_STATIC_LIST_CAPACITY-start-offset { return false; }
+        let variant: u32 = self.payload_variant(expression);
+        if variant == 0 || self.payload_record(expression) != record { return false; }
+        let slot: usize = variant as usize-1;let node: AstNode = unsafe{*(self.nodes+expression)};
+        let mut argument: usize = 0;
+        if node.kind == AstKind::ExprCall && node.first_child != 0 && node.first_child < self.node_count {
+            argument=unsafe{(*(self.nodes+node.first_child)).next_sibling};
+        } else if node.kind != AstKind::ExprPath { return false; }
+        let mut byte: usize = 0;
+        while byte < 4 {
+            unsafe{g_static_list_values[start+offset+byte]=(self.variant_values[slot] >> (byte*8)) & 255;}
+            byte=byte+1;
+        }
+        let mut ordinal: usize = 0;
+        while ordinal < self.variant_field_counts[slot] as usize {
+            if argument == 0 || argument >= self.node_count { return false; }
+            let field: usize = self.variant_field_starts[slot] as usize+ordinal;
+            let place: usize = offset+self.field_offsets[field] as usize;
+            if self.field_byte_counts[field] != 0 {
+                if !self.fold_static_field_array(argument,field,start,place,depth+1) { return false; }
+            } else if self.field_struct_ids[field] != 0 {
+                if !self.fold_static_record(argument,self.field_struct_ids[field],start,place,depth+1) { return false; }
+            } else if !self.fold_static_scalar(argument,self.field_type_tags[field] as TargetTypeTag,start,place) { return false; }
+            argument=unsafe{(*(self.nodes+argument)).next_sibling};ordinal=ordinal+1;
+        }
+        return argument == 0;
     }
 
     pub fn fold_static_field_array(mut self: &mut Self, expression: usize,
@@ -5943,89 +5980,356 @@ impl ScalarLowering {
 
     // Payload enums use a private tagged product layout. Inactive fields are
     // zeroed; no inactive variant is exposed as a source-level struct field.
-    pub fn register_payload_layouts(mut self: &mut Self) -> bool {
-        let mut enumeration: usize = 0;
-        while enumeration < self.enum_count {
-            let start: usize = self.enum_variant_starts[enumeration] as usize;
-            let end: usize = start+self.enum_variant_counts[enumeration] as usize;
-            let mut variant: usize = start;let mut has_payload: bool = false;
+    pub fn enum_has_payload(self: &Self, enumeration: usize) -> bool {
+        if enumeration >= self.enum_count { return false; }
+        let mut variant: usize = self.enum_variant_starts[enumeration] as usize;
+        let end: usize = variant+self.enum_variant_counts[enumeration] as usize;
+        while variant < end {
+            let child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
+            if child != 0 && child < self.node_count && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef { return true; }
+            variant=variant+1;
+        }
+        return false;
+    }
+
+    // Only by-value edges require a completed dependency. Pointer edges retain
+    // the pointer ABI and never contribute the pointee size to the parent.
+    pub fn layout_type_ready(self: &Self, typ: usize, module_index: usize) -> bool {
+        if typ == 0 || typ >= self.node_count { return false; }
+        let node: AstNode = unsafe{*(self.nodes+typ)};
+        let mut start: usize = node.str_offset;let mut end: usize = start+node.str_len;
+        if start >= end || end > self.source_len { return false; }
+        let prefix: u8 = unsafe{*(self.source+start)};
+        if prefix == 42 || prefix == 38 { return true; }
+        if prefix == 91 {
+            start=start+1;let mut separator: usize = start;
+            while separator < end && unsafe{*(self.source+separator)} != 59 { separator=separator+1; }
+            if separator == end { return false; }
+            end=separator;
+        }
+        while start < end && (unsafe{*(self.source+start)} == 32 || unsafe{*(self.source+start)} == 9
+            || unsafe{*(self.source+start)} == 10 || unsafe{*(self.source+start)} == 13) { start=start+1; }
+        while end > start && (unsafe{*(self.source+end-1)} == 32 || unsafe{*(self.source+end-1)} == 9
+            || unsafe{*(self.source+end-1)} == 10 || unsafe{*(self.source+end-1)} == 13) { end=end-1; }
+        if start == end { return false; }
+        let sem: Sema = Sema::new();
+        if sem.source_slice_equals(self.source,self.source_len,start,end-start,"Self",4) { return false; }
+        let mut declaration: usize = unsafe{(*(self.nodes+module_index)).first_child};
+        while declaration != 0 && declaration < self.node_count {
+            let candidate: AstNode = unsafe{*(self.nodes+declaration)};
+            if (candidate.kind == AstKind::StructDecl || candidate.kind == AstKind::EnumDecl)
+                && self.source_name_equals(start,end-start,candidate.str_offset,candidate.str_len) {
+                if candidate.kind == AstKind::EnumDecl {
+                    let enumeration: u32 = self.find_enum(candidate.str_offset,candidate.str_len);
+                    if enumeration == 0 { return false; }
+                    if !self.enum_has_payload(enumeration as usize-1) { return true; }
+                }
+                return self.find_struct(candidate.str_offset,candidate.str_len) != 0;
+            }
+            declaration=candidate.next_sibling;
+        }
+        return true; // Unknown/scalar forms are checked by layout construction.
+    }
+
+    pub fn layout_declaration_ready(self: &Self, index: usize, module_index: usize) -> bool {
+        let declaration: AstNode = unsafe{*(self.nodes+index)};
+        let mut child: usize = declaration.first_child;
+        while child != 0 && child < self.node_count {
+            let member: AstNode = unsafe{*(self.nodes+child)};
+            if declaration.kind == AstKind::StructDecl {
+                if member.kind != AstKind::FieldDecl || !self.layout_type_ready(member.first_child,module_index) { return false; }
+            } else {
+                let mut parameter: usize = member.first_child;
+                while parameter != 0 && parameter < self.node_count && unsafe{(*(self.nodes+parameter)).kind} == AstKind::TypeRef {
+                    if !self.layout_type_ready(parameter,module_index) { return false; }
+                    parameter=unsafe{(*(self.nodes+parameter)).next_sibling};
+                }
+            }
+            child=member.next_sibling;
+        }
+        return child == 0;
+    }
+
+    pub fn register_aggregate_layouts(mut self: &mut Self, module_index: usize) -> bool {
+        let mut declarations: [usize;64] = 0;let mut completed: [u8;64] = 0;
+        let mut count: usize = 0;let mut declaration: usize = unsafe{(*(self.nodes+module_index)).first_child};
+        // Register every discriminant table first. No field can observe a
+        // provisional U32 layout for a payload enum declared later in source.
+        while declaration != 0 && declaration < self.node_count {
+            let node: AstNode = unsafe{*(self.nodes+declaration)};
+            if node.kind == AstKind::StructDecl || node.kind == AstKind::EnumDecl {
+                if count >= 64 { return self.reject(declaration); }
+                let mut prior: usize = 0;
+                while prior < count {
+                    let existing: AstNode = unsafe{*(self.nodes+declarations[prior])};
+                    if self.source_name_equals(node.str_offset,node.str_len,existing.str_offset,existing.str_len) { return self.reject(declaration); }
+                    prior=prior+1;
+                }
+                if node.kind == AstKind::EnumDecl && !self.register_enum_metadata(declaration) { return false; }
+                declarations[count]=declaration;count=count+1;
+            }
+            declaration=node.next_sibling;
+        }
+        if declaration != 0 { return self.reject(module_index); }
+        let mut remaining: usize = count;
+        while remaining != 0 {
+            let mut progress: bool = false;let mut phase: usize = 0;
+            // Preserve existing record-before-payload registration when all
+            // dependencies are already available, including compiler self-builds.
+            while phase < 2 {
+                let mut slot: usize = 0;
+                while slot < count {
+                    let index: usize = declarations[slot];let node: AstNode = unsafe{*(self.nodes+index)};
+                    let record: bool = node.kind == AstKind::StructDecl;
+                    if completed[slot] == 0 && ((phase == 0 && record) || (phase == 1 && !record))
+                        && self.layout_declaration_ready(index,module_index) {
+                        if record {
+                            if !self.register_record_layout(index) { return false; }
+                        } else {
+                            let enumeration: u32 = self.find_enum(node.str_offset,node.str_len);
+                            if enumeration == 0 || !self.register_payload_layout(enumeration as usize-1) { return false; }
+                        }
+                        completed[slot]=1;remaining=remaining-1;progress=true;
+                    }
+                    slot=slot+1;
+                }
+                phase=phase+1;
+            }
+            if !progress {
+                let mut slot: usize = 0;
+                while slot < count { if completed[slot] == 0 { return self.reject(declarations[slot]); }slot=slot+1; }
+                return self.reject(module_index);
+            }
+        }
+        return self.validate_aggregate_layouts();
+    }
+
+    pub fn register_record_layout(mut self: &mut Self, struct_scan_index: usize) -> bool {
+        let decl_node: AstNode = unsafe{*(self.nodes+struct_scan_index)};
+        if self.struct_count >= 32 { return self.reject(struct_scan_index); }
+        let s_id: usize = self.struct_count;
+        self.struct_name_offsets[s_id] = decl_node.str_offset;
+        self.struct_name_lens[s_id] = decl_node.str_len;
+        self.struct_field_starts[s_id] = self.field_total_count as u32;
+        let mut cur_offset: u32 = 0;
+        let mut struct_alignment: u32 = 1;
+        let mut f_cnt: u32 = 0;
+        let mut f_scan: usize = decl_node.first_child;
+        while f_scan != 0 {
+            if f_scan >= self.node_count {
+                return self.reject(f_scan);
+            }
+            let f_node: AstNode = unsafe { *(self.nodes + f_scan) };
+            if f_node.kind == AstKind::FieldDecl {
+                if self.field_total_count >= 256 { return self.reject(f_scan); }
+                let f_idx: usize = self.field_total_count;
+                self.field_name_offsets[f_idx] = f_node.str_offset;
+                self.field_name_lens[f_idx] = f_node.str_len;
+                self.field_type_refs[f_idx] = f_node.first_child;
+                self.field_offsets[f_idx] = cur_offset;
+                let mut f_type: TargetTypeTag = TargetTypeTag::U32;
+                let mut field_struct: u32 = 0;
+                if f_node.first_child != 0 && f_node.first_child < self.node_count {
+                    let field_type: AstNode = unsafe { *(self.nodes + f_node.first_child) };
+                    field_struct = self.find_struct(field_type.str_offset, field_type.str_len);
+                    f_type = self.type_tag_for(f_node.first_child);
+                    if f_type == TargetTypeTag::Invalid {
+                        if field_type.str_len == 0 || unsafe { *(self.source + field_type.str_offset) } != 91 {
+                            return self.reject(f_scan);
+                        }
+                        f_type = TargetTypeTag::U32;
+                    }
+                }
+                self.field_type_tags[f_idx] = f_type as u32;
+                self.field_struct_ids[f_idx] = field_struct;
+                let mut f_sz: u32 = 4;
+                if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer || f_type == TargetTypeTag::F64 {
+                    f_sz = 8;
+                } else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 {
+                    f_sz = 2;
+                } else if f_type == TargetTypeTag::U8 || f_type == TargetTypeTag::I8 || f_type == TargetTypeTag::Bool {
+                    f_sz = 1;
+                }
+                let mut f_alignment: u32 = f_sz;
+                let field_type_node: AstNode = unsafe { *(self.nodes + f_node.first_child) };
+                if field_type_node.str_len != 0 && unsafe { *(self.source + field_type_node.str_offset) } == 91 {
+                    let mut element: TargetTypeTag = self.parse_array_element_type(
+                        field_type_node.str_offset, field_type_node.str_len);
+                    let count: usize = self.parse_array_element_count(
+                        field_type_node.str_offset, field_type_node.str_len);
+                    let record: u32 = self.parse_array_element_struct(field_type_node.str_offset,field_type_node.str_len);
+                    let mut stride: u32 = self.scalar_memory_size(element);
+                    if record != 0 {
+                        stride = self.struct_sizes[record as usize - 1];
+                        let limit: usize = 65536;
+                        if stride == 0 || count == 0 || count > 256 || count > limit/(stride as usize)
+                            || !self.array_record_copyable(record,0) { return self.reject(f_scan); }
+                        element = TargetTypeTag::Pointer;
+                        self.field_array_structs[f_idx] = record;
+                    }
+                    if stride == 0 || element == TargetTypeTag::Aggregate || count == 0 || count > 256 { return self.reject(f_scan); }
+                    let maximum: usize = 65536;
+                    if count > maximum/(stride as usize) { return self.reject(f_scan); }
+                    self.field_byte_counts[f_idx] = count as u32;
+                    self.field_array_types[f_idx] = element as u32;
+                    self.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
+                    f_sz = count as u32 * stride;
+                    f_alignment = stride;
+                    if record != 0 { f_alignment = self.struct_alignments[record as usize - 1]; }
+                }
+                if field_struct != 0 {
+                    f_sz = self.struct_sizes[field_struct as usize - 1];
+                    f_alignment = self.struct_alignments[field_struct as usize - 1];
+                    self.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
+                }
+                if f_alignment == 0 { return self.reject(f_scan); }
+                if f_alignment > struct_alignment { struct_alignment = f_alignment; }
+                let layout_limit: u32 = 4294967295;
+                if cur_offset > layout_limit-(f_alignment-1) { return self.reject(f_scan); }
+                cur_offset = ((cur_offset + f_alignment - 1) / f_alignment) * f_alignment;
+                self.field_offsets[f_idx] = cur_offset;
+                if f_sz > layout_limit-cur_offset { return self.reject(f_scan); }
+                cur_offset = cur_offset + f_sz;
+                self.field_total_count = self.field_total_count + 1;
+                f_cnt = f_cnt + 1;
+            }
+            f_scan = f_node.next_sibling;
+        }
+        self.struct_field_counts[s_id] = f_cnt;
+        let mut cur_size: u32 = 8;
+        if cur_offset > 0 {
+            cur_size = cur_offset;
+        }
+        let layout_limit: u32 = 4294967295;
+        if cur_size > layout_limit-(struct_alignment-1) { return self.reject(struct_scan_index); }
+        self.struct_sizes[s_id] = ((cur_size + struct_alignment - 1) / struct_alignment) * struct_alignment;
+        self.struct_alignments[s_id] = struct_alignment;
+        self.struct_count = self.struct_count + 1;
+        return true;
+    }
+
+    pub fn register_enum_metadata(mut self: &mut Self, struct_scan_index: usize) -> bool {
+        let decl_node: AstNode = unsafe{*(self.nodes+struct_scan_index)};
+        if self.enum_count >= 32 { return self.reject(struct_scan_index); }
+        let e_id: usize = self.enum_count;
+        self.enum_name_offsets[e_id] = decl_node.str_offset;
+        self.enum_name_lens[e_id] = decl_node.str_len;
+        self.enum_variant_starts[e_id] = self.variant_total_count as u32;
+        let mut v_cnt: u32 = 0;let mut next_discriminant:u64=0;
+        let mut v_scan: usize = decl_node.first_child;
+        while v_scan != 0 {
+            if v_scan >= self.node_count {
+                return self.reject(v_scan);
+            }
+            let v_node: AstNode = unsafe { *(self.nodes + v_scan) };
+            if v_node.kind == AstKind::EnumVariant {
+                if self.variant_total_count >= 256 { return self.reject(v_scan); }
+                let v_idx: usize = self.variant_total_count;
+                self.variant_nodes[v_idx] = v_scan;
+                self.variant_name_offsets[v_idx] = v_node.str_offset;
+                self.variant_name_lens[v_idx] = v_node.str_len;
+                let mut v_val:u64=next_discriminant;
+                if v_node.first_child != 0 && v_node.first_child < self.node_count
+                    && unsafe{(*(self.nodes+v_node.first_child)).kind} != AstKind::TypeRef {
+                    let mut literal_sem:Sema=Sema::new();
+                    if !literal_sem.integer_literal_bits(self.nodes,self.node_count,v_node.first_child,
+                        self.source,self.source_len,unsafe{(&mut v_val) as *mut u64}) { return self.reject(v_scan); }
+                }
+                if v_val > 4294967295 { return self.reject(v_scan); }next_discriminant=v_val+1;
+                self.variant_values[v_idx] = v_val;
+                self.variant_total_count = self.variant_total_count + 1;
+                v_cnt = v_cnt + 1;
+            }
+            v_scan = v_node.next_sibling;
+        }
+        self.enum_variant_counts[e_id] = v_cnt;
+        self.enum_count = self.enum_count + 1;
+        return true;
+    }
+
+    pub fn register_payload_layout(mut self: &mut Self, enumeration: usize) -> bool {
+        let start: usize = self.enum_variant_starts[enumeration] as usize;
+        let end: usize = start+self.enum_variant_counts[enumeration] as usize;
+        let mut variant: usize = start;let mut has_payload: bool = false;
+        while variant < end {
+            let child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
+            if child != 0 && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef { has_payload=true; }
+            variant=variant+1;
+        }
+        if has_payload {
+            if self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(self.variant_nodes[start]); }
+            let record: usize = self.struct_count;
+            self.enum_record_ids[enumeration]=record as u32+1;
+            self.struct_name_offsets[record]=self.enum_name_offsets[enumeration];
+            self.struct_name_lens[record]=self.enum_name_lens[enumeration];
+            self.struct_field_starts[record]=self.field_total_count as u32;
+            self.field_type_tags[self.field_total_count]=TargetTypeTag::U32 as u32;
+            self.field_total_count=self.field_total_count+1;
+            let mut size: u32 = 4;let mut alignment: u32 = 4;
+            variant=start;
             while variant < end {
-                let child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
-                if child != 0 && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef { has_payload=true; }
+                let mut prior: usize = start;
+                while prior < variant {
+                    if self.variant_values[prior] == self.variant_values[variant] { return self.reject(self.variant_nodes[variant]); }
+                    prior=prior+1;
+                }
+                self.variant_field_starts[variant]=self.field_total_count as u32;
+                let mut child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
+                while child != 0 && child < self.node_count && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef {
+                    let typ: AstNode = unsafe{*(self.nodes+child)};
+                    let mut tag: TargetTypeTag = self.type_tag_for(child);
+                    let nested: u32 = self.find_struct(typ.str_offset,typ.str_len);
+                    let array: bool = typ.str_len != 0 && unsafe{*(self.source+typ.str_offset)} == 91;
+                    if typ.int_value != 0 || (!array && tag == TargetTypeTag::Invalid) || tag == TargetTypeTag::Void
+                        || (tag == TargetTypeTag::Pointer && (nested == 0 || !self.array_record_copyable(nested,0)))
+                        || self.field_total_count >= 256 { return self.reject(child); }
+                    let mut width: u32 = self.scalar_memory_size(tag);let mut align: u32 = width;
+                    if nested != 0 { width=self.struct_sizes[nested as usize-1];align=self.struct_alignments[nested as usize-1]; }
+                    if array {
+                        let count: usize = self.parse_array_element_count(typ.str_offset,typ.str_len);
+                        let mut element: TargetTypeTag = self.parse_array_element_type(typ.str_offset,typ.str_len);
+                        let record: u32 = self.parse_array_element_struct(typ.str_offset,typ.str_len);
+                        let mut stride: u32 = self.scalar_memory_size(element);
+                        align=stride;
+                        if record != 0 {
+                            if !self.array_record_copyable(record,0) { return self.reject(child); }
+                            stride=self.struct_sizes[record as usize-1];
+                            align=self.struct_alignments[record as usize-1];
+                            element=TargetTypeTag::Pointer;
+                        } else if element == TargetTypeTag::Pointer { return self.reject(child); }
+                        let maximum: usize = 4096;
+                        if count == 0 || count > 256 || stride == 0 || count > maximum/(stride as usize)
+                            || element == TargetTypeTag::Invalid || element == TargetTypeTag::Aggregate
+                            || element == TargetTypeTag::Void { return self.reject(child); }
+                        let field: usize = self.field_total_count;
+                        self.field_byte_counts[field]=count as u32;
+                        self.field_array_types[field]=element as u32;
+                        self.field_array_structs[field]=record;
+                        width=(count as u32)*stride;tag=TargetTypeTag::Aggregate;
+                    }
+                    if width == 0 || align == 0 || size > 4096 || width > 4096 { return self.reject(child); }
+                    size=((size+align-1)/align)*align;
+                    let field: usize = self.field_total_count;
+                    self.field_offsets[field]=size;self.field_type_refs[field]=child;
+                    self.field_type_tags[field]=tag as u32;self.field_struct_ids[field]=nested;
+                    if nested != 0 { self.field_type_tags[field]=TargetTypeTag::Aggregate as u32; }
+                    size=size+width;if size > 4096 { return self.reject(child); }
+                    if align > alignment { alignment=align; }
+                    self.field_total_count=field+1;
+                    self.variant_field_counts[variant]=self.variant_field_counts[variant]+1;
+                    child=unsafe{(*(self.nodes+child)).next_sibling};
+                }
                 variant=variant+1;
             }
-            if has_payload {
-                if self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(self.variant_nodes[start]); }
-                let record: usize = self.struct_count;
-                self.enum_record_ids[enumeration]=record as u32+1;
-                self.struct_name_offsets[record]=self.enum_name_offsets[enumeration];
-                self.struct_name_lens[record]=self.enum_name_lens[enumeration];
-                self.struct_field_starts[record]=self.field_total_count as u32;
-                self.field_type_tags[self.field_total_count]=TargetTypeTag::U32 as u32;
-                self.field_total_count=self.field_total_count+1;
-                let mut size: u32 = 4;let mut alignment: u32 = 4;
-                variant=start;
-                while variant < end {
-                    let mut prior: usize = start;
-                    while prior < variant {
-                        if self.variant_values[prior] == self.variant_values[variant] { return self.reject(self.variant_nodes[variant]); }
-                        prior=prior+1;
-                    }
-                    self.variant_field_starts[variant]=self.field_total_count as u32;
-                    let mut child: usize = unsafe{(*(self.nodes+self.variant_nodes[variant])).first_child};
-                    while child != 0 && child < self.node_count && unsafe{(*(self.nodes+child)).kind} == AstKind::TypeRef {
-                        let typ: AstNode = unsafe{*(self.nodes+child)};
-                        let mut tag: TargetTypeTag = self.type_tag_for(child);
-                        let nested: u32 = self.find_struct(typ.str_offset,typ.str_len);
-                        let array: bool = typ.str_len != 0 && unsafe{*(self.source+typ.str_offset)} == 91;
-                        if typ.int_value != 0 || (!array && tag == TargetTypeTag::Invalid) || tag == TargetTypeTag::Void
-                            || (tag == TargetTypeTag::Pointer && (nested == 0 || !self.array_record_copyable(nested,0)))
-                            || self.field_total_count >= 256 { return self.reject(child); }
-                        let mut width: u32 = self.scalar_memory_size(tag);let mut align: u32 = width;
-                        if nested != 0 { width=self.struct_sizes[nested as usize-1];align=self.struct_alignments[nested as usize-1]; }
-                        if array {
-                            let count: usize = self.parse_array_element_count(typ.str_offset,typ.str_len);
-                            let mut element: TargetTypeTag = self.parse_array_element_type(typ.str_offset,typ.str_len);
-                            let record: u32 = self.parse_array_element_struct(typ.str_offset,typ.str_len);
-                            let mut stride: u32 = self.scalar_memory_size(element);
-                            align=stride;
-                            if record != 0 {
-                                if !self.array_record_copyable(record,0) { return self.reject(child); }
-                                stride=self.struct_sizes[record as usize-1];
-                                align=self.struct_alignments[record as usize-1];
-                                element=TargetTypeTag::Pointer;
-                            } else if element == TargetTypeTag::Pointer { return self.reject(child); }
-                            let maximum: usize = 4096;
-                            if count == 0 || count > 256 || stride == 0 || count > maximum/(stride as usize)
-                                || element == TargetTypeTag::Invalid || element == TargetTypeTag::Aggregate
-                                || element == TargetTypeTag::Void { return self.reject(child); }
-                            let field: usize = self.field_total_count;
-                            self.field_byte_counts[field]=count as u32;
-                            self.field_array_types[field]=element as u32;
-                            self.field_array_structs[field]=record;
-                            width=(count as u32)*stride;tag=TargetTypeTag::Aggregate;
-                        }
-                        if width == 0 || align == 0 || size > 4096 || width > 4096 { return self.reject(child); }
-                        size=((size+align-1)/align)*align;
-                        let field: usize = self.field_total_count;
-                        self.field_offsets[field]=size;self.field_type_refs[field]=child;
-                        self.field_type_tags[field]=tag as u32;self.field_struct_ids[field]=nested;
-                        if nested != 0 { self.field_type_tags[field]=TargetTypeTag::Aggregate as u32; }
-                        size=size+width;if size > 4096 { return self.reject(child); }
-                        if align > alignment { alignment=align; }
-                        self.field_total_count=field+1;
-                        self.variant_field_counts[variant]=self.variant_field_counts[variant]+1;
-                        child=unsafe{(*(self.nodes+child)).next_sibling};
-                    }
-                    variant=variant+1;
-                }
-                self.struct_sizes[record]=((size+alignment-1)/alignment)*alignment;
-                self.struct_alignments[record]=alignment;
-                self.struct_field_counts[record]=self.field_total_count as u32-self.struct_field_starts[record];
-                self.struct_count=self.struct_count+1;
-            }
-            enumeration=enumeration+1;
+            self.struct_sizes[record]=((size+alignment-1)/alignment)*alignment;
+            self.struct_alignments[record]=alignment;
+            self.struct_field_counts[record]=self.field_total_count as u32-self.struct_field_starts[record];
+            self.struct_count=self.struct_count+1;
         }
+        return true;
+    }
+
+    pub fn validate_aggregate_layouts(mut self: &mut Self) -> bool {
         // Earlier record layouts cannot silently retain a scalar discriminant
         // after a named enum acquires aggregate storage.
         let mut field: usize = 0;
@@ -9556,151 +9860,8 @@ pub fn lower_scalar_module(
         return lowering.reject(module_index);
     }
 
+    if !lowering.register_aggregate_layouts(module_index) { return false; }
     let mut struct_scan_index: usize = module_node.first_child;
-    while struct_scan_index != 0 {
-        if struct_scan_index >= lowering.node_count {
-            return lowering.reject(struct_scan_index);
-        }
-        let decl_node: AstNode = unsafe { *(lowering.nodes + struct_scan_index) };
-        if decl_node.kind == AstKind::StructDecl {
-            if lowering.struct_count >= 32 { return lowering.reject(struct_scan_index); }
-            let s_id: usize = lowering.struct_count;
-            lowering.struct_name_offsets[s_id] = decl_node.str_offset;
-            lowering.struct_name_lens[s_id] = decl_node.str_len;
-            lowering.struct_field_starts[s_id] = lowering.field_total_count as u32;
-            let mut cur_offset: u32 = 0;
-            let mut struct_alignment: u32 = 1;
-            let mut f_cnt: u32 = 0;
-            let mut f_scan: usize = decl_node.first_child;
-            while f_scan != 0 {
-                if f_scan >= lowering.node_count {
-                    return lowering.reject(f_scan);
-                }
-                let f_node: AstNode = unsafe { *(lowering.nodes + f_scan) };
-                if f_node.kind == AstKind::FieldDecl {
-                    if lowering.field_total_count >= 256 { return lowering.reject(f_scan); }
-                    let f_idx: usize = lowering.field_total_count;
-                    lowering.field_name_offsets[f_idx] = f_node.str_offset;
-                    lowering.field_name_lens[f_idx] = f_node.str_len;
-                    lowering.field_type_refs[f_idx] = f_node.first_child;
-                    lowering.field_offsets[f_idx] = cur_offset;
-                    let mut f_type: TargetTypeTag = TargetTypeTag::U32;
-                    let mut field_struct: u32 = 0;
-                    if f_node.first_child != 0 && f_node.first_child < lowering.node_count {
-                        let field_type: AstNode = unsafe { *(lowering.nodes + f_node.first_child) };
-                        field_struct = lowering.find_struct(field_type.str_offset, field_type.str_len);
-                        f_type = lowering.type_tag_for(f_node.first_child);
-                        if f_type == TargetTypeTag::Invalid {
-                            if field_type.str_len == 0 || unsafe { *(lowering.source + field_type.str_offset) } != 91 {
-                                return lowering.reject(f_scan);
-                            }
-                            f_type = TargetTypeTag::U32;
-                        }
-                    }
-                    lowering.field_type_tags[f_idx] = f_type as u32;
-                    lowering.field_struct_ids[f_idx] = field_struct;
-                    let mut f_sz: u32 = 4;
-                    if f_type == TargetTypeTag::U64 || f_type == TargetTypeTag::I64 || f_type == TargetTypeTag::Pointer || f_type == TargetTypeTag::F64 {
-                        f_sz = 8;
-                    } else if f_type == TargetTypeTag::U16 || f_type == TargetTypeTag::I16 {
-                        f_sz = 2;
-                    } else if f_type == TargetTypeTag::U8 || f_type == TargetTypeTag::I8 || f_type == TargetTypeTag::Bool {
-                        f_sz = 1;
-                    }
-                    let mut f_alignment: u32 = f_sz;
-                    let field_type_node: AstNode = unsafe { *(lowering.nodes + f_node.first_child) };
-                    if field_type_node.str_len != 0 && unsafe { *(lowering.source + field_type_node.str_offset) } == 91 {
-                        let mut element: TargetTypeTag = lowering.parse_array_element_type(
-                            field_type_node.str_offset, field_type_node.str_len);
-                        let count: usize = lowering.parse_array_element_count(
-                            field_type_node.str_offset, field_type_node.str_len);
-                        let record: u32 = lowering.parse_array_element_struct(field_type_node.str_offset,field_type_node.str_len);
-                        let mut stride: u32 = lowering.scalar_memory_size(element);
-                        if record != 0 {
-                            stride = lowering.struct_sizes[record as usize - 1];
-                            let limit: usize = 65536;
-                            if stride == 0 || count == 0 || count > 256 || count > limit/(stride as usize)
-                                || !lowering.array_record_copyable(record,0) { return lowering.reject(f_scan); }
-                            element = TargetTypeTag::Pointer;
-                            lowering.field_array_structs[f_idx] = record;
-                        }
-                        if stride == 0 || element == TargetTypeTag::Aggregate || count == 0 || count > 256 { return lowering.reject(f_scan); }
-                        let maximum: usize = 65536;
-                        if count > maximum/(stride as usize) { return lowering.reject(f_scan); }
-                        lowering.field_byte_counts[f_idx] = count as u32;
-                        lowering.field_array_types[f_idx] = element as u32;
-                        lowering.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
-                        f_sz = count as u32 * stride;
-                        f_alignment = stride;
-                        if record != 0 { f_alignment = lowering.struct_alignments[record as usize - 1]; }
-                    }
-                    if field_struct != 0 {
-                        f_sz = lowering.struct_sizes[field_struct as usize - 1];
-                        f_alignment = lowering.struct_alignments[field_struct as usize - 1];
-                        lowering.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
-                    }
-                    if f_alignment == 0 { return lowering.reject(f_scan); }
-                    if f_alignment > struct_alignment { struct_alignment = f_alignment; }
-                    let layout_limit: u32 = 4294967295;
-                    if cur_offset > layout_limit-(f_alignment-1) { return lowering.reject(f_scan); }
-                    cur_offset = ((cur_offset + f_alignment - 1) / f_alignment) * f_alignment;
-                    lowering.field_offsets[f_idx] = cur_offset;
-                    if f_sz > layout_limit-cur_offset { return lowering.reject(f_scan); }
-                    cur_offset = cur_offset + f_sz;
-                    lowering.field_total_count = lowering.field_total_count + 1;
-                    f_cnt = f_cnt + 1;
-                }
-                f_scan = f_node.next_sibling;
-            }
-            lowering.struct_field_counts[s_id] = f_cnt;
-            let mut cur_size: u32 = 8;
-            if cur_offset > 0 {
-                cur_size = cur_offset;
-            }
-            let layout_limit: u32 = 4294967295;
-            if cur_size > layout_limit-(struct_alignment-1) { return lowering.reject(struct_scan_index); }
-            lowering.struct_sizes[s_id] = ((cur_size + struct_alignment - 1) / struct_alignment) * struct_alignment;
-            lowering.struct_alignments[s_id] = struct_alignment;
-            lowering.struct_count = lowering.struct_count + 1;
-        }
-        if decl_node.kind == AstKind::EnumDecl && lowering.enum_count < 32 {
-            let e_id: usize = lowering.enum_count;
-            lowering.enum_name_offsets[e_id] = decl_node.str_offset;
-            lowering.enum_name_lens[e_id] = decl_node.str_len;
-            lowering.enum_variant_starts[e_id] = lowering.variant_total_count as u32;
-            let mut v_cnt: u32 = 0;let mut next_discriminant:u64=0;
-            let mut v_scan: usize = decl_node.first_child;
-            while v_scan != 0 {
-                if v_scan >= lowering.node_count {
-                    return lowering.reject(v_scan);
-                }
-                let v_node: AstNode = unsafe { *(lowering.nodes + v_scan) };
-                if v_node.kind == AstKind::EnumVariant && lowering.variant_total_count < 256 {
-                    let v_idx: usize = lowering.variant_total_count;
-                    lowering.variant_nodes[v_idx] = v_scan;
-                    lowering.variant_name_offsets[v_idx] = v_node.str_offset;
-                    lowering.variant_name_lens[v_idx] = v_node.str_len;
-                    let mut v_val:u64=next_discriminant;
-                    if v_node.first_child != 0 && v_node.first_child < lowering.node_count
-                        && unsafe{(*(lowering.nodes+v_node.first_child)).kind} != AstKind::TypeRef {
-                        let mut literal_sem:Sema=Sema::new();
-                        if !literal_sem.integer_literal_bits(lowering.nodes,lowering.node_count,v_node.first_child,
-                            lowering.source,lowering.source_len,unsafe{(&mut v_val) as *mut u64}) { return lowering.reject(v_scan); }
-                    }
-                    if v_val > 4294967295 { return lowering.reject(v_scan); }next_discriminant=v_val+1;
-                    lowering.variant_values[v_idx] = v_val;
-                    lowering.variant_total_count = lowering.variant_total_count + 1;
-                    v_cnt = v_cnt + 1;
-                }
-                v_scan = v_node.next_sibling;
-            }
-            lowering.enum_variant_counts[e_id] = v_cnt;
-            lowering.enum_count = lowering.enum_count + 1;
-        }
-        struct_scan_index = decl_node.next_sibling;
-    }
-
-    if !lowering.register_payload_layouts() { return false; }
     if !lowering.register_array_subjects() { return false; }
     if !lowering.register_array_patterns() { return false; }
 

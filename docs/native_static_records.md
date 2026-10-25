@@ -18,6 +18,8 @@ pub fn main_entry()->u32 { unsafe { return config.value as u32; } }
   Boolean and floating-point values and supported module-constant expressions.
 - Nested pointer-free records, scalar array fields and record array fields can
   be initialized recursively from typed literals and exact-count repetition.
+- [Composed payload enums](native_composed_values.md) can also be initialized
+  directly or inside records/arrays, with zero padding and inactive slots.
 - Named fields can be written in any order; every field must appear exactly once.
 - Native code can read fields, mutate explicitly mutable globals, replace their
   values, index array fields and copy supported containers into independent locals.

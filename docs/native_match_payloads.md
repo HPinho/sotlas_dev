@@ -52,11 +52,11 @@ cleanup still require their general runtime implementation; they remain rejected
 
 The existing 32 record layouts, 32 enum tables, 256 total variants/fields,
 128 local slots and 64 match-arm limits apply. A payload enum consumes one private
-record layout. Its complete padded storage must fit within 4096 bytes. Layouts
-with unresolved forward enum dependencies, recursive resource graphs, raw pointers
-or ownership-qualified fields are rejected. Enums embedded in record fields whose
-layout was registered before the enum aggregate are also rejected rather than
-retaining a stale scalar layout. Direct fixed array payloads use inline storage;
+record layout. Its complete padded storage must fit within 4096 bytes.
+[Dependency-ordered layouts](native_composed_values.md) now support forward
+aggregate declarations, enums in record fields and arrays of payload enums.
+By-value cycles, recursive resource graphs, raw pointer payloads and ownership-
+qualified fields remain rejected. Direct fixed array payloads use inline storage;
 slice payloads remain separate work. Internal standalone arrays use the
 [value-array ABI](native_value_array_abi.md); foreign array signatures remain
 unsupported.

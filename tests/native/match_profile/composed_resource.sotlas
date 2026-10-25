@@ -1,0 +1,4 @@
+module composed_resource;
+struct Resource{pub handle:*mut u8;}
+enum Event{Value(Resource),}
+pub fn main_entry()->u32{return 42;}

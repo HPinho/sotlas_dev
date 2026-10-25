@@ -1,0 +1,5 @@
+module composed_nominal;
+enum First{Value(u32),}
+enum Second{Value(u32),}
+fn read(values:[First;2])->u32{return 42;}
+pub fn main_entry()->u32{return read([Second::Value(21);2]);}

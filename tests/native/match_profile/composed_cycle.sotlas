@@ -1,0 +1,4 @@
+module composed_cycle;
+struct Root{pub value:Event;}
+enum Event{Data(Root),}
+pub fn main_entry()->u32{return 42;}

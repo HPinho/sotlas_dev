@@ -2,6 +2,39 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.96 - composed native data models (2026-10-25)
+
+Green starting baseline: bc02a76, as confirmed by the user.
+
+- [x] Resolve finite record/payload-enum/array layout dependencies before code
+  generation, including forward declarations and interleaved dependency chains.
+- [x] Reject by-value cycles, unresolved types, duplicate names and exhausted
+  layout/variant/field budgets before publishing an artifact.
+- [x] Store payload enums inside records and use those enums as bounded array
+  elements; preserve nested copies, assignments, indexing and nominal types.
+- [x] Destructure composed values with nested named/array/variant patterns and
+  preserve guard snapshots, internal value ABI and exclusive/borrow contracts.
+- [x] Serialize direct and nested static payload constructors into native data,
+  including scalar widths, zero padding/inactive slots and zero-valued BSS.
+- [x] Execute a public event pipeline with static settings, heterogeneous input,
+  success/error results, report data, ownership transfer and input replacement.
+- [ ] Resource-bearing payload graphs, automatic ARC/drop, general strings/slices,
+  error propagation and foreign/cross-object semantic aggregate signatures.
+
+[Composed native values](native_composed_values.md) define this package. Explicit
+error enums in the example are ordinary values, not a new exception/unwind ABI.
+The native post-seed compiler remains distinct from full canonical language parity.
+
+Local validation: 382 native match, array/ABI, ownership, runtime and composed-
+value tests pass on each Windows/Linux host, plus 83 shared rebuilt Stage 3 driver
+cases per host. All 31 new composed-value tests also pass through the hosted seed
+route; another 269 focused parser, semantic, numeric, storage, frontend, bootstrap
+and documentation tests pass. Native Stage 2/3 images are identical within each
+host. The exact Windows original-module CI gate passes with calculator, GUI and
+UI-model checks. Both public examples produce byte-identical objects and ELF/PE/
+Mach-O images across hosts; Windows/Linux images run with exit 42 with host tools
+absent from PATH. New GitHub CI and actual Intel macOS execution remain pending.
+
 ## SV8.95 - staged whole-array updates (2026-10-25)
 
 Starting point: main commit 5f0f5a4 (SV8.94 owned array ABI and resource batches).

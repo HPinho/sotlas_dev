@@ -447,6 +447,8 @@ impl Parser {
         while index < limit {
             let node: AstNode = unsafe{*(self.nodes+index)};
             if node.kind == AstKind::PatternArray { needed=true; }
+            if node.kind == AstKind::EnumVariant && node.first_child != 0 && node.first_child < limit
+                && unsafe{(*(self.nodes+node.first_child)).kind} == AstKind::TypeRef { needed=true; }
             // Array assignment elements need contextual scalar/nominal checks,
             // including unselected match branches and unreachable statements.
             if !needed && (node.kind == AstKind::ExprArrayLiteral || node.kind == AstKind::ExprArrayRepeat) {
