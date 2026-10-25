@@ -17,6 +17,7 @@ pub struct Parser {
     pub error_col: u32;
     pub error_expected: TokenKind;
     pub error_actual: TokenKind;
+    pub array_signature_types: bool;
 }
 
 impl Parser {
@@ -37,7 +38,8 @@ impl Parser {
             error_line: 0,
             error_col: 0,
             error_expected: TokenKind::Error,
-            error_actual: TokenKind::Error
+            error_actual: TokenKind::Error,
+            array_signature_types: false
         };
     }
 
@@ -217,6 +219,7 @@ impl Parser {
         }
         if domain != 0 { self.advance(); if self.is_at_end() { self.reject_current(); return 0; } }
         let type_start: Token = self.current();
+        if (context == 2 || context == 3) && type_start.kind == TokenKind::OpenBracket { self.array_signature_types=true; }
         let mut type_end: Token = type_start;
         let mut angle_depth: i64 = 0;
         let mut bracket_depth: i64 = 0;
@@ -437,10 +440,10 @@ impl Parser {
         return mod_node;
     }
 
-    // Element TypeRefs are needed only by array pattern bindings. Keep modules
-    // without these patterns unchanged, including the bootstrap compiler itself.
+    // Array pattern bindings and value-array signatures need element TypeRefs.
+    // Keep modules without either feature unchanged, including the compiler.
     pub fn prepare_array_pattern_types(mut self: &mut Self) -> bool {
-        let limit: usize = self.node_count;let mut index: usize = 1;let mut needed: bool = false;
+        let limit: usize = self.node_count;let mut index: usize = 1;let mut needed: bool = self.array_signature_types;
         while index < limit {
             if unsafe{(*(self.nodes+index)).kind} == AstKind::PatternArray { needed=true; }
             index=index+1;

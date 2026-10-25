@@ -7,6 +7,36 @@
 
 
 
+## SV8.93 - internal by-value array parameters and returns (2026-10-24)
+
+The preceding contextual-array block 51ac7bd passed CI, as confirmed by the user.
+
+- [x] Accept bounded scalar/POD record arrays in internal function parameters and
+  returns; preserve exact shape and nominal element identity.
+- [x] Copy arguments independently in evaluation order and use caller-owned hidden
+  return storage, including recursion, forwarding, void calls and stack arguments.
+- [x] Capture array returns before LIFO cleanup and preserve mutable-parameter
+  isolation, including deferred calls.
+- [x] Initialize locals/fields/payloads from array-returning calls, infer local
+  array types from call signatures and match returned arrays directly.
+- [x] Reject incompatible calls/returns during semantic analysis even in dead
+  code; retain explicit foreign, resource and qualified-array rejection gates.
+- [ ] Foreign/separate-object array signatures, general array inference and
+  reassignment, slices, resource arrays, integrated ARC/drop and full parity.
+
+[Internal value arrays](native_value_array_abi.md) define this completed block.
+It uses the private aggregate ABI within a compilation unit; it does not export
+an interoperable array ABI or certify the remaining sovereignty checklist.
+
+Local validation: 256 native match/array-ABI tests and 67 shared rebuilt Stage 3
+cases pass on each Windows/Linux host. All 15 new ABI tests also pass through
+the hosted bootstrap route. Another 231 focused parser, semantic, frontend,
+bootstrap and documentation tests pass. Native Stage 2/3 images are identical
+within each host. The exact Windows original-module CI gate passes, including
+calculator, GUI and UI-model gates. Public-example objects and ELF/PE/Mach-O
+images match across hosts; Windows/Linux images execute with exit 42. New GitHub
+CI and actual Intel macOS execution remain pending.
+
 ## SV8.92 - contextual array match and conditional results (2026-10-24)
 
 The preceding stored-array subject block ea8df2d passed CI, as confirmed by the user.

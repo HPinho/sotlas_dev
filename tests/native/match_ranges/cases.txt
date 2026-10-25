@@ -59,3 +59,9 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/array_result_shape.sotlas|7|unsupported native form
 ../match_profile/array_result_nominal.sotlas|7|unsupported native form
 ../match_profile/array_result_gap.sotlas|7|non-exhaustive match: cover the domain or add a final wildcard
+../match_profile/array_value_abi.sotlas|42|
+../match_profile/array_abi_ffi_param.sotlas|7|unsupported native form
+../match_profile/array_abi_ffi_return.sotlas|7|unsupported native form
+../match_profile/array_abi_argument_shape.sotlas|6|semantic error
+../match_profile/array_abi_return_shape.sotlas|6|semantic error
+../match_profile/array_abi_resource.sotlas|7|unsupported native form

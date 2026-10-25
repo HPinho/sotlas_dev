@@ -50,3 +50,7 @@ bindings, receiver evaluation and snapshots across guard fallthrough.
 `selected_samples` initializes a typed array from a `match` result and then
 destructures that array. See [contextual array results](../../docs/native_match_array_results.md)
 for conditional expressions, field/payload contexts and cleanup behavior.
+
+`make_samples` returns an array that `sum_samples` accepts by value and matches.
+See the [internal value-array ABI](../../docs/native_value_array_abi.md) for
+independent argument copies, hidden return storage and the foreign ABI exclusion.

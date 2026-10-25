@@ -57,7 +57,9 @@ with unresolved forward enum dependencies, recursive resource graphs, raw pointe
 or ownership-qualified fields are rejected. Enums embedded in record fields whose
 layout was registered before the enum aggregate are also rejected rather than
 retaining a stale scalar layout. Direct fixed array payloads use inline storage;
-slice payloads and standalone array parameter/return ABI remain separate work.
+slice payloads remain separate work. Internal standalone arrays use the
+[value-array ABI](native_value_array_abi.md); foreign array signatures remain
+unsupported.
 
 Nested patterns have a maximum depth of 32. Root and nested `|` alternatives
 and grouping are covered by [the alternative-pattern contract](native_match_alternatives.md).

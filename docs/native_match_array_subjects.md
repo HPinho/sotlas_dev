@@ -57,13 +57,13 @@ storage layout is shared by compatible array types; sparse pattern views remain
 separate. Both use the existing 32 layout and 256 field budgets. Stack, local,
 pattern-depth and 64-row limits remain in force and fail before publication.
 
-This does not add general array parameters/returns, array-valued temporary
-subjects, untyped array-literal subjects, slices, resource elements, ARC or drop
-glue. [Contextual array results](native_match_array_results.md) now allow typed
-locals and declared inline fields/payloads to select arrays before matching them.
-Existing scalar/record result ABIs remain unchanged. Borrowed record fields
-are copied as POD values; no borrowed array escapes through a new array ABI.
-Canonical Stage-0/C11 user-program support remains a separate gate.
+The [internal value-array ABI](native_value_array_abi.md) now permits array
+parameters/returns and direct subjects from array-returning calls. Untyped
+array-literal subjects, slices, resource elements, ARC and drop glue remain
+outside this profile. [Contextual array results](native_match_array_results.md)
+allow typed locals and declared inline fields/payloads to select arrays before
+matching them. Borrowed record fields are copied as POD values. Foreign array
+signatures and canonical Stage-0/C11 parity remain separate gates.
 
 ## Evidence
 

@@ -1,0 +1,3 @@
+module array_abi_argument_shape;
+fn read(values:[u32;2])->u32{return values[0];}
+pub fn main_entry()->u32{return read([42]);}
