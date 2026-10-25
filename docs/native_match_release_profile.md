@@ -18,6 +18,7 @@ new integration gates even after this profile passes CI.
 | Enum results | Same nominal enum in every returning arm and typed destination | Return/argument/inference and mismatch gates |
 | Record results | Pointer-free POD records, including nested fields/arrays; independent storage | Record-copy and nominal-layout gates |
 | Contextual array results | Typed local initializers and declared inline fields/payloads select POD arrays via match/conditionals; independent copies and pre-cleanup tails | Array-result execution, shape, nominal type, ownership and defer gates |
+| Internal array calls | By-value bounded POD parameters/returns, independent copies, recursion, stack arguments and pre-defer return capture | Array ABI suite and rebuilt Stage 3 fixtures |
 | Value blocks | Locals, supported statements, tail values and enclosing function returns | Block scope and early-return gates |
 | Defer | Tail captured before LIFO cleanup; enclosing cleanup on early return | Deferred mutation and trace gates |
 | Payload enums | Private tagged layout; scalar, POD record and inline scalar/record array fields; constructors, internal parameters/returns and match results | Payload construction, ABI, copy, array and nested enum tests |
@@ -40,9 +41,10 @@ new integration gates even after this profile passes CI.
   release profile are complete; resource payload/runtime integration is next.
 - Shared/resource match values require integrated ARC/drop generation. Exclusive
   POD moves and arm joins are implemented; they do not establish general ARC.
-- Standalone fixed arrays support [subject matching](native_match_array_subjects.md).
-  General array parameters/returns, slices, pointer provenance and resource-bearing
-  aggregates still need their corresponding native value/ABI contracts.
+- Standalone fixed arrays support [subject matching](native_match_array_subjects.md)
+  and [internal by-value parameters/returns](native_value_array_abi.md).
+  Foreign/separate-object array signatures, slices, pointer provenance and
+  resource-bearing aggregates still need their corresponding contracts.
 - Canonical Stage-0/C11 parity is a separate gate from native execution.
 - Intel macOS execution and release-platform certification require their actual
   runners; cross-host Mach-O generation alone is insufficient.

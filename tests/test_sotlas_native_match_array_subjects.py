@@ -162,8 +162,8 @@ return unsafe{match values{[a,b]=>a+b}};}''')
 
     def test_general_array_abi_and_resource_subjects_remain_rejected(self):
         cases=(
-            'fn read(v:[u32;2])->u32{return match v{[a,b]=>a+b};}pub fn main_entry()->u32{return 42;}',
-            'fn make()->[u32;2]{let a:[u32;2]=[20,22];return a;}pub fn main_entry()->u32{return 42;}',
+            '@extern(C) fn read(v:[u32;2])->u32;pub fn main_entry()->u32{return 42;}',
+            '@extern(C) fn make()->[u32;2];pub fn main_entry()->u32{return 42;}',
             'pub fn main_entry()->u32{let p:[*mut u8;2]=0;return match p{[..]=>42};}',
             'struct R{pub p:*mut u8;}pub fn main_entry()->u32{let a:[R;2]=[R{p:null};2];return match a{[..]=>42};}',
             'pub fn main_entry()->u32{let a:[u32;257]=[0;257];return match a{[..]=>42};}',

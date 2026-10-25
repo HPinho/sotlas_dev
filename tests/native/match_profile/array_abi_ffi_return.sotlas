@@ -1,0 +1,3 @@
+module array_abi_ffi_return;
+@extern(C) fn foreign_make()->[u32;2];
+pub fn main_entry()->u32{return 42;}

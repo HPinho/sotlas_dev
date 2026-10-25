@@ -56,11 +56,12 @@ resource-owning containers or add automatic destruction.
 - Incompatible counts, element types, record identities and invalid arms are
   rejected even when a condition is a known literal. Matches remain exhaustive;
   conditions/guards remain Boolean under their existing native rules.
-- A typed local or declared inline field/payload provides context. General
-  inferred array expressions, standalone array parameters/returns, direct array
-  reassignment, slices and resource elements remain separate work. Array-valued
-  temporary subjects retain the stored-subject profile instead of gaining a
-  general value ABI through this change.
+- A typed local or declared inline field/payload provides context. Internal
+  parameters/returns now supply context through the
+  [value-array ABI](native_value_array_abi.md), including direct returned-array
+  subjects and local inference from call signatures. General inferred array
+  expressions, direct reassignment, slices and resource elements remain separate
+  work. Foreign and independently compiled array signatures remain unsupported.
 - Canonical Stage-0/C11 user-program support, ARC/drop and broader Flow/ownership
   migration are not certified by this native block.
 

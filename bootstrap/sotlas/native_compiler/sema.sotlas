@@ -2478,6 +2478,22 @@ impl Sema {
         if parent == 0 || parent >= count { return 0; }
         let node: AstNode = unsafe{*(nodes+parent)};
         if node.kind == AstKind::LetStmt { return self.binding_type_ref(nodes,count,parent); }
+        if node.kind == AstKind::ReturnStmt {
+            let mut function: usize = node.parent;
+            while function != 0 && function < count {
+                let declaration: AstNode = unsafe{*(nodes+function)};
+                if declaration.kind == AstKind::FnDecl || declaration.kind == AstKind::TrapfnDecl {
+                    let mut child: usize = declaration.first_child;
+                    while child != 0 && child < count {
+                        if unsafe{(*(nodes+child)).kind} == AstKind::TypeRef { return child; }
+                        child=unsafe{(*(nodes+child)).next_sibling};
+                    }
+                    return 0;
+                }
+                function=declaration.parent;
+            }
+            return 0;
+        }
         if node.kind == AstKind::StructFieldInit {
             let declaration: usize = self.find_module_struct(nodes,count,node.parent,source,length);
             let field: usize = self.find_struct_field_for_init(nodes,count,declaration,parent,source,length);
@@ -2498,7 +2514,21 @@ impl Sema {
         }
         if node.kind == AstKind::ExprCall && node.first_child != 0 && node.first_child < count {
             let variant: usize = self.enum_variant_path(nodes,count,node.first_child,source,length);
-            if variant == 0 { return 0; }
+            if variant == 0 {
+                let function: usize = self.ownership_called_function(nodes,count,parent,source,length);
+                if function == 0 { return 0; }
+                let mut parameter: usize = unsafe{(*(nodes+function)).first_child};
+                let mut argument: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
+                if unsafe{(*(nodes+node.first_child)).kind} == AstKind::ExprFieldAccess && parameter != 0 {
+                    parameter=unsafe{(*(nodes+parameter)).next_sibling};
+                }
+                while parameter != 0 && parameter < count && argument != 0 && argument < count {
+                    if unsafe{(*(nodes+parameter)).kind} != AstKind::ParamDecl { return 0; }
+                    if argument == index { return self.binding_type_ref(nodes,count,parameter); }
+                    parameter=unsafe{(*(nodes+parameter)).next_sibling};argument=unsafe{(*(nodes+argument)).next_sibling};
+                }
+                return 0;
+            }
             let mut field: usize = unsafe{(*(nodes+variant)).first_child};
             let mut argument: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
             while field != 0 && field < count && argument != 0 && argument < count {
@@ -2529,13 +2559,16 @@ impl Sema {
         let init_index: usize = repeat.parent;
         let init: AstNode = unsafe { *(nodes + init_index) };
         if init.kind == AstKind::MatchYield || init.kind == AstKind::MatchArm
-            || init.kind == AstKind::ExprConditional || init.kind == AstKind::UnsafeExpr {
+            || init.kind == AstKind::ExprConditional || init.kind == AstKind::UnsafeExpr
+            || init.kind == AstKind::ReturnStmt {
             let expected: usize = self.array_value_context(nodes,node_count,repeat_index,source,source_len,0);
             if expected == 0 || !self.fixed_array_type_matches_repeat(nodes,node_count,expected,repeat_index,
                 source,source_len,false) { return self.reject_node(repeat); }
             return true;
         }
         if init.kind == AstKind::ExprCall && init.first_child != 0 && init.first_child < node_count {
+            let expected: usize = self.array_value_context(nodes,node_count,repeat_index,source,source_len,0);
+            if expected != 0 && self.fixed_array_type_matches_repeat(nodes,node_count,expected,repeat_index,source,source_len,false) { return true; }
             let variant: usize = self.enum_variant_path(nodes,node_count,init.first_child,source,source_len);
             if variant == 0 { return self.reject_node(repeat); }
             let mut field: usize = unsafe{(*(nodes+variant)).first_child};
@@ -2697,7 +2730,7 @@ impl Sema {
                     return false;
                 }
             } else if value.kind == AstKind::ExprArrayLiteral
-                || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional)
+                || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional || value.kind == AstKind::ExprCall)
                     && unsafe{(*(nodes+type_index)).str_len} != 0
                     && unsafe{*(source+(*(nodes+type_index)).str_offset)} == 91) {
                 if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len)
@@ -3435,6 +3468,64 @@ impl Sema {
         return 0;
     }
 
+    // Check array shapes even in unreachable code. Element TypeRefs are supplied
+    // by the parser for value-array signatures; lowering repeats these checks.
+    pub fn array_value_fits(self: &Self, nodes: *const AstNode, count: usize,
+        typ: usize, index: usize, source: *const u8, length: usize, depth: usize) -> bool {
+        if typ == 0 || typ >= count || index == 0 || index >= count || depth >= 64 { return false; }
+        let expected: AstNode = unsafe{*(nodes+typ)};let value: AstNode = unsafe{*(nodes+index)};
+        if value.kind == AstKind::UnsafeExpr { return self.array_value_fits(nodes,count,typ,value.first_child,source,length,depth+1); }
+        if value.kind == AstKind::ExprConditional {
+            let condition: usize = value.first_child;
+            if condition == 0 || condition >= count { return false; }
+            let yes: usize = unsafe{(*(nodes+condition)).next_sibling};
+            if yes == 0 || yes >= count { return false; }
+            let no: usize = unsafe{(*(nodes+yes)).next_sibling};
+            return self.array_value_fits(nodes,count,typ,yes,source,length,depth+1)
+                && self.array_value_fits(nodes,count,typ,no,source,length,depth+1);
+        }
+        if value.kind == AstKind::ExprMatch {
+            if value.first_child == 0 || value.first_child >= count { return false; }
+            let mut arm: usize = unsafe{(*(nodes+value.first_child)).next_sibling};
+            while arm != 0 && arm < count {
+                let pattern: usize = unsafe{(*(nodes+arm)).first_child};
+                if pattern == 0 || pattern >= count { return false; }
+                if !self.array_value_fits(nodes,count,typ,unsafe{(*(nodes+pattern)).next_sibling},source,length,depth+1) { return false; }
+                arm=unsafe{(*(nodes+arm)).next_sibling};
+            }
+            return arm == 0;
+        }
+        if value.kind == AstKind::MatchValueBlock {
+            let tail: usize = self.match_block_tail(nodes,count,index);
+            if tail == 0 { return self.block_returns_value(nodes,count,index); }
+            return self.array_value_fits(nodes,count,typ,tail,source,length,depth+1);
+        }
+        let size: usize = native_fixed_array_count(unsafe{source+expected.str_offset},expected.str_len);
+        if value.kind == AstKind::ExprArrayLiteral || value.kind == AstKind::ExprArrayRepeat {
+            if expected.first_child == 0 || expected.first_child >= count { return false; }
+            let element: AstNode = unsafe{*(nodes+expected.first_child)};
+            let mut child: usize = value.first_child;let mut elements: usize = 0;
+            if value.kind == AstKind::ExprArrayRepeat && !self.fixed_array_type_matches_repeat(nodes,count,typ,index,source,length,false) { return false; }
+            while child != 0 && child < count {
+                if !self.contextual_integer_expression_fits(nodes,count,expected.first_child,child,source,length) { return false; }
+                let actual: usize = self.infer_expression_type_ref(nodes,count,child,source,length);
+                if actual != 0 && !self.same_source_text(source,length,element,unsafe{*(nodes+actual)}) { return false; }
+                elements=elements+1;
+                if value.kind == AstKind::ExprArrayRepeat { return true; }
+                child=unsafe{(*(nodes+child)).next_sibling};
+            }
+            return child == 0 && elements == size;
+        }
+        let actual: usize = self.infer_expression_type_ref(nodes,count,index,source,length);
+        if actual == 0 || actual >= count { return false; }
+        let found: AstNode = unsafe{*(nodes+actual)};
+        if native_fixed_array_count(unsafe{source+found.str_offset},found.str_len) != size { return false; }
+        // indexed_element_matches compares the declared element with a TypeRef,
+        // preserving nominal names while ignoring array spelling whitespace.
+        return expected.first_child != 0
+            && self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)});
+    }
+
     pub fn check_call_argument_types(
         mut self: &mut Self,
         nodes: *const AstNode,
@@ -3477,6 +3568,13 @@ impl Sema {
                 let expected_type: usize = self.binding_type_ref(
                     nodes, node_count, parameter_index
                 );
+                // Check shape and nominal elements before lowering, including
+                // dead calls. The native ABI creates an independent value copy.
+                if expected_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+expected_type)},source,source_len)
+                    || self.ownership_record_array(nodes,node_count,expected_type,source,source_len,0)) {
+                    if !self.array_value_fits(nodes,node_count,expected_type,argument_index,source,source_len,0) { return self.reject_node(argument); }
+                    parameter_index=parameter.next_sibling;argument_index=argument.next_sibling;continue;
+                }
                 if expected_type != 0
                     && !self.contextual_integer_expression_fits(
                         nodes, node_count, expected_type, argument_index, source, source_len
@@ -3603,6 +3701,12 @@ impl Sema {
             return true;
         }
         let expected_result: AstNode = unsafe { *(nodes + expected_type) };
+        if self.ownership_pod_array(expected_result,source,source_len)
+            || self.ownership_record_array(nodes,node_count,expected_type,source,source_len,0) {
+            if expression_index == 0 { return self.reject_node(return_node); }
+            if !self.array_value_fits(nodes,node_count,expected_type,expression_index,source,source_len,0) { return self.reject_node(unsafe{*(nodes+expression_index)}); }
+            return true;
+        }
         if self.source_slice_equals(source, source_len, expected_result.str_offset,
             expected_result.str_len, "void", 4) {
             if expression_index == 0 { return true; }

@@ -1,0 +1,11 @@
+module array_value_abi;
+fn make()->[u32;2]{return [20,22];}
+fn copy(mut values:[u32;2])->[u32;2]{defer{values[0]=0;}return values;}
+fn sum(values:[u32;2])->u32{return match values{[a,b]=>a+b};}
+pub fn main_entry()->u32{
+    let original=make();
+    let selected:[u32;2]=copy(original);
+    if original[0]!=20{return 1;}
+    if match make(){[a,b]=>a+b}!=42{return 2;}
+    return sum(selected);
+}

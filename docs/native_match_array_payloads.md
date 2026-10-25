@@ -56,8 +56,9 @@ before fallthrough. Returns capture their value before LIFO deferred cleanup.
 These operations do not implement automatic destruction of resource graphs.
 Pointer/resource array elements, ownership-qualified payload fields, shared ARC,
 weak invalidation and general resource drop glue remain rejected. Owned temporary
-expressions as match subjects retain their existing rejection. Standalone array
-parameters/returns and slices keep their separate ABI and language contracts.
+expressions as match subjects retain their existing rejection. Internal standalone
+array parameters/returns now use the [value-array ABI](native_value_array_abi.md).
+Slices and foreign array signatures remain outside that contract.
 
 ## Evidence
 
