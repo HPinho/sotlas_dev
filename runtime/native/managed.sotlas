@@ -824,7 +824,7 @@ pub fn native_managed_scope_rewind(
     scope: *mut NativeManagedScope, mark: usize
 ) -> bool {
     if !native_managed_scope_valid(scope)
-        || !native_managed_scope_entries_distinct(scope) { return false; }
+        || !native_managed_scope_claims_valid(scope) { return false; }
     unsafe {
         if mark > scope.used { return false; }
         let mut index: usize = mark;
@@ -967,4 +967,88 @@ pub fn native_managed_scope_take_into(
     if native_managed_scope_push(scope,destination) { return true; }
     let restored: bool = native_managed_bytes_take(destination,source);
     return false;
+}
+
+// Validate every registered claim before a batch changes reference counts.
+// Distinct handles sharing one control block must agree on the payload and
+// cannot collectively claim more strong references than that block contains.
+// Stable, valid, disjoint caller-owned storage and single-threaded access remain
+// required; these guards do not make arbitrary forged pointers safe to dereference.
+pub fn native_managed_scope_claims_valid(scope: *const NativeManagedScope) -> bool {
+    if !native_managed_scope_entries_distinct(scope) { return false; }
+    unsafe {
+        let mut index: usize = 0;
+        while index < scope.used {
+            let current: *const NativeManagedBytes = (*(scope.entries+index)) as *const NativeManagedBytes;
+            if !native_managed_bytes_current(current) { return false; }
+            let mut claims: u64 = 0;
+            let mut other: usize = 0;
+            while other < scope.used {
+                let entry: *const NativeManagedBytes = (*(scope.entries+other)) as *const NativeManagedBytes;
+                if !native_managed_bytes_current(entry) { return false; }
+                if entry.control == current.control {
+                    if entry.bytes != current.bytes || entry.length != current.length
+                        || entry.generation != current.generation { return false; }
+                    claims=claims+1;
+                }
+                other=other+1;
+            }
+            let control: *const NativeRefHeader = current.control as *const NativeRefHeader;
+            if claims > control.strong { return false; }
+            index=index+1;
+        }
+    }
+    return true;
+}
+
+// Move a complete lexical suffix to another scope without retain/release.
+// Both tables and their combined claims are checked before the first write.
+// Appending in registration order preserves reverse-order cleanup at destination.
+// Failure leaves tables, handle slots, refcounts and payload bytes untouched.
+pub fn native_managed_scope_transfer_suffix(
+    mut source: *mut NativeManagedScope, mut destination: *mut NativeManagedScope, mark: usize
+) -> bool {
+    if source == destination || !native_managed_scope_tables_disjoint(source,destination)
+        || !native_managed_scope_claims_valid(source)
+        || !native_managed_scope_claims_valid(destination) { return false; }
+    unsafe {
+        if mark > source.used || source.used-mark > destination.capacity-destination.used { return false; }
+        let mut left: usize = 0;
+        while left < source.used {
+            let slot: usize = *(source.entries+left);
+            let resource: *const NativeManagedBytes = slot as *const NativeManagedBytes;
+            let mut claims: u64 = 0;
+            let mut right: usize = 0;
+            while right < source.used {
+                let entry: *const NativeManagedBytes = (*(source.entries+right)) as *const NativeManagedBytes;
+                if entry.control == resource.control { claims=claims+1; }
+                right=right+1;
+            }
+            right=0;
+            while right < destination.used {
+                let address: usize = *(destination.entries+right);
+                if address == slot { return false; }
+                let entry: *const NativeManagedBytes = address as *const NativeManagedBytes;
+                if entry.control == resource.control {
+                    if entry.bytes != resource.bytes || entry.length != resource.length
+                        || entry.generation != resource.generation { return false; }
+                    claims=claims+1;
+                }
+                right=right+1;
+            }
+            let control: *const NativeRefHeader = resource.control as *const NativeRefHeader;
+            if claims > control.strong { return false; }
+            left=left+1;
+        }
+        let mut index: usize = mark;
+        let mut output: usize = destination.used;
+        while index < source.used {
+            *(destination.entries+output)=*(source.entries+index);
+            *(source.entries+index)=0;
+            output=output+1;index=index+1;
+        }
+        destination.used=output;
+        source.used=mark;
+    }
+    return true;
 }

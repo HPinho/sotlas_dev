@@ -35,6 +35,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Array subjects (SV8.91) | Match stored arrays directly, snapshot all elements before guards, capture whole arrays independently and match extracted captures again |
 | Array results (SV8.92) | Select bounded POD arrays into typed locals or declared inline fields/payloads; preserve independent copies, branch evaluation and pre-defer result capture |
 | Internal array ABI (SV8.93) | Pass and return bounded POD arrays by value, with independent parameter copies, recursion, stack arguments, pre-defer returns and direct returned-array match subjects; foreign/separate-object signatures remain unsupported |
+| Owned array ABI and resource batches (SV8.94) | Transfer exclusive POD arrays, forward no-escape borrows and reserve deferred observers; preflight collective resource claims and transfer lexical suffixes without refcount changes |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

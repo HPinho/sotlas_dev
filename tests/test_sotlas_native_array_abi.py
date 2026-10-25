@@ -107,7 +107,7 @@ fn read(a:[A;2])->u32{return 42;}pub fn main_entry()->u32{return read([B{n:21};2
             '@extern(C) fn make()->[u32;2];pub fn main_entry()->u32{return 42;}',
             'fn read(a:[*mut u8;2])->u32{return 42;}pub fn main_entry()->u32{return 42;}',
             'fn read(a:[u32;257])->u32{return 42;}pub fn main_entry()->u32{return 42;}',
-            'fn read(a:sole [u32;2])->u32{return 42;}pub fn main_entry()->u32{return 42;}',
+            'fn read(a:shared [u32;2])->u32{return 42;}pub fn main_entry()->u32{return 42;}',
         )
         for index,source in enumerate(cases):
             with self.subTest(index=index):

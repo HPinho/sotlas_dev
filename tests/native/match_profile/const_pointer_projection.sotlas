@@ -1,0 +1,8 @@
+module const_pointer_projection;
+struct Cell{pub value:u32;}
+pub fn main_entry()->u32{
+    let mut cell:Cell=Cell{value:42};
+    let mut pointer:*const Cell=unsafe{(&mut cell) as *const Cell};
+    unsafe{pointer.value=0;}
+    return cell.value;
+}

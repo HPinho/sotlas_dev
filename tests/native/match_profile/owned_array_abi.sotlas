@@ -1,0 +1,14 @@
+module owned_array_abi;
+static mut observed:u32=0;
+struct Item{pub value:u32;pub bytes:[u8;2];}
+fn observe(a:whisper [u32;2])->void{unsafe{observed=a[0]+a[1];}return;}
+fn work()->u32{let a:sole [u32;2]=[20,22];defer observe(a);return a[0]+a[1];}
+fn forward(a:direct [Item;2])->u32{return a[0].value+a[1].value;}
+fn move(a:sole [Item;2])->sole [Item;2]{return a;}
+pub fn main_entry()->u32{
+    if work()!=42 || unsafe{observed}!=42{return 1;}
+    let a:sole [Item;2]=[Item{value:20,bytes:[7;2]},Item{value:22,bytes:[9;2]}];
+    if forward(a)!=42{return 2;}
+    let b:sole [Item;2]=move(a);
+    return match b{[Item{value:x,..},Item{value:y,..}]=>x+y};
+}

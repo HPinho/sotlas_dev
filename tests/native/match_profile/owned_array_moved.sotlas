@@ -1,0 +1,7 @@
+module owned_array_moved;
+fn consume(a:sole [u32;2])->u32{return a[0]+a[1];}
+pub fn main_entry()->u32{
+    let a:sole [u32;2]=[20,22];
+    let n:u32=consume(a);
+    return a[0]+n;
+}
