@@ -35,8 +35,9 @@ new integration gates even after this profile passes CI.
 - Resource-bearing enum fields require the broader runtime/drop contract.
   Payload fields currently support scalars, pointer-free POD records and bounded
   inline arrays. See [the array payload contract](native_match_array_payloads.md).
-- Forward aggregate layout dependencies and enums embedded in earlier record
-  layouts remain explicitly rejected.
+- Forward aggregate dependencies, enums in record fields and arrays of payload
+  enums now follow the [composed-value contract](native_composed_values.md).
+  By-value cycles and resource-bearing payloads remain rejected.
 - Named fields and floats are implemented under
   [their native contract](native_match_named_float.md). Pattern forms in this
   release profile are complete; resource payload/runtime integration is next.

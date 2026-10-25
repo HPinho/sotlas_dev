@@ -74,3 +74,10 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/array_assignment_shape.sotlas|6|semantic error
 ../match_profile/array_assignment_bool.sotlas|6|semantic error
 ../match_profile/array_assignment_live_owner.sotlas|6|semantic error
+../match_profile/composed_values.sotlas|42|
+../match_profile/composed_static.sotlas|42|
+../../../examples/native_event_pipeline/main.sotlas|42|
+../match_profile/composed_cycle.sotlas|7|unsupported native form
+../match_profile/composed_nominal.sotlas|6|semantic error
+../match_profile/composed_static_call.sotlas|7|unsupported native form
+../match_profile/composed_resource.sotlas|7|unsupported native form

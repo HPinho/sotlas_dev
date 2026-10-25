@@ -1,0 +1,5 @@
+module composed_static_call;
+enum Event{Value(u32),}
+fn make()->Event{return Event::Value(42);}
+static startup:Event=make();
+pub fn main_entry()->u32{return 42;}

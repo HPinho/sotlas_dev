@@ -144,10 +144,10 @@ pub fn main_entry()->u32{let v:V=V::Some(42);return match v{'''+expression+'''};
         self.compile('payload_unknown', '''enum V{Some(u32)}
 pub fn main_entry()->u32{let v:V=V::Some(42);return match v{V::Missing(n)=>n};}''', False)
 
-    def test_unsupported_forward_layouts_fail_closed(self):
-        for declarations in ('enum Outer{Wrap(Inner)}enum Inner{Some(u32)}',
-                             'enum V{Some(u32)}struct Box{pub value:V;}',
-                             'enum V{Some(u32)}struct Box{pub value:[V;2];}'):
+    def test_recursive_and_resource_layouts_fail_closed(self):
+        for declarations in ('enum Outer{Wrap(Inner)}enum Inner{Some(Outer)}',
+                             'enum V{Some(Box)}struct Box{pub value:V;}',
+                             'enum V{Some(*mut u8)}struct Box{pub value:[V;2];}'):
             with self.subTest(declarations=declarations):
                 self.compile('payload_layout_'+str(len(declarations)), declarations+
                              'pub fn main_entry()->u32{return 42;}', False)

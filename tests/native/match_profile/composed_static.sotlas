@@ -1,0 +1,7 @@
+module composed_static;
+struct Config{pub events:[Event;2];}
+enum Event{None,Value(u32),}
+static startup:Config=Config{events:[Event::Value(21);2]};
+pub fn main_entry()->u32{
+    return match startup{Config{events:[Event::Value(a),Event::Value(b)]}=>a+b,_=>0};
+}

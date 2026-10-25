@@ -39,6 +39,8 @@ Arrays contain 1–256 Boolean, integer, F32/F64 or pointer-free POD record elem
 and occupy at most 4096 bytes. Existing layout, field, local, frame, CFG, nesting
 and match-row limits still apply. Copies preserve the semantic fields of nested
 POD records; they do not implement resource ownership or automatic destruction.
+Pointer-free [payload enum elements](native_composed_values.md) and records
+containing them now use the same bounded internal array ABI.
 
 This contract applies to internal calls whose signatures and bodies are available
 in one compilation unit. Foreign/bodyless array signatures are explicitly

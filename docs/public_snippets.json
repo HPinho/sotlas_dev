@@ -285,6 +285,13 @@
       "status": "EXPERIMENTAL",
       "source": "tests/native/match_profile/array_assignment.sotlas",
       "verification": "tests/test_sotlas_native_array_assignment.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-composed-data-values",
+      "document": "docs/native_composed_values.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_event_pipeline/main.sotlas",
+      "verification": "tests/test_sotlas_native_composed_values.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

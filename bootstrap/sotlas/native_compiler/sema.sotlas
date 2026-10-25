@@ -284,7 +284,7 @@ impl Sema {
         let mut index: usize = 1;
         while index < node_count {
             let declaration: AstNode = unsafe{*(nodes+index)};
-            if declaration.kind == AstKind::StructDecl
+            if (declaration.kind == AstKind::StructDecl || declaration.kind == AstKind::EnumDecl)
                 && self.source_slices_equal(source,source_len,start,finish-start,
                     declaration.str_offset,declaration.str_len) {
                 return self.ownership_pod_type(nodes,node_count,index,source,source_len,depth+1);
@@ -3018,8 +3018,10 @@ impl Sema {
             );
             type_index=self.binding_type_ref(nodes,node_count,binding_index);
             if type_index == 0 { type_index=self.payload_binding_type(nodes,node_count,binding_index,source,source_len); }
-        } else if receiver.kind == AstKind::ExprCall || receiver.kind == AstKind::ExprFieldAccess {
-            type_index=self.infer_expression_type_ref(nodes,node_count,receiver_index,source,source_len);
+        } else if receiver.kind == AstKind::ExprCall || receiver.kind == AstKind::ExprFieldAccess
+            || (receiver.kind == AstKind::ExprIndex && (unsafe{(*(nodes+binding_receiver)).kind} == AstKind::ExprFieldAccess
+                || unsafe{(*(nodes+binding_receiver)).kind} == AstKind::ExprCall)) {
+            type_index=self.infer_expression_type_ref(nodes,node_count,binding_receiver,source,source_len);
         } else { return 0; }
         if type_index == 0 {
             return 0;

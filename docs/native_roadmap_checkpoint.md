@@ -37,6 +37,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Internal array ABI (SV8.93) | Pass and return bounded POD arrays by value, with independent parameter copies, recursion, stack arguments, pre-defer returns and direct returned-array match subjects; foreign/separate-object signatures remain unsupported |
 | Owned array ABI and resource batches (SV8.94) | Transfer exclusive POD arrays, forward no-escape borrows and reserve deferred observers; preflight collective resource claims and transfer lexical suffixes without refcount changes |
 | Whole-array updates (SV8.95) | Replace bounded mutable arrays/fields/globals from stored, literal, call and contextual values; stage before publication and reinitialize definitely moved exclusive arrays |
+| Composed data models (SV8.96) | Resolve finite mixed record/enum/array dependencies, pass and match those values, retain POD ownership checks and serialize nested tagged static data; execute the event-pipeline example |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

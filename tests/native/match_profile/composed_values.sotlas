@@ -1,0 +1,15 @@
+module composed_values;
+struct Envelope{pub payload:Payload;pub tail:u8;}
+enum Payload{Missing,Data([Leaf;2]),}
+struct Leaf{pub value:Value;}
+enum Value{None,Number(u32),}
+fn pass(value:sole Envelope)->sole Envelope{return value;}
+pub fn main_entry()->u32{
+    let source:sole Envelope=Envelope{payload:Payload::Data([
+        Leaf{value:Value::Number(20)},Leaf{value:Value::Number(22)}]),tail:7};
+    let result:sole Envelope=pass(source);
+    return match result{
+        Envelope{payload:Payload::Data([Leaf{value:Value::Number(a)},Leaf{value:Value::Number(b)}]),tail:7}=>a+b,
+        _=>0
+    };
+}
