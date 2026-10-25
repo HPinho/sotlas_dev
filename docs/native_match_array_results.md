@@ -60,8 +60,9 @@ resource-owning containers or add automatic destruction.
   parameters/returns now supply context through the
   [value-array ABI](native_value_array_abi.md), including direct returned-array
   subjects and local inference from call signatures. General inferred array
-  expressions, direct reassignment, slices and resource elements remain separate
-  work. Foreign and independently compiled array signatures remain unsupported.
+  expressions, slices and resource elements remain separate work. Bounded mutable
+  storage now supports [whole-array assignment](native_array_assignment.md).
+  Foreign and independently compiled array signatures remain unsupported.
 - Canonical Stage-0/C11 user-program support, ARC/drop and broader Flow/ownership
   migration are not certified by this native block.
 

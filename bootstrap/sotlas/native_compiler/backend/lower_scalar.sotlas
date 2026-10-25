@@ -2550,6 +2550,34 @@ impl ScalarLowering {
         return true;
     }
 
+    // Evaluate the destination once, then stage the complete right-hand value.
+    // Only publish the copy after value-block cleanup/early returns complete.
+    pub fn lower_array_assignment(mut self: &mut Self, statement: usize,
+        first_parameter: usize, parameter_count: usize) -> bool {
+        let node: AstNode = unsafe{*(self.nodes+statement)};
+        let left: usize = node.first_child;
+        if left == 0 || left >= self.node_count { return false; }
+        let source: usize = unsafe{(*(self.nodes+left)).next_sibling};
+        if source == 0 || source >= self.node_count { return false; }
+        let typ: usize = self.array_subject_type(left);
+        let layout: u32 = self.array_subject_record(typ);
+        if layout == 0 { return false; }
+        let target_node: AstNode = unsafe{*(self.nodes+left)};
+        if target_node.kind == AstKind::ExprIdent
+            && self.cfg_find_local(target_node.str_offset,target_node.str_len) >= self.local_count {
+            let sem: Sema = Sema::new();
+            let binding: usize = sem.find_visible_binding(self.nodes,self.node_count,left,self.source,self.source_len);
+            if binding == 0 || binding >= self.node_count || unsafe{(*(self.nodes+binding)).int_value} != 1 { return false; }
+        }
+        let destination: u32 = self.array_subject_address(left,first_parameter,parameter_count,0);
+        let staged: u32 = self.allocate_struct(layout,statement);
+        let field: usize = self.struct_field_starts[layout as usize-1] as usize;
+        if destination == 0 || staged == 0 || !self.initialize_array_value(staged,field,source,
+            first_parameter,parameter_count,0) { return false; }
+        if self.cfg_current == 0 { return true; }
+        return self.cfg_copy_fields(destination,staged,layout,0,0,statement,0);
+    }
+
     pub fn lower_field_assignment(
         mut self: &mut Self,
         statement_index: usize,
@@ -2587,10 +2615,7 @@ impl ScalarLowering {
         let field_slot: usize = (field_id - 1) as usize;
         let field_type: TargetTypeTag = self.field_type_tags[field_slot] as TargetTypeTag;
         if self.structured_cfg && self.field_byte_counts[field_slot] != 0 {
-            if self.field_array_structs[field_slot] != 0 {
-                return self.initialize_record_array_field(base_ptr,field_slot,value_index,first_parameter,parameter_count);
-            }
-            return self.copy_array_into_field(base_ptr,field_slot,value_index,first_parameter,parameter_count);
+            return self.lower_array_assignment(statement_index,first_parameter,parameter_count);
         }
         if self.structured_cfg && self.field_struct_ids[field_slot] != 0 {
             let nested_struct: u32 = self.field_struct_ids[field_slot];
@@ -6946,6 +6971,10 @@ impl ScalarLowering {
             let left_index: usize = stmt.first_child;
             if left_index == 0 || left_index >= self.node_count { return self.reject(index); }
             let left: AstNode = unsafe { *(self.nodes + left_index) };
+            if (left.kind == AstKind::ExprIdent || left.kind == AstKind::ExprFieldAccess)
+                && self.array_subject_type(left_index) != 0 {
+                return self.lower_array_assignment(index,first_parameter,parameter_count);
+            }
             if left.kind == AstKind::ExprUnary && left.int_value == 82 {
                 return self.lower_pointer_deref_store(index, first_parameter, parameter_count);
             }
@@ -7616,6 +7645,12 @@ impl ScalarLowering {
             }
             if node.kind == AstKind::MatchStmt || node.kind == AstKind::ExprMatch {
                 contexts[0]=self.array_subject_type(node.first_child);
+            }
+            if node.kind == AstKind::AssignStmt && node.first_child != 0 {
+                let target_node: AstNode = unsafe{*(self.nodes+node.first_child)};
+                if target_node.kind == AstKind::ExprIdent || target_node.kind == AstKind::ExprFieldAccess {
+                    contexts[0]=self.array_subject_type(node.first_child);
+                }
             }
             if node.kind == AstKind::ExprMatch || node.kind == AstKind::ExprConditional {
                 let expected: usize = sem.array_value_context(self.nodes,self.node_count,index,self.source,self.source_len,0);

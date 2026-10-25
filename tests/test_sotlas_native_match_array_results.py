@@ -145,7 +145,7 @@ pub fn main_entry()->u32{let a:[A;2]=match true{true=>[A{n:21};2],false=>[B{n:21
             'pub fn main_entry()->u32{let p:[*mut u8;2]=match true{_=>[null;2]};return 42;}',
             'pub fn main_entry()->u32{let a:[u32;257]=match true{_=>[0;257]};return 42;}',
             'fn make()->[u32;2]{return match true{_=>[42]};}pub fn main_entry()->u32{return 42;}',
-            'pub fn main_entry()->u32{let mut a:[u32;2]=0;a=match true{_=>[20,22]};return 42;}',
+            'pub fn main_entry()->u32{let mut a:[u32;2]=0;a=match true{_=>[42]};return 42;}',
         )
         for index,source in enumerate(cases):
             with self.subTest(index=index):

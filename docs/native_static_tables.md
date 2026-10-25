@@ -46,8 +46,10 @@ resource zero-initialization or direct copies of pointer/resource-bearing elemen
 The new checked direct-record access profile requires pointer-free records.
 Existing source/table/IR/object limits and nested serialization limits still apply.
 
-Whole-array assignment, general slices, resource destruction and aggregate array
-parameters/returns are separate work. Foreign aggregate ABI, pointer relocations
+Bounded [whole-array assignment](native_array_assignment.md) is now available.
+General slices and resource destruction remain separate work. Internal bounded
+array parameters/returns use the [value-array ABI](native_value_array_abi.md).
+Foreign/separate-object aggregate signatures, pointer relocations
 and string initializers are not added. Native support does not assert canonical
 Stage-0/C11 parity; this example is EXPERIMENTAL under the public snippet policy.
 

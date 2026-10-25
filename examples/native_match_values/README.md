@@ -58,3 +58,7 @@ independent argument copies, hidden return storage and the foreign ABI exclusion
 `read_owned_samples` borrows an owned array through `direct`; `move_owned_samples`
 then consumes and returns it. The native checker rejects using the original
 binding after that transfer. See [array ownership and resource batches](../../docs/native_owned_arrays_and_resources.md).
+
+`replace_samples` replaces a parameter array from a match, then swaps its elements
+with a complete right-hand snapshot. See [whole-array assignment](../../docs/native_array_assignment.md)
+for mutable destinations, globals, evaluation order and moved-owner reinitialization.

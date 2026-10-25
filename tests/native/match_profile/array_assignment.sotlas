@@ -1,0 +1,12 @@
+module array_assignment;
+struct Row{pub items:[u32;2];}
+fn make()->[u32;2]{return [20,22];}
+fn consume(values:sole [u32;2])->u32{return values[0]+values[1];}
+pub fn main_entry()->u32{
+    let mut values:[u32;2]=[1;2];values=make();
+    values=match true{true=>[values[1],values[0]],false=>[0;2]};
+    if values[0]!=22 || values[1]!=20{return 1;}
+    let mut row:Row=Row{items:[0;2]};row.items=if true{values}else{[0;2]};
+    let mut owner:sole [u32;2]=[1;2];let ignored:u32=consume(owner);
+    owner=row.items;return consume(owner);
+}
