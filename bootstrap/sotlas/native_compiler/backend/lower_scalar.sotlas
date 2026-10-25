@@ -1204,7 +1204,7 @@ impl ScalarLowering {
         let mut sem: Sema = Sema::new();
         if type_node.kind == AstKind::TypeRef && type_node.str_len >= 1 {
             let first_ch: u8 = unsafe { *(self.source + type_node.str_offset) };
-            if first_ch == 91 && type_node.int_value == 0 && self.array_subject_record(type_index) != 0 {
+            if first_ch == 91 && self.array_subject_record(type_index) != 0 {
                 return TargetTypeTag::Pointer;
             }
             if first_ch == 42 || first_ch == 38 {
@@ -2295,6 +2295,26 @@ impl ScalarLowering {
             TargetOpcode::AllocStack, address, TargetTypeTag::Pointer, 0, 0, node
         ) { return 0; }
         unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = size as u64; }
+        return address;
+    }
+
+    // Borrow direct storage only after checking the complete array shape. A
+    // literal/conditional argument instead owns temporary storage until the
+    // no-escape call completes. Other domains use independent value snapshots.
+    pub fn lower_array_argument(mut self: &mut Self, layout: u32, expression: usize,
+        domain: i64, first_parameter: usize, parameter_count: usize) -> u32 {
+        if layout == 0 || layout as usize > self.struct_count { return 0; }
+        if domain == 6 {
+            let actual: usize = self.array_subject_type(expression);
+            if actual != 0 {
+                if self.array_subject_record(actual) != layout { return 0; }
+                return self.array_subject_address(expression,first_parameter,parameter_count,0);
+            }
+        }
+        let address: u32 = self.allocate_struct(layout,expression);
+        let field: usize = self.struct_field_starts[layout as usize-1] as usize;
+        if address == 0 || !self.initialize_array_value(address,field,expression,
+            first_parameter,parameter_count,0) { return 0; }
         return address;
     }
 
@@ -3434,10 +3454,9 @@ impl ScalarLowering {
                 let argument_struct: u32 = self.function_parameter_struct_from_ast(callee_decl, argument_count);
                 let mut argument_value: u32 = 0;
                 if argument_struct != 0 && self.array_subject_types[argument_struct as usize-1] != 0 {
-                    argument_value=self.allocate_struct(argument_struct,argument_index);
-                    let field: usize = self.struct_field_starts[argument_struct as usize-1] as usize;
-                    if argument_value == 0 || !self.initialize_array_value(argument_value,field,argument_index,
-                        first_parameter,parameter_count,0) { return 0; }
+                    argument_value=self.lower_array_argument(argument_struct,argument_index,
+                        self.function_parameter_domain_from_ast(callee_decl,argument_count),first_parameter,parameter_count);
+                    if argument_value == 0 { return 0; }
                 } else {
                     argument_value=self.lower_expression(argument_index,argument_type,first_parameter,parameter_count);
                     if argument_value == 0 { return 0; }
@@ -4121,10 +4140,9 @@ impl ScalarLowering {
             let struct_id: u32 = self.function_parameter_struct_from_ast(callee_decl, argument_count);
             let mut argument_value: u32 = 0;
             if struct_id != 0 && self.array_subject_types[struct_id as usize-1] != 0 {
-                argument_value=self.allocate_struct(struct_id,argument_index);
-                let field: usize = self.struct_field_starts[struct_id as usize-1] as usize;
-                if argument_value == 0 || !self.initialize_array_value(argument_value,field,argument_index,
-                    first_parameter,parameter_count,0) { return false; }
+                argument_value=self.lower_array_argument(struct_id,argument_index,
+                    self.function_parameter_domain_from_ast(callee_decl,argument_count),first_parameter,parameter_count);
+                if argument_value == 0 { return false; }
             } else {
                 argument_value=self.lower_expression(argument_index,argument_type,first_parameter,parameter_count);
                 if argument_value == 0 { return false; }
@@ -6240,6 +6258,8 @@ impl ScalarLowering {
         if expression.kind == AstKind::ExprIdent {
             let local: u32 = self.find_local_struct_id(expression.str_offset, expression.str_len);
             if local != 0 { return local; }
+            let pointee: u32 = self.pointer_pointee_struct_id(self.pointer_expression_type_ref(expression_index));
+            if pointee != 0 { return pointee; }
             return self.global_record_id(expression_index);
         }
         if expression.kind == AstKind::ExprUnary && expression.int_value == 82 {
@@ -6278,6 +6298,11 @@ impl ScalarLowering {
             return self.lower_expression(expression_index, TargetTypeTag::Pointer, first_parameter, parameter_count);
         }
         if expression.kind == AstKind::ExprIdent {
+            // A typed pointer local holds an address, possibly in a mutable
+            // stack slot. Project through its current value, never that slot.
+            if self.pointer_pointee_struct_id(self.pointer_expression_type_ref(expression_index)) != 0 {
+                return self.lower_expression(expression_index,TargetTypeTag::Pointer,first_parameter,parameter_count);
+            }
             let local: u32 = self.find_parameter_value(first_parameter, parameter_count, expression.str_offset, expression.str_len);
             if local != 0 { return local; }
             if self.global_record_id(expression_index) != 0 {
@@ -6748,7 +6773,8 @@ impl ScalarLowering {
                     let record_stride: usize = stride as usize;
                     if record != 0 && count > maximum_bytes / record_stride { return self.reject(index); }
                     if value_node.kind == AstKind::ExprMatch || value_node.kind == AstKind::ExprConditional
-                        || value_node.kind == AstKind::ExprCall {
+                        || value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::ExprIdent
+                        || value_node.kind == AstKind::ExprFieldAccess || value_node.kind == AstKind::UnsafeExpr {
                         let layout: u32 = self.array_subject_record(type_index);
                         if layout == 0 { return self.reject(index); }
                         let field: usize = self.struct_field_starts[layout as usize-1] as usize;
@@ -6760,6 +6786,7 @@ impl ScalarLowering {
                         self.local_struct_ids[slot]=record;self.local_storage_types[slot]=0;
                         self.local_array_types[slot]=elem as u32;self.local_array_counts[slot]=count as u32;
                         self.local_value_ids[slot]=address;self.local_count=slot+1;
+                        if !self.mark_value_domain(address,type_index) { return self.reject(index); }
                         return true;
                     }
                     let zero_initializer: bool = value_node.kind == AstKind::ExprLiteral
@@ -6846,6 +6873,7 @@ impl ScalarLowering {
                     self.local_array_counts[slot] = count as u32;
                     self.local_value_ids[slot] = address;
                     self.local_count = self.local_count + 1;
+                    if !self.mark_value_domain(address,type_index) { return self.reject(index); }
                     return true;
                 }
             }
@@ -7546,7 +7574,7 @@ impl ScalarLowering {
         let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,subject,self.source,self.source_len);
         if typ == 0 || typ >= self.node_count { return 0; }
         let node: AstNode = unsafe{*(self.nodes+typ)};
-        if node.kind != AstKind::TypeRef || node.int_value != 0 || node.str_len < 5
+        if node.kind != AstKind::TypeRef || (node.int_value != 0 && node.int_value != 1 && node.int_value != 4 && node.int_value != 6) || node.str_len < 5
             || unsafe{*(self.source+node.str_offset)} != 91 { return 0; }
         return typ;
     }
@@ -7580,8 +7608,9 @@ impl ScalarLowering {
             if node.kind == AstKind::TypeRef && node.parent != 0 && node.parent < self.node_count
                 && node.str_len != 0 && unsafe{*(self.source+node.str_offset)} == 91 {
                 let parent: AstKind = unsafe{(*(self.nodes+node.parent)).kind};
-                if parent == AstKind::ParamDecl || parent == AstKind::FnDecl || parent == AstKind::TrapfnDecl {
-                    if node.int_value != 0 { return self.reject(index); }
+                if parent == AstKind::ParamDecl || parent == AstKind::FnDecl || parent == AstKind::TrapfnDecl
+                    || (parent == AstKind::LetStmt && node.int_value == 1) {
+                    if node.int_value != 0 && node.int_value != 1 && node.int_value != 4 && node.int_value != 6 { return self.reject(index); }
                     contexts[0]=index;
                 }
             }
@@ -7592,7 +7621,7 @@ impl ScalarLowering {
                 let expected: usize = sem.array_value_context(self.nodes,self.node_count,index,self.source,self.source_len,0);
                 if expected != 0 && expected < self.node_count {
                     let declared: AstNode = unsafe{*(self.nodes+expected)};
-                    if declared.int_value == 0 && declared.str_len != 0 && unsafe{*(self.source+declared.str_offset)} == 91 {
+                    if (declared.int_value == 0 || declared.int_value == 1) && declared.str_len != 0 && unsafe{*(self.source+declared.str_offset)} == 91 {
                         contexts[1]=expected;
                     }
                 }

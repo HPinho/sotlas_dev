@@ -54,3 +54,7 @@ for conditional expressions, field/payload contexts and cleanup behavior.
 `make_samples` returns an array that `sum_samples` accepts by value and matches.
 See the [internal value-array ABI](../../docs/native_value_array_abi.md) for
 independent argument copies, hidden return storage and the foreign ABI exclusion.
+
+`read_owned_samples` borrows an owned array through `direct`; `move_owned_samples`
+then consumes and returns it. The native checker rejects using the original
+binding after that transfer. See [array ownership and resource batches](../../docs/native_owned_arrays_and_resources.md).

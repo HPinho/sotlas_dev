@@ -51,10 +51,12 @@ The repair is a **candidate** until its full cross-platform CI is green.
 | `native_managed_scope_push(scope, handle)` | Registers a live generation-matched handle once, rejecting duplicates/full tables |
 | `native_managed_scope_detach(scope, handle)` | Removes a registration without releasing its strong claim |
 | `native_managed_scope_release_last(scope)` | Closes and poisons the latest handle; removes its table entry |
-| `native_managed_scope_rewind(scope, depth)` | Checks a complete suffix, then closes it in reverse order; invalid/stale suffix leaves other live claims unchanged |
+| `native_managed_scope_rewind(scope, depth)` | Checks collective claims in the complete scope, then closes the suffix in reverse order; invalid state leaves live claims unchanged |
 | `native_managed_scope_drain(scope)` | Checked cleanup down to depth zero |
 | `native_managed_scope_close(scope)` | Void wrapper for compiler-lowered lexical `defer` |
 | `native_managed_scope_transfer(src, dst, handle)` | Promotes a registered handle between distinct scopes with no retain/release |
+| `native_managed_scope_claims_valid(scope)` | Checks live, distinct handles, consistent payloads and aggregate strong claims before batch mutation |
+| `native_managed_scope_transfer_suffix(src, dst, depth)` | Transfers a complete suffix after preflighting both scopes and their combined claims; preserves order and refcounts |
 
 A depth mark is simply the previously observed count. It is a
 single-threaded, caller-controlled snapshot, **not a lifetime-proof
@@ -156,6 +158,12 @@ ARC/drop, lifetime/escape/alias proofs, typed object-level imports and
 independent native seed/distribution are **not** certified by this work.
 
 ## Open work toward Python/C independence
+
+SV8.94 adds [collective claim checks and suffix transactions](native_owned_arrays_and_resources.md).
+Checked rewind/drain now reject overclaimed headers and inconsistent payloads
+before releasing any handle, including invalid entries before the rewind mark.
+The new batch API validates both scopes before moving registrations and preserves
+their reverse-order cleanup behavior. Enrollment and cleanup remain explicit.
 
 - Compiler-synthesized exactly-once cleanup/drop glue for a frozen
   resource-bearing language subset, including partial initialization

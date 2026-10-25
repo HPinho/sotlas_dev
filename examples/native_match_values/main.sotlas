@@ -92,6 +92,9 @@ fn fraction_score(value:f32)->u32 {
     return match value { 0.0=>0,1.0..=2.0=>2,_=>0 };
 }
 
+fn read_owned_samples(values:direct [u32;2])->u32 { return values[0]+values[1]; }
+fn move_owned_samples(values:sole [u32;2])->sole [u32;2] { return values; }
+
 pub fn main_entry() -> u32 {
     let selected = match true { true => 5, false => 0 };
     let total: u32 = score(selected as u8) + score(10);
@@ -110,5 +113,9 @@ pub fn main_entry() -> u32 {
     if sample_window()!=42 { return 7; }
     if selected_samples(true)!=42 { return 8; }
     if sum_samples(make_samples())!=42 { return 9; }
+    let owned_array:sole [u32;2]=[20,22];
+    if read_owned_samples(owned_array)!=42 { return 10; }
+    let moved_array:sole [u32;2]=move_owned_samples(owned_array);
+    if moved_array[0]+moved_array[1]!=42 { return 11; }
     return total + adjustment(ResultKind::Small);
 }

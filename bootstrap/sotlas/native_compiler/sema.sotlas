@@ -266,7 +266,7 @@ impl Sema {
         if typ == 0 || typ >= node_count || depth >= 32 || source == null { return false; }
         let node: AstNode = unsafe{*(nodes+typ)};
         if self.ownership_pod_array(node,source,source_len) { return false; }
-        if node.int_value != 0 || node.str_len < 5 || node.str_offset > source_len
+        if (node.int_value != 0 && node.int_value != 1 && node.int_value != 4 && node.int_value != 6) || node.str_len < 5 || node.str_offset > source_len
             || node.str_len > source_len-node.str_offset || unsafe{*(source+node.str_offset)} != 91 {
             return false;
         }
@@ -298,7 +298,8 @@ impl Sema {
         node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
         if typ == 0 || typ >= node_count || depth >= 32 { return false; }
         let node: AstNode = unsafe { *(nodes + typ) };
-        if node.int_value == 0 && self.ownership_pod_array(node,source,source_len) { return true; }
+        if (node.int_value == 0 || node.int_value == 1 || node.int_value == 4 || node.int_value == 6)
+            && self.ownership_pod_array(node,source,source_len) { return true; }
         if self.ownership_record_array(nodes,node_count,typ,source,source_len,depth+1) { return true; }
         if self.fixed_integer_type_tag(nodes, node_count, typ, source, source_len) != 0
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "bool", 4)
@@ -680,6 +681,10 @@ impl Sema {
                             return false;
                         }
                         let binding: AstNode = unsafe { *(nodes + binding_index) };
+                        if field_depth != 0 && self.readonly_pointer_type(nodes,node_count,
+                            self.binding_type_ref(nodes,node_count,binding_index),source,source_len) {
+                            return self.reject_node(assignment_target);
+                        }
                         if binding.int_value != 1
                             && (field_depth == 0 || binding.kind != AstKind::ParamDecl
                                 || !self.binding_is_mutable_borrow(
@@ -3179,6 +3184,23 @@ impl Sema {
             }
         }
         return false;
+    }
+
+    // Mutability of the pointer binding does not grant write access to a const
+    // pointee. Apply this also to implicit record-field/array projections.
+    pub fn readonly_pointer_type(self: &Self, nodes: *const AstNode, count: usize,
+        index: usize, source: *const u8, length: usize) -> bool {
+        if index == 0 || index >= count || source == null { return false; }
+        let typ: AstNode = unsafe{*(nodes+index)};
+        if typ.str_offset > length || typ.str_len > length-typ.str_offset { return false; }
+        let mut cursor: usize = typ.str_offset;let end: usize = cursor+typ.str_len;
+        while cursor < end && (unsafe{*(source+cursor)} == 32 || unsafe{*(source+cursor)} == 9
+            || unsafe{*(source+cursor)} == 10 || unsafe{*(source+cursor)} == 13) { cursor=cursor+1; }
+        if cursor == end || (unsafe{*(source+cursor)} != 42 && unsafe{*(source+cursor)} != 38) { return false; }
+        cursor=cursor+1;
+        while cursor < end && (unsafe{*(source+cursor)} == 32 || unsafe{*(source+cursor)} == 9
+            || unsafe{*(source+cursor)} == 10 || unsafe{*(source+cursor)} == 13) { cursor=cursor+1; }
+        return cursor+3 > end || !self.source_slice_equals(source,length,cursor,3,"mut",3);
     }
 
     pub fn pointer_type_matches_pointee(

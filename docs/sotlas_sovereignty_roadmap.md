@@ -7,6 +7,36 @@
 
 
 
+## SV8.94 - owned array ABI and transactional resource batches (2026-10-25)
+
+Starting point: main commit f3e3cab (SV8.93 internal value arrays).
+
+- [x] Transfer bounded scalar/POD record arrays through sole/exclusive parameters,
+  locals and returns; retain owner domains in Target IR storage and signatures.
+- [x] Forward no-escape whisper/direct array parameters; preserve immutable
+  snapshots vs direct storage, deferred reservations and move/merge rejections.
+- [x] Resolve fields through typed pointer locals, loading reassigned addresses;
+  reject field/index writes through const pointers despite mutable bindings.
+- [x] Validate collective resource claims and payload agreement before checked
+  rewind/drain, preventing partial destruction of overclaimed control blocks.
+- [x] Transfer resource-scope suffixes after preflighting both complete scopes,
+  combined counts, disjoint tables and capacity; preserve order and refcounts.
+- [ ] Automatic ARC/drop for resource-bearing arrays/aggregates, general lifetime
+  proofs and foreign/separate-object ownership-aware array signatures.
+
+[Owned arrays and resource batches](native_owned_arrays_and_resources.md) specify
+this block. Resource enrollment and cleanup remain explicit Sotlas runtime APIs.
+
+Local validation: 330 native match, array-ABI and resource tests pass on each
+Windows/Linux host, plus 72 shared rebuilt Stage 3 driver cases per host. The
+29 new tests also pass through the hosted seed route. Another 269 focused
+frontend, parser, semantic, numeric, record-storage, bootstrap and documentation
+tests pass. Native Stage 2/3 fixed points hold within each host. The exact Windows
+original-module CI gate passes with calculator, GUI and UI-model checks. Example
+objects and ELF/PE/Mach-O images are identical across hosts, and the Windows/Linux
+images execute with exit 42. The new GitHub matrix and actual Intel macOS
+execution remain pending.
+
 ## SV8.93 - internal by-value array parameters and returns (2026-10-24)
 
 The preceding contextual-array block 51ac7bd passed CI, as confirmed by the user.
