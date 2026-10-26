@@ -23,8 +23,9 @@ return; there is no exception ABI or general unwind mechanism.
 
 Success values may be scalars, POD records, payload enums or bounded arrays under
 the existing internal value ABI. Fields, calls, stored values and indexed records
-can supply an operand. Conditional/match results must be stored before applying
-`?`. It cannot appear inside a defer. Borrowed/owned result bindings, resource-
+can supply an operand. Since SV8.98, compatible conditional/match expressions,
+value blocks and inferred result locals can also supply the operand. It cannot
+appear inside a defer. Borrowed/owned result bindings, resource-
 bearing records and mismatched nominal return types are rejected, including in
 dead source branches. Owned arguments consumed by a result-producing call still
 participate in move checking.

@@ -8,15 +8,16 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def verify_numeric_pipeline(compiler, output):
+def verify_numeric_pipeline(compiler, output, example='native_numeric_pipeline', modules=('results',)):
     compiler = Path(compiler).resolve()
     output = Path(output).resolve()
     source = output / 'src'
     runtime = source / 'sotlas/runtime'
     runtime.mkdir(parents=True, exist_ok=True)
-    shutil.copyfile(ROOT / 'runtime/native/results.sotlas', runtime / 'results.sotlas')
+    for module in modules:
+        shutil.copyfile(ROOT / ('runtime/native/' + module + '.sotlas'), runtime / (module + '.sotlas'))
     entry = source / 'main.sotlas'
-    shutil.copyfile(ROOT / 'examples/native_numeric_pipeline/main.sotlas', entry)
+    shutil.copyfile(ROOT / ('examples/' + example + '/main.sotlas'), entry)
     environment = {'PATH': str(output / 'no-host-tools')}
     if os.name == 'nt':
         environment['SystemRoot'] = os.environ.get('SystemRoot', 'C:\\Windows')
@@ -47,5 +48,10 @@ def verify_numeric_pipeline(compiler, output):
             run([image], expected=42)
 
 
+def verify_text_pipeline(compiler, output):
+    verify_numeric_pipeline(compiler, output, 'native_text_pipeline', ('results', 'text', 'utf8'))
+
+
 if __name__ == '__main__':
-    verify_numeric_pipeline(sys.argv[1], sys.argv[2])
+    verify = verify_text_pipeline if len(sys.argv) > 3 and sys.argv[3] == 'text' else verify_numeric_pipeline
+    verify(sys.argv[1], sys.argv[2])

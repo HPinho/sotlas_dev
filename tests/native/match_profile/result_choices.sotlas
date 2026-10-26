@@ -1,0 +1,9 @@
+module result_choices;
+struct R{pub status:u32;pub value:u32;pub detail:u32;}
+static mut trace:u32=0;
+fn read(ok:bool)->R{if ok{return R{status:0,value:42,detail:0};}return R{status:7,value:0,detail:99};}
+fn work(ok:bool)->R{defer{unsafe{trace=trace*10+1;}}
+let n:u32=(match ok{true=>{defer{unsafe{trace=trace*10+2;}}read(true)},
+false=>{defer{unsafe{trace=trace*10+3;}}read(false)}})?;return R{status:0,value:n,detail:0};}
+pub fn main_entry()->u32{let good:R=work(true);let bad:R=work(false);
+if good.value!=42 || bad.status!=7 || bad.detail!=99 || unsafe{trace}!=2131{return 1;}return 42;}

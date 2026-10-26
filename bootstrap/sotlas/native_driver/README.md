@@ -11,6 +11,9 @@ The SV8.97 native profile also supports [concrete result propagation](../../../d
 and the [numeric pipeline](../../../examples/native_numeric_pipeline/README.md).
 The example imports the Sotlas runtime module for checked arithmetic, parsing
 and formatting; error returns execute lexical defers without a C error ABI.
+SV8.98 adds [bounded UTF-8 value text](../../../docs/native_text.md), result
+propagation from conditional/match choices and an imported
+[configuration-to-report example](../../../examples/native_text_pipeline/README.md).
 
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:

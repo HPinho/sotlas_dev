@@ -1,0 +1,6 @@
+module result_choice_nominal;
+struct A{pub status:u32;pub value:u32;}
+struct B{pub status:u32;pub value:u32;}
+fn work()->A{let n:u32=(if true{A{status:0,value:42}}else{B{status:0,value:42}})?;
+return A{status:0,value:n};}
+pub fn main_entry()->u32{return 42;}
