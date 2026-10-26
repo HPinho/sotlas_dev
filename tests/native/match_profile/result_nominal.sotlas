@@ -1,0 +1,6 @@
+module result_nominal;
+struct A{pub status:u32;pub value:u32;}
+struct B{pub status:u32;pub value:u32;}
+fn read()->A{return A{status:0,value:42};}
+fn wrong()->B{let n:u32=read()?;return B{status:0,value:n};}
+pub fn main_entry()->u32{return wrong().value;}

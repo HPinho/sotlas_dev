@@ -1,0 +1,8 @@
+module result_propagation;
+struct Result{pub status:u32;pub value:u32;pub detail:u64;}
+static mut trace:u32=0;
+fn read(ok:bool)->Result{if ok{return Result{status:0,value:42,detail:0};}return Result{status:3,value:7,detail:99};}
+fn work(ok:bool)->Result{defer{unsafe{trace=trace*10+1;}}defer{unsafe{trace=trace*10+2;}}
+let n:u32=read(ok)?;return Result{status:0,value:n,detail:0};}
+pub fn main_entry()->u32{let good:Result=work(true);let bad:Result=work(false);
+if good.value!=42 || bad.status!=3 || bad.value!=7 || bad.detail!=99 || unsafe{trace}!=2121{return 1;}return 42;}

@@ -869,6 +869,8 @@ module syscall_probe;
                        str(native_stage3), str(self.directory / "large module cases")], 120)
         from native_calculator_gate import verify_calculator
         verify_calculator(native_stage3, self.directory / "calculator cases")
+        from native_numeric_gate import verify_numeric_pipeline
+        verify_numeric_pipeline(native_stage3, self.directory / "numeric pipeline cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

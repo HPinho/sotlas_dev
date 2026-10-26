@@ -612,6 +612,8 @@ impl Sema {
                 ) {
                 return false;
             }
+            if node.kind == AstKind::TryExpr
+                && !self.check_native_try(nodes,node_count,node_index,source,source_len) { return false; }
             if node.kind == AstKind::AssignStmt {
                 let target_index: usize = node.first_child;
                 if target_index == 0 || target_index >= node_count {
@@ -1506,6 +1508,125 @@ impl Sema {
             );
         }
         return true;
+    }
+
+    // Concrete native results use the status/value record contract. Zero
+    // succeeds; a failure returns the same nominal POD record to the caller.
+    pub fn native_try_named_record(self: &Self, nodes: *const AstNode, count: usize,
+        typ: usize, context: usize, source: *const u8, length: usize) -> usize {
+        if typ == 0 || typ >= count { return 0; }
+        let mut name: AstNode = unsafe{*(nodes+typ)};
+        if name.int_value != 0 { return 0; }
+        if self.source_slice_equals(source,length,name.str_offset,name.str_len,"Self",4) {
+            let owner: usize = self.enclosing_impl(nodes,count,context);
+            if owner == 0 || owner >= count { return 0; }
+            name=unsafe{*(nodes+owner)};
+        }
+        let module_index: usize = self.find_enclosing_module(nodes,count,context);
+        if module_index == 0 || module_index >= count { return 0; }
+        let mut declaration: usize = unsafe{(*(nodes+module_index)).first_child};
+        while declaration != 0 && declaration < count {
+            let candidate: AstNode = unsafe{*(nodes+declaration)};
+            if candidate.kind == AstKind::StructDecl && self.same_source_text(source,length,name,candidate) { return declaration; }
+            declaration=candidate.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn native_try_field(self: &Self, nodes: *const AstNode, count: usize,
+        record: usize, value: bool, source: *const u8, length: usize) -> usize {
+        if record == 0 || record >= count { return 0; }
+        let mut field: usize = unsafe{(*(nodes+record)).first_child};
+        while field != 0 && field < count {
+            let member: AstNode = unsafe{*(nodes+field)};
+            if (value && self.source_slice_equals(source,length,member.str_offset,member.str_len,"value",5))
+                || (!value && self.source_slice_equals(source,length,member.str_offset,member.str_len,"status",6)) {
+                return member.first_child;
+            }
+            field=member.next_sibling;
+        }
+        return 0;
+    }
+
+    pub fn native_try_record(mut self: &mut Self, nodes: *const AstNode, count: usize,
+        expression: usize, source: *const u8, length: usize) -> usize {
+        if expression == 0 || expression >= count { return 0; }
+        let mut index: usize = expression;let mut depth: usize = 0;
+        while unsafe{(*(nodes+index)).kind} == AstKind::UnsafeExpr {
+            index=unsafe{(*(nodes+index)).first_child};depth=depth+1;
+            if index == 0 || index >= count || depth >= 64 { return 0; }
+        }
+        let node: AstNode = unsafe{*(nodes+index)};
+        if node.kind != AstKind::ExprIdent && node.kind != AstKind::ExprCall
+            && node.kind != AstKind::ExprFieldAccess && node.kind != AstKind::ExprIndex
+            && node.kind != AstKind::ExprStructLiteral { return 0; }
+        let typ: usize = self.infer_expression_type_ref(nodes,count,index,source,length);
+        let mut context: usize = index;
+        if node.kind == AstKind::ExprCall {
+            let called: usize = self.ownership_called_function(nodes,count,index,source,length);
+            if called != 0 { context=called; }
+        }
+        let record: usize = self.native_try_named_record(nodes,count,typ,context,source,length);
+        if record == 0 || !self.ownership_pod_type(nodes,count,record,source,length,0) { return 0; }
+        let status: usize = self.native_try_field(nodes,count,record,false,source,length);
+        let value: usize = self.native_try_field(nodes,count,record,true,source,length);
+        if status == 0 || status >= count || value == 0 || value >= count { return 0; }
+        let status_type: AstNode = unsafe{*(nodes+status)};
+        if self.source_slice_equals(source,length,status_type.str_offset,status_type.str_len,"u32",3) { return record; }
+        let mut candidate: usize = 1;
+        while candidate < count {
+            let declaration: AstNode = unsafe{*(nodes+candidate)};
+            if declaration.kind == AstKind::EnumDecl && self.same_source_text(source,length,status_type,declaration) {
+                let mut variant: usize = declaration.first_child;
+                while variant != 0 && variant < count {
+                    let child: usize = unsafe{(*(nodes+variant)).first_child};
+                    if child != 0 && child < count && unsafe{(*(nodes+child)).kind} == AstKind::TypeRef { return 0; }
+                    variant=unsafe{(*(nodes+variant)).next_sibling};
+                }
+                if variant == 0 { return record; }
+                return 0;
+            }
+            candidate=candidate+1;
+        }
+        return 0;
+    }
+
+    pub fn check_native_try(mut self: &mut Self, nodes: *const AstNode, count: usize,
+        index: usize, source: *const u8, length: usize) -> bool {
+        let node: AstNode = unsafe{*(nodes+index)};
+        let record: usize = self.native_try_record(nodes,count,node.first_child,source,length);
+        if record == 0 {
+            // Preserve the separate native-C11 emitter's existing generic
+            // Result ABI. The owned machine backend still gates generic types.
+            let typ: usize = self.infer_expression_type_ref(nodes,count,node.first_child,source,length);
+            if typ != 0 && typ < count {
+                let value: AstNode = unsafe{*(nodes+typ)};
+                if value.str_len >= 8 && self.source_slice_equals(source,length,value.str_offset,6,"Result",6) {
+                    let mut cursor: usize = value.str_offset+6;let end: usize = value.str_offset+value.str_len;
+                    while cursor < end && unsafe{*(source+cursor)} == 32 { cursor=cursor+1; }
+                    if cursor < end && unsafe{*(source+cursor)} == 60 && unsafe{*(source+end-1)} == 62 { return true; }
+                }
+            }
+            return self.reject_node(node);
+        }
+        let mut parent: usize = node.parent;
+        while parent != 0 && parent < count {
+            let ancestor: AstNode = unsafe{*(nodes+parent)};
+            if ancestor.kind == AstKind::DeferStmt { return self.reject_node(node); }
+            if ancestor.kind == AstKind::FnDecl || ancestor.kind == AstKind::TrapfnDecl {
+                let mut child: usize = ancestor.first_child;
+                while child != 0 && child < count {
+                    if unsafe{(*(nodes+child)).kind} == AstKind::TypeRef {
+                        if self.native_try_named_record(nodes,count,child,parent,source,length) == record { return true; }
+                        return self.reject_node(node);
+                    }
+                    child=unsafe{(*(nodes+child)).next_sibling};
+                }
+                return self.reject_node(node);
+            }
+            parent=ancestor.parent;
+        }
+        return self.reject_node(node);
     }
 
     pub fn result_constructor_kind(
@@ -2749,7 +2870,7 @@ impl Sema {
                     return false;
                 }
             } else if value.kind == AstKind::ExprArrayLiteral
-                || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional || value.kind == AstKind::ExprCall)
+                || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional || value.kind == AstKind::ExprCall || value.kind == AstKind::TryExpr)
                     && unsafe{(*(nodes+type_index)).str_len} != 0
                     && unsafe{*(source+(*(nodes+type_index)).str_offset)} == 91) {
                 if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len)
@@ -3018,9 +3139,9 @@ impl Sema {
             );
             type_index=self.binding_type_ref(nodes,node_count,binding_index);
             if type_index == 0 { type_index=self.payload_binding_type(nodes,node_count,binding_index,source,source_len); }
-        } else if receiver.kind == AstKind::ExprCall || receiver.kind == AstKind::ExprFieldAccess
+        } else if receiver.kind == AstKind::ExprCall || receiver.kind == AstKind::ExprFieldAccess || receiver.kind == AstKind::TryExpr
             || (receiver.kind == AstKind::ExprIndex && (unsafe{(*(nodes+binding_receiver)).kind} == AstKind::ExprFieldAccess
-                || unsafe{(*(nodes+binding_receiver)).kind} == AstKind::ExprCall)) {
+                || unsafe{(*(nodes+binding_receiver)).kind} == AstKind::ExprCall || unsafe{(*(nodes+binding_receiver)).kind} == AstKind::TryExpr)) {
             type_index=self.infer_expression_type_ref(nodes,node_count,binding_receiver,source,source_len);
         } else { return 0; }
         if type_index == 0 {
@@ -3298,6 +3419,10 @@ impl Sema {
             return 0;
         }
         let expression: AstNode = unsafe { *(nodes + expression_index) };
+        if expression.kind == AstKind::TryExpr {
+            let record: usize = self.native_try_record(nodes,node_count,expression.first_child,source,source_len);
+            return self.native_try_field(nodes,node_count,record,true,source,source_len);
+        }
         if expression.kind == AstKind::ExprPath {
             let variant: usize = self.enum_variant_path(nodes,node_count,expression_index,source,source_len);
             if variant != 0 {
@@ -3796,8 +3921,16 @@ impl Sema {
             return false;
         }
         if actual_type != 0 {
-            let expected: AstNode = unsafe { *(nodes + expected_type) };
-            let actual: AstNode = unsafe { *(nodes + actual_type) };
+            let mut expected: AstNode = unsafe { *(nodes + expected_type) };
+            let mut actual: AstNode = unsafe { *(nodes + actual_type) };
+            if self.source_slice_equals(source,source_len,expected.str_offset,expected.str_len,"Self",4) {
+                let owner: usize = self.enclosing_impl(nodes,node_count,expected_type);
+                if owner != 0 { expected=unsafe{*(nodes+owner)}; }
+            }
+            if self.source_slice_equals(source,source_len,actual.str_offset,actual.str_len,"Self",4) {
+                let owner: usize = self.enclosing_impl(nodes,node_count,actual_type);
+                if owner != 0 { actual=unsafe{*(nodes+owner)}; }
+            }
             let direct_match: bool = self.same_source_text(
                 source, source_len, expected, actual
             );
@@ -4812,6 +4945,12 @@ impl NativeOwnershipCheck {
         }
         if node.kind == AstKind::UnsafeExpr {
             return self.expression(node.first_child, take, depth + 1);
+        }
+        if node.kind == AstKind::TryExpr {
+            // Propagation copies a plain result snapshot. Never turn an owned
+            // or borrowed result binding into an implicit returning escape.
+            if self.expression_domain(node.first_child) != 0 { return self.fail(node_index); }
+            return self.expression(node.first_child,false,depth+1);
         }
         if node.kind == AstKind::ExprIdent {
             let index: usize = self.slot(node_index);

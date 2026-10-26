@@ -1,0 +1,6 @@
+module result_array;
+struct Item{pub n:u32;}
+struct Result{pub status:u32;pub value:[Item;2];}
+fn read()->Result{return Result{status:0,value:[Item{n:20},Item{n:22}]};}
+fn work()->Result{let n:u32=read()?[0].n+read()?[1].n;return Result{status:0,value:[Item{n:n},Item{n:0}]};}
+pub fn main_entry()->u32{return work().value[0].n;}

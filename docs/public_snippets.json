@@ -292,6 +292,13 @@
       "status": "EXPERIMENTAL",
       "source": "examples/native_event_pipeline/main.sotlas",
       "verification": "tests/test_sotlas_native_composed_values.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-result-propagation",
+      "document": "docs/native_result_propagation.md",
+      "status": "EXPERIMENTAL",
+      "source": null,
+      "verification": "tests/test_sotlas_native_result_propagation.py; tests/test_sotlas_native_numeric_results.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }
