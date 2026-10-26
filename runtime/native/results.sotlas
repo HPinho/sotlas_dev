@@ -1,0 +1,98 @@
+module sotlas::runtime::results;
+
+// A concrete POD result profile. Error records contain no borrowed pointers.
+// Zero status means success; nonzero status is preserved by native propagation.
+pub struct NativeNumericError{pub kind:u32;pub offset:usize;}
+pub struct NativeU32Result{pub status:u32;pub value:u32;pub error:NativeNumericError;}
+
+// 1=null input, 2=empty input, 3=invalid decimal digit, 4=overflow,
+// 5=underflow, 6=division by zero, 7=out-of-range input.
+pub fn native_u32_ok(value:u32)->NativeU32Result{
+    return NativeU32Result{status:0,value:value,error:NativeNumericError{kind:0,offset:0}};
+}
+
+pub fn native_u32_error(kind:u32,offset:usize)->NativeU32Result{
+    // An error helper must never accidentally manufacture a success status.
+    let mut code:u32=kind;if code==0{code=7;}
+    return NativeU32Result{status:code,value:0,error:NativeNumericError{kind:code,offset:offset}};
+}
+
+pub fn native_u32_add(left:u32,right:u32)->NativeU32Result{
+    if right>4294967295-left{return native_u32_error(4,0);}
+    return native_u32_ok(left+right);
+}
+
+pub fn native_u32_sub(left:u32,right:u32)->NativeU32Result{
+    if right>left{return native_u32_error(5,0);}
+    return native_u32_ok(left-right);
+}
+
+pub fn native_u32_mul(left:u32,right:u32)->NativeU32Result{
+    if right!=0 && left>4294967295/right{return native_u32_error(4,0);}
+    return native_u32_ok(left*right);
+}
+
+pub fn native_u32_div(left:u32,right:u32)->NativeU32Result{
+    if right==0{return native_u32_error(6,0);}
+    return native_u32_ok(left/right);
+}
+
+pub fn native_u32_rem(left:u32,right:u32)->NativeU32Result{
+    if right==0{return native_u32_error(6,0);}
+    return native_u32_ok(left%right);
+}
+
+pub fn native_u32_narrow(value:u64)->NativeU32Result{
+    if value>4294967295{return native_u32_error(7,0);}
+    return native_u32_ok(value as u32);
+}
+
+// Strict ASCII decimal input: no sign, whitespace, separators or terminator.
+// Nonempty input requires a valid readable caller-owned range. Arithmetic range
+// checks do not establish pointer provenance or make arbitrary addresses safe.
+pub fn native_parse_u32(bytes:*const u8,length:usize)->NativeU32Result{
+    if length==0{return native_u32_error(2,0);}
+    if bytes==null{return native_u32_error(1,0);}
+    let address:usize=unsafe{bytes as usize};
+    if length>18446744073709551615-address{return native_u32_error(7,0);}
+    let mut index:usize=0;let mut value:u32=0;
+    while index<length{
+        let byte:u8=unsafe{*(bytes+index)};
+        if byte<48 || byte>57{return native_u32_error(3,index);}
+        let digit:u32=(byte-48) as u32;
+        if value>429496729 || (value==429496729 && digit>5){return native_u32_error(4,index);}
+        value=value*10+digit;index=index+1;
+    }
+    return native_u32_ok(value);
+}
+
+// Successful parsing and checked arithmetic share one native error channel.
+pub fn native_parse_u32_bounded(bytes:*const u8,length:usize,maximum:u32)->NativeU32Result{
+    let value:u32=native_parse_u32(bytes,length)?;
+    if value>maximum{return native_u32_error(7,length);}
+    return native_u32_ok(value);
+}
+
+pub fn native_parse_u32_sum(left:*const u8,left_length:usize,
+    right:*const u8,right_length:usize)->NativeU32Result{
+    let first:u32=native_parse_u32(left,left_length)?;
+    let second:u32=native_parse_u32(right,right_length)?;
+    return native_u32_add(first,second);
+}
+
+// Format transactionally: failure leaves every destination byte untouched.
+// Return the digit count rather than an implicit zero-terminated string.
+pub fn native_format_u32(value:u32,destination:*mut u8,capacity:usize)->NativeU32Result{
+    if destination==null{return native_u32_error(1,0);}
+    let address:usize=unsafe{destination as usize};
+    if capacity>18446744073709551615-address{return native_u32_error(7,0);}
+    let mut digits:[u8;10]=0;let mut used:usize=0;let mut remaining:u32=value;
+    while true{
+        digits[used]=(remaining%10) as u8+48;used=used+1;remaining=remaining/10;
+        if remaining==0{break;}
+    }
+    if used>capacity{return native_u32_error(7,used);}
+    let mut index:usize=0;
+    while index<used{unsafe{*(destination+index)=digits[used-index-1];}index=index+1;}
+    return native_u32_ok(used as u32);
+}

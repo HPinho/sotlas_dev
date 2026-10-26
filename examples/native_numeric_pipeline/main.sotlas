@@ -1,0 +1,31 @@
+module native_numeric_pipeline;
+import sotlas::runtime::results::*;
+
+static mut cleanup_trace:u32=0;
+
+fn calculate(left:*const u8,left_length:usize,right:*const u8,right_length:usize)->NativeU32Result{
+    defer{unsafe{cleanup_trace=cleanup_trace*10+1;}}
+    defer{unsafe{cleanup_trace=cleanup_trace*10+2;}}
+    let first:u32=native_parse_u32(left,left_length)?;
+    let second:u32=native_parse_u32(right,right_length)?;
+    let sum:u32=native_u32_add(first,second)?;
+    return native_u32_ok(sum);
+}
+
+pub fn main_entry()->u32{
+    let good:NativeU32Result=calculate("20",2,"22",2);
+    let invalid:NativeU32Result=calculate("2x",2,"22",2);
+    let overflow:NativeU32Result=calculate("4294967295",10,"1",1);
+    if good.status!=0 || good.value!=42 || invalid.status!=3
+        || invalid.error.offset!=1 || overflow.status!=4
+        || unsafe{cleanup_trace}!=212121{return 1;}
+    let mut buffer:[u8;10]=[77;10];
+    let output:*mut u8=unsafe{buffer as *mut u8};
+    let short:NativeU32Result=native_format_u32(42,output,1);
+    if short.status!=7 || buffer[0]!=77{return 2;}
+    let formatted:NativeU32Result=native_format_u32(good.value,output,10);
+    let parsed:NativeU32Result=native_parse_u32(output,formatted.value as usize);
+    if formatted.status!=0 || formatted.value!=2 || buffer[0]!=52
+        || buffer[1]!=50 || buffer[2]!=77 || parsed.status!=0{return 3;}
+    return parsed.value;
+}

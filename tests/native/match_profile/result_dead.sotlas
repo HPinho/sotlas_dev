@@ -1,0 +1,4 @@
+module result_dead;
+struct Bad{pub status:bool;pub value:u32;}
+fn work()->Bad{if false{let r:Bad=Bad{status:false,value:42};let n:u32=r?;}return Bad{status:false,value:42};}
+pub fn main_entry()->u32{return 42;}

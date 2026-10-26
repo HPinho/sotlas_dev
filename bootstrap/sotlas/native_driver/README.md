@@ -7,6 +7,11 @@ the generated compiler has no ELF interpreter or dynamic C runtime.
 
 ## Initial seed
 
+The SV8.97 native profile also supports [concrete result propagation](../../../docs/native_result_propagation.md)
+and the [numeric pipeline](../../../examples/native_numeric_pipeline/README.md).
+The example imports the Sotlas runtime module for checked arithmetic, parsing
+and formatting; error returns execute lexical defers without a C error ABI.
+
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:
 

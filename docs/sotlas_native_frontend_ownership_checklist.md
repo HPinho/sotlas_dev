@@ -2,6 +2,38 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.97 - native error propagation and numeric results (2026-10-25)
+
+Starting point: main commit c56954c (composed native data models).
+
+- [x] Propagate concrete POD status/value results with postfix `?`; evaluate once,
+  preserve the entire error record and return before later expressions execute.
+- [x] Run active lexical defers in LIFO order after capturing the error return;
+  preserve lazy expressions, nested loop/match paths and existing move checks.
+- [x] Extract scalar, record, payload-enum and bounded-array success values;
+  index plain array temporaries returned by calls or successful propagation.
+- [x] Reject invalid shapes, nominal mismatches, deferred propagation and borrowed,
+  owned or resource-bearing result storage, including dead source branches.
+- [x] Provide a Sotlas numeric result library: checked u32 arithmetic, narrowing,
+  strict decimal parsing, bounded parsing, parse/sum and transactional formatting.
+- [x] Exercise the APIs together in an import-based native numeric pipeline.
+- [ ] General generic Result/error conversion, resource-bearing result payloads,
+  automatic ARC/drop, broader lifetimes and foreign semantic aggregate signatures.
+
+[Native results and numeric operations](native_result_propagation.md) define the
+bounded contract. This adds structured error returns, not an exception/unwind ABI.
+Python/C remain outside the post-seed native path; full language parity is open.
+
+Local validation: 419 native match, aggregate/array ABI, ownership, runtime and
+result tests pass on each rebuilt Windows/Linux compiler, plus 88 shared Stage 3
+driver cases per host. All 37 new result/numeric tests also pass through the hosted
+seed route; another 269 focused regression tests pass. Native Stage 2/3 images are
+identical within each host. The imported numeric example passes with host build
+tools absent from PATH; its object and ELF/PE/Mach-O images are byte-identical
+across Windows/Linux builds. The Windows original-module CI gate also passes,
+including calculator, GUI, UI model and the imported numeric pipeline. Actual
+Intel macOS execution and new GitHub CI remain pending.
+
 ## SV8.96 - composed native data models (2026-10-25)
 
 Green starting baseline: bc02a76, as confirmed by the user.

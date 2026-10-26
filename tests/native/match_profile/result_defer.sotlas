@@ -1,0 +1,4 @@
+module result_defer;
+struct Result{pub status:u32;pub value:u32;}
+fn work()->Result{let r:Result=Result{status:0,value:42};defer{let n:u32=r?;}return r;}
+pub fn main_entry()->u32{return work().value;}

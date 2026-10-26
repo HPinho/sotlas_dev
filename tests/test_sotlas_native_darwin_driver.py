@@ -304,6 +304,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
                        str(stage3), str(self.directory / "large module cases")], timeout=120)
         from native_calculator_gate import verify_calculator
         verify_calculator(stage3, self.directory / "calculator cases")
+        from native_numeric_gate import verify_numeric_pipeline
+        verify_numeric_pipeline(stage3, self.directory / "numeric pipeline cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

@@ -81,3 +81,8 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/composed_nominal.sotlas|6|semantic error
 ../match_profile/composed_static_call.sotlas|7|unsupported native form
 ../match_profile/composed_resource.sotlas|7|unsupported native form
+../match_profile/result_propagation.sotlas|42|
+../match_profile/result_array.sotlas|42|
+../match_profile/result_nominal.sotlas|6|semantic error
+../match_profile/result_dead.sotlas|6|semantic error
+../match_profile/result_defer.sotlas|6|semantic error
