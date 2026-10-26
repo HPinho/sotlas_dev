@@ -1,0 +1,240 @@
+module sotlas::runtime::utf8;
+import sotlas::runtime::results::*;
+import sotlas::runtime::text::*;
+
+// Value storage is owned by the record. Length is in bytes, without a terminator.
+pub struct NativeUtf8Text{pub bytes:[u8;256];pub length:u32;}
+pub struct NativeUtf8TextError{pub kind:u32;pub offset:usize;}
+pub struct NativeUtf8TextResult{pub status:u32;pub value:NativeUtf8Text;pub error:NativeUtf8TextError;}
+
+pub fn native_utf8_empty()->NativeUtf8Text{return NativeUtf8Text{bytes:[0;256],length:0};}
+pub fn native_utf8_ok(value:NativeUtf8Text)->NativeUtf8TextResult{
+    let checked:NativeU32Result=native_utf8_validate(value);
+    if checked.status!=0{return native_utf8_error(checked.status,checked.error.offset);}
+    return NativeUtf8TextResult{status:0,value:value,error:NativeUtf8TextError{kind:0,offset:0}};
+}
+pub fn native_utf8_error(kind:u32,offset:usize)->NativeUtf8TextResult{
+    let mut code:u32=kind;if code==0{code=7;}
+    return NativeUtf8TextResult{status:code,value:native_utf8_empty(),error:NativeUtf8TextError{kind:code,offset:offset}};
+}
+
+// Error 8 is malformed UTF-8. Reject overlong encodings, surrogates and values
+// above U+10FFFF, and report the leading byte of a malformed sequence.
+pub fn native_utf8_validate(text:NativeUtf8Text)->NativeU32Result{
+    if text.length>256{return native_u32_error(7,text.length as usize);}
+    let mut i:u32=0;let mut scalars:u32=0;
+    while i<text.length{
+        let a:u8=text.bytes[i];let mut width:u32=1;
+        if a>=128{
+            if a>=194 && a<=223{width=2;}
+            else if a>=224 && a<=239{width=3;}
+            else if a>=240 && a<=244{width=4;}
+            else{return native_u32_error(8,i as usize);}
+            if width>text.length-i{return native_u32_error(8,i as usize);}
+            let b:u8=text.bytes[i+1];
+            if b<128 || b>191{return native_u32_error(8,i as usize);}
+            if (a==224 && b<160) || (a==237 && b>159)
+                || (a==240 && b<144) || (a==244 && b>143){return native_u32_error(8,i as usize);}
+            let mut j:u32=2;
+            while j<width{let c:u8=text.bytes[i+j];
+                if c<128 || c>191{return native_u32_error(8,i as usize);}j=j+1;}
+        }
+        scalars=scalars+1;i=i+width;
+    }
+    return native_u32_ok(scalars);
+}
+
+// The caller supplies a readable nonempty range. Null/range arithmetic checks
+// cannot prove pointer provenance. Empty input does not dereference its pointer.
+pub fn native_utf8_from_bytes(bytes:*const u8,length:usize)->NativeUtf8TextResult{
+    if length>256{return native_utf8_error(7,length);}
+    let mut text:NativeUtf8Text=native_utf8_empty();
+    if length==0{return native_utf8_ok(text);}
+    if bytes==null{return native_utf8_error(1,0);}
+    let address:usize=unsafe{bytes as usize};
+    if length>18446744073709551615-address{return native_utf8_error(7,0);}
+    let mut i:usize=0;while i<length{text.bytes[i]=unsafe{*(bytes+i)};i=i+1;}
+    text.length=length as u32;let checked:NativeU32Result=native_utf8_validate(text);
+    if checked.status!=0{return native_utf8_error(checked.status,checked.error.offset);}
+    return native_utf8_ok(text);
+}
+
+pub fn native_utf8_from_u32(value:u32)->NativeUtf8TextResult{
+    let mut text:NativeUtf8Text=native_utf8_empty();
+    let mut bytes:[u8;256]=0;
+    let pointer:*mut u8=unsafe{bytes as *mut u8};
+    let result:NativeU32Result=native_format_u32(value,pointer,256);
+    if result.status!=0{return native_utf8_error(result.status,result.error.offset);}
+    text.bytes=bytes;text.length=result.value;return native_utf8_ok(text);
+}
+
+// Copy from the existing borrowed byte-slice API; no borrowed pointer survives
+// in the returned value. The caller still guarantees readable backing storage.
+pub fn native_utf8_from_slice(value:NativeByteSlice)->NativeUtf8TextResult{
+    if !native_text_valid(value){return native_utf8_error(7,0);}
+    return native_utf8_from_bytes(value.data,value.length);
+}
+
+pub fn native_utf8_concat(left:NativeUtf8Text,right:NativeUtf8Text)->NativeUtf8TextResult{
+    let a:NativeU32Result=native_utf8_validate(left);let b:NativeU32Result=native_utf8_validate(right);
+    if a.status!=0{return native_utf8_error(a.status,a.error.offset);}
+    if b.status!=0{return native_utf8_error(b.status,b.error.offset);}
+    if right.length>256-left.length{return native_utf8_error(7,left.length as usize);}
+    let mut out:NativeUtf8Text=left;let mut i:u32=0;
+    while i<right.length{out.bytes[left.length+i]=right.bytes[i];i=i+1;}
+    out.length=left.length+right.length;return native_utf8_ok(out);
+}
+
+// Offsets are byte boundaries. A valid slice cannot split a Unicode scalar.
+pub fn native_utf8_slice(text:NativeUtf8Text,start:u32,end:u32)->NativeUtf8TextResult{
+    let valid:NativeU32Result=native_utf8_validate(text);
+    if valid.status!=0{return native_utf8_error(valid.status,valid.error.offset);}
+    if start>end || end>text.length{return native_utf8_error(7,start as usize);}
+    if start<text.length && text.bytes[start]>=128 && text.bytes[start]<=191{return native_utf8_error(8,start as usize);}
+    if end<text.length && text.bytes[end]>=128 && text.bytes[end]<=191{return native_utf8_error(8,end as usize);}
+    let mut out:NativeUtf8Text=native_utf8_empty();let mut i:u32=start;
+    while i<end{out.bytes[i-start]=text.bytes[i];i=i+1;}
+    out.length=end-start;return native_utf8_ok(out);
+}
+
+pub fn native_utf8_ascii_space(byte:u8)->bool{return byte==32 || (byte>=9 && byte<=13);}
+pub fn native_utf8_trim(text:NativeUtf8Text)->NativeUtf8TextResult{
+    let valid:NativeU32Result=native_utf8_validate(text);
+    if valid.status!=0{return native_utf8_error(valid.status,valid.error.offset);}
+    let mut start:u32=0;let mut end:u32=text.length;
+    while start<end && native_utf8_ascii_space(text.bytes[start]){start=start+1;}
+    while end>start && native_utf8_ascii_space(text.bytes[end-1]){end=end-1;}
+    return native_utf8_slice(text,start,end);
+}
+
+// 0=preserve, 1=ASCII lowercase, 2=ASCII uppercase. Non-ASCII bytes are unchanged.
+pub fn native_utf8_ascii_case(text:NativeUtf8Text,mode:u32)->NativeUtf8TextResult{
+    let valid:NativeU32Result=native_utf8_validate(text);
+    if valid.status!=0{return native_utf8_error(valid.status,valid.error.offset);}
+    if mode>2{return native_utf8_error(7,mode as usize);}
+    let mut out:NativeUtf8Text=text;let mut i:u32=0;
+    while i<out.length{let b:u8=out.bytes[i];
+        if mode==1 && b>=65 && b<=90{out.bytes[i]=b+32;}
+        if mode==2 && b>=97 && b<=122{out.bytes[i]=b-32;}i=i+1;}
+    return native_utf8_ok(out);
+}
+
+// Validation returns scalar count, not grapheme count. Equality compares bytes.
+pub fn native_utf8_equal(left:NativeUtf8Text,right:NativeUtf8Text)->bool{
+    if left.length>256 || right.length>256 || left.length!=right.length{return false;}
+    if native_utf8_validate(left).status!=0 || native_utf8_validate(right).status!=0{return false;}
+    let mut i:u32=0;while i<left.length{if left.bytes[i]!=right.bytes[i]{return false;}i=i+1;}return true;
+}
+
+// Error 9 means no match. Empty needles match at byte zero.
+pub fn native_utf8_find(text:NativeUtf8Text,needle:NativeUtf8Text)->NativeU32Result{
+    let a:NativeU32Result=native_utf8_validate(text);let b:NativeU32Result=native_utf8_validate(needle);
+    if a.status!=0{return a;}if b.status!=0{return b;}
+    if needle.length>text.length{return native_u32_error(9,text.length as usize);}
+    let mut i:u32=0;
+    while i<=text.length-needle.length{let mut j:u32=0;
+        while j<needle.length && text.bytes[i+j]==needle.bytes[j]{j=j+1;}
+        if j==needle.length{return native_u32_ok(i);}i=i+1;}
+    return native_u32_error(9,text.length as usize);
+}
+
+pub fn native_utf8_before(text:NativeUtf8Text,separator:NativeUtf8Text)->NativeUtf8TextResult{
+    let found:NativeU32Result=native_utf8_find(text,separator);
+    if found.status!=0{return native_utf8_error(found.status,found.error.offset);}
+    return native_utf8_slice(text,0,found.value);
+}
+
+pub fn native_utf8_after(text:NativeUtf8Text,separator:NativeUtf8Text)->NativeUtf8TextResult{
+    let found:NativeU32Result=native_utf8_find(text,separator);
+    if found.status!=0{return native_utf8_error(found.status,found.error.offset);}
+    return native_utf8_slice(text,found.value+separator.length,text.length);
+}
+
+pub fn native_utf8_repeat(text:NativeUtf8Text,count:u32)->NativeUtf8TextResult{
+    let valid:NativeU32Result=native_utf8_validate(text);
+    if valid.status!=0{return native_utf8_error(valid.status,valid.error.offset);}
+    let mut out:NativeUtf8Text=native_utf8_empty();
+    if text.length==0 || count==0{return native_utf8_ok(out);}
+    if count>256/text.length{return native_utf8_error(7,count as usize);}
+    let mut iteration:u32=0;
+    while iteration<count{let mut j:u32=0;
+        while j<text.length{out.bytes[out.length+j]=text.bytes[j];j=j+1;}
+        out.length=out.length+text.length;iteration=iteration+1;}
+    return native_utf8_ok(out);
+}
+
+// UTF-8 byte lexicographic order: 0=equal, 1=less, 2=greater.
+pub fn native_utf8_compare(left:NativeUtf8Text,right:NativeUtf8Text)->NativeU32Result{
+    let a:NativeU32Result=native_utf8_validate(left);let b:NativeU32Result=native_utf8_validate(right);
+    if a.status!=0{return a;}if b.status!=0{return b;}
+    let mut i:u32=0;
+    while i<left.length && i<right.length{
+        if left.bytes[i]<right.bytes[i]{return native_u32_ok(1);}
+        if left.bytes[i]>right.bytes[i]{return native_u32_ok(2);}i=i+1;}
+    if left.length<right.length{return native_u32_ok(1);}
+    if left.length>right.length{return native_u32_ok(2);}
+    return native_u32_ok(0);
+}
+
+// Replace non-overlapping occurrences. Empty needles are rejected. Output is
+// staged in value storage; capacity failure never changes any input record.
+pub fn native_utf8_replace(text:NativeUtf8Text,needle:NativeUtf8Text,replacement:NativeUtf8Text)->NativeUtf8TextResult{
+    let a:NativeU32Result=native_utf8_validate(text);let b:NativeU32Result=native_utf8_validate(needle);
+    let c:NativeU32Result=native_utf8_validate(replacement);
+    if a.status!=0{return native_utf8_error(a.status,a.error.offset);}
+    if b.status!=0{return native_utf8_error(b.status,b.error.offset);}
+    if c.status!=0{return native_utf8_error(c.status,c.error.offset);}
+    if needle.length==0{return native_utf8_error(7,0);}
+    let mut out:NativeUtf8Text=native_utf8_empty();let mut i:u32=0;
+    while i<text.length{
+        let mut j:u32=0;
+        if needle.length<=text.length-i{
+            while j<needle.length && text.bytes[i+j]==needle.bytes[j]{j=j+1;}
+        }
+        if j==needle.length{
+            if replacement.length>256-out.length{return native_utf8_error(7,i as usize);}
+            j=0;while j<replacement.length{out.bytes[out.length+j]=replacement.bytes[j];j=j+1;}
+            out.length=out.length+replacement.length;i=i+needle.length;
+        }else{
+            if out.length==256{return native_utf8_error(7,i as usize);}
+            out.bytes[out.length]=text.bytes[i];out.length=out.length+1;i=i+1;
+        }
+    }
+    return native_utf8_ok(out);
+}
+
+pub fn native_utf8_push_scalar(text:NativeUtf8Text,scalar:u32)->NativeUtf8TextResult{
+    let valid:NativeU32Result=native_utf8_validate(text);
+    if valid.status!=0{return native_utf8_error(valid.status,valid.error.offset);}
+    if scalar>1114111 || (scalar>=55296 && scalar<=57343){return native_utf8_error(8,text.length as usize);}
+    let mut encoded:NativeUtf8Text=native_utf8_empty();
+    if scalar<128{encoded.bytes[0]=scalar as u8;encoded.length=1;}
+    else if scalar<2048{encoded.bytes[0]=(192+(scalar>>6)) as u8;encoded.bytes[1]=(128+(scalar&63)) as u8;encoded.length=2;}
+    else if scalar<65536{
+        encoded.bytes[0]=(224+(scalar>>12)) as u8;encoded.bytes[1]=(128+((scalar>>6)&63)) as u8;
+        encoded.bytes[2]=(128+(scalar&63)) as u8;encoded.length=3;
+    }else{
+        encoded.bytes[0]=(240+(scalar>>18)) as u8;encoded.bytes[1]=(128+((scalar>>12)&63)) as u8;
+        encoded.bytes[2]=(128+((scalar>>6)&63)) as u8;encoded.bytes[3]=(128+(scalar&63)) as u8;encoded.length=4;
+    }
+    return native_utf8_concat(text,encoded);
+}
+
+pub fn native_utf8_parse_u32(text:NativeUtf8Text)->NativeU32Result{
+    let checked:NativeU32Result=native_utf8_validate(text);
+    if checked.status!=0{return checked;}
+    let bytes:[u8;256]=text.bytes;
+    let pointer:*const u8=unsafe{bytes as *const u8};
+    return native_parse_u32(pointer,text.length as usize);
+}
+
+// Publish only after validation and capacity checks. No implicit NUL is written.
+pub fn native_utf8_write(text:NativeUtf8Text,destination:*mut u8,capacity:usize)->NativeU32Result{
+    let checked:NativeU32Result=native_utf8_validate(text);if checked.status!=0{return checked;}
+    if text.length==0{return native_u32_ok(0);}
+    if destination==null{return native_u32_error(1,0);}
+    let address:usize=unsafe{destination as usize};
+    if capacity>18446744073709551615-address || capacity<text.length as usize{return native_u32_error(7,text.length as usize);}
+    let mut i:usize=0;while i<text.length as usize{unsafe{*(destination+i)=text.bytes[i];}i=i+1;}
+    return native_u32_ok(text.length);
+}

@@ -1550,13 +1550,54 @@ impl Sema {
 
     pub fn native_try_record(mut self: &mut Self, nodes: *const AstNode, count: usize,
         expression: usize, source: *const u8, length: usize) -> usize {
-        if expression == 0 || expression >= count { return 0; }
+        return self.native_try_record_depth(nodes,count,expression,source,length,0);
+    }
+
+    pub fn native_try_record_depth(mut self: &mut Self, nodes: *const AstNode, count: usize,
+        expression: usize, source: *const u8, length: usize, nesting: usize) -> usize {
+        if expression == 0 || expression >= count || nesting >= 64 { return 0; }
         let mut index: usize = expression;let mut depth: usize = 0;
         while unsafe{(*(nodes+index)).kind} == AstKind::UnsafeExpr {
             index=unsafe{(*(nodes+index)).first_child};depth=depth+1;
             if index == 0 || index >= count || depth >= 64 { return 0; }
         }
         let node: AstNode = unsafe{*(nodes+index)};
+        if node.kind == AstKind::MatchValueBlock {
+            return self.native_try_record_depth(nodes,count,self.match_block_tail(nodes,count,index),source,length,nesting+1);
+        }
+        if node.kind == AstKind::ExprConditional {
+            let condition: usize = node.first_child;
+            if condition == 0 || condition >= count { return 0; }
+            let yes: usize = unsafe{(*(nodes+condition)).next_sibling};
+            if yes == 0 || yes >= count { return 0; }
+            let no: usize = unsafe{(*(nodes+yes)).next_sibling};
+            if no == 0 || no >= count || unsafe{(*(nodes+no)).next_sibling} != 0 { return 0; }
+            let record: usize = self.native_try_record_depth(nodes,count,yes,source,length,nesting+1);
+            if record != 0 && record == self.native_try_record_depth(nodes,count,no,source,length,nesting+1) { return record; }
+            return 0;
+        }
+        if node.kind == AstKind::ExprMatch {
+            if node.first_child == 0 || node.first_child >= count { return 0; }
+            let mut arm: usize = unsafe{(*(nodes+node.first_child)).next_sibling};let mut record: usize = 0;
+            while arm != 0 && arm < count {
+                let pattern: usize = unsafe{(*(nodes+arm)).first_child};
+                if pattern == 0 || pattern >= count { return 0; }
+                let body: usize = unsafe{(*(nodes+pattern)).next_sibling};
+                let actual: usize = self.native_try_record_depth(nodes,count,body,source,length,nesting+1);
+                if actual == 0 || (record != 0 && actual != record) { return 0; }
+                record=actual;arm=unsafe{(*(nodes+arm)).next_sibling};
+            }
+            if arm != 0 { return 0; }return record;
+        }
+        if node.kind == AstKind::ExprIdent {
+            let binding: usize = self.find_visible_binding(nodes,count,index,source,length);
+            if binding != 0 && binding < count && self.binding_type_ref(nodes,count,binding) == 0 {
+                let declaration: AstNode = unsafe{*(nodes+binding)};
+                if declaration.kind == AstKind::LetStmt {
+                    return self.native_try_record_depth(nodes,count,declaration.first_child,source,length,nesting+1);
+                }
+            }
+        }
         if node.kind != AstKind::ExprIdent && node.kind != AstKind::ExprCall
             && node.kind != AstKind::ExprFieldAccess && node.kind != AstKind::ExprIndex
             && node.kind != AstKind::ExprStructLiteral { return 0; }

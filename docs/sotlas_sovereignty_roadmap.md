@@ -7,6 +7,36 @@
 
 
 
+## SV8.98 - bounded native UTF-8 text and result choices (2026-10-26)
+
+Starting point: main commit 37f36a4 (native results and checked numeric runtime).
+
+- [x] Add pointer-free 256-byte UTF-8 value text with independent aggregate copies.
+- [x] Validate lengths and UTF-8 before indexing, rejecting malformed sequences,
+  overlong encodings, surrogates, truncated input and invalid scalar values.
+- [x] Provide capacity-checked concat/repeat, scalar-boundary slices, ASCII trim/
+  case, equality/order, search, first-separator extraction and replacement.
+- [x] Integrate checked numeric parsing/formatting and transactional byte writes.
+- [x] Apply native `?` directly to compatible conditional/match results, value
+  blocks and inferred locals; preserve selected-path cleanup and nominal types.
+- [x] Execute a configuration-to-report text example through native imports.
+- [ ] Dynamic strings, general borrowed slices, Unicode normalization/graphemes,
+  generic error conversion and automatic resource-backed string storage.
+
+[Native text](native_text.md) defines the fixed-capacity profile. This is inline
+value storage, with no allocator or C glue. Complete canonical language parity
+and unrestricted string/slice support remain open.
+
+Local validation: 449 native match, aggregate/array ABI, ownership, runtime,
+result and UTF-8 tests pass on each rebuilt Windows/Linux compiler, plus 90 shared
+Stage 3 driver cases per host. The 30 new tests also pass through the hosted seed
+route; another 269 focused regression tests pass. Native Stage 2/3 images are
+identical within each host. The Windows original-module reconstruction gate
+passes with calculator, GUI and UI-model checks. The final UTF-8 import/demo gate
+passes separately on both hosts with build tools absent from PATH; object and
+ELF/PE/Mach-O output bytes match across hosts. Actual Intel macOS execution and
+new GitHub CI remain pending.
+
 ## SV8.97 - native error propagation and numeric results (2026-10-25)
 
 Starting point: main commit c56954c (composed native data models).
