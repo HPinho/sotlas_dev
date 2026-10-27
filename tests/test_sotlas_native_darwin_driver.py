@@ -310,6 +310,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_text_pipeline(stage3, self.directory / "text pipeline cases")
         from native_numeric_gate import verify_text_buffer
         verify_text_buffer(stage3, self.directory / "text buffer cases")
+        from native_numeric_gate import verify_arena_text
+        verify_arena_text(stage3, self.directory / "arena text cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

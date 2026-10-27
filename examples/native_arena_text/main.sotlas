@@ -1,0 +1,39 @@
+module native_arena_text;
+import sotlas::runtime::results::*;
+import sotlas::runtime::managed::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::arena_text::*;
+
+fn report(text:*mut NativeArenaText,arena:*mut NativeArena)->NativeU32Result{
+    defer native_arena_text_close(text,true);
+    native_arena_text_append(text,"total=",6)?;
+    native_arena_text_append_u32(text,42)?;
+    // Another arena allocation forces the next growth to move this text.
+    let neighbor:*mut u8=native_arena_alloc(arena,8,1);
+    if neighbor==null{return native_u32_error(10,0);}unsafe{*neighbor=99;}
+    let mut i:u32=0;
+    while i<60{native_arena_text_append(text,"; item=42",9)?;i=i+1;}
+    native_arena_text_append_scalar(text,8364)?;
+    native_arena_text_replace(text,6,8,"43",2)?;
+    let view:NativeByteSlice=native_arena_text_view(text);
+    if view.length!=551 || unsafe{*neighbor}!=99
+        || !native_text_equal(native_text_sub(view,0,8),native_text_open("total=43",8)){
+        return native_u32_error(7,0);
+    }
+    return native_arena_text_check(text);
+}
+
+pub fn main_entry()->u32{
+    let mut bytes:[u8;4096]=[77;4096];let data:*mut u8=unsafe{bytes as *mut u8};
+    let mut arena:NativeArena=native_arena_init(data,4096);
+    let a:*mut NativeArena=unsafe{(&mut arena) as *mut NativeArena};
+    let mark:NativeArenaMark=native_arena_mark(a);
+    let mut text:NativeArenaText=native_arena_text_empty();
+    let t:*mut NativeArenaText=unsafe{(&mut text) as *mut NativeArenaText};
+    if native_arena_text_init(t,a,16).status!=0{return 1;}
+    let result:NativeU32Result=report(t,a);
+    if result.status!=0 || result.value!=549 || text.arena!=null || arena.used!=1048
+        || bytes[16]!=99 || bytes[24]!=0{return 2;}
+    if !native_arena_rewind(a,mark) || arena.used!=0{return 3;}
+    return 42;
+}
