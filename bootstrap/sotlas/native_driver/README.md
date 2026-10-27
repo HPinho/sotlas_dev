@@ -17,6 +17,10 @@ propagation from conditional/match choices and an imported
 SV8.99 adds [caller-backed UTF-8 buffers](../../../docs/native_utf8_buffer.md)
 and a [larger report example](../../../examples/native_text_buffer/README.md)
 with checked edits, borrowed views and deferred cleanup.
+SV8.102 adds [typed pointer projections and independent record snapshots](../../../docs/native_pointer_projections.md)
+with a [native pointer-graph example](../../../examples/native_pointer_graph/README.md).
+The linked contract also documents the record-snapshot seed transition; the
+fixed-point gates continue to reject unequal native compiler generations.
 SV8.100 adds [growing arena text](../../../docs/native_arena_text.md) and an
 [allocation/report example](../../../examples/native_arena_text/README.md),
 including relocation, allocation failure and arena-generation checks.

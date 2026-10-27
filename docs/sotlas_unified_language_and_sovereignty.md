@@ -2,6 +2,41 @@
 
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
+## SV8.102 - pointer projections, snapshots and CI repair (2026-10-27)
+
+Starting point: main c3e08c4 (SV8.101 candidate), with the reproduced
+[CI #1314 failure](https://github.com/HPinho/sotlas_dev/actions/runs/40561453211).
+The last inspected green baseline is b3ea906 / [CI #1313](https://github.com/HPinho/sotlas_dev/actions/runs/40533008504).
+
+- [x] Correct the exhaustion fixture: 16 bytes plus a 3-byte scalar do fit in
+  20 bytes. Use an 18-byte failing arena and separately prove exact 19-byte success.
+- [x] Lower mixed inline-record/raw-record-pointer field chains through loaded
+  pointer values, retaining field offsets, widths and bounded array access.
+- [x] Keep pointer receiver identity separate from record value identity; pointer
+  locals preserve addresses and explicit plain-record dereferences take snapshots.
+- [x] Evaluate pointer-returning assignment receivers once before the right-hand
+  side; check newly crossed unsafe/const boundaries in the native frontend.
+- [x] Exercise recursive pointer graphs, retargeting, floating-point fields,
+  copied records/arrays, alias-sensitive snapshots and positive/negative gates.
+- [x] Use chained access in the arena runtime generation check and publish a
+  native graph example in the shared rebuilt-driver gate.
+- [ ] General inference/CFG, automatic resource management, pointer provenance,
+  pointer-bearing record array values and foreign aggregate ABI parity.
+
+[Pointer projections](native_pointer_projections.md) documents the contract and
+seed transition caused by corrected snapshot semantics. Fixed-point checks stay
+strict: unequal intermediate generations are never certified as equal.
+
+Local validation: 505 native match, array/ABI, ownership, managed runtime,
+numeric/result, UTF-8/arena and pointer-projection tests pass per Windows/Linux
+host, plus 93 shared rebuilt-driver cases per host. A 310-test focused run passed
+during implementation; the final frontend/runtime guard passed a separate
+234-test focused run, including the reproduced CI failure and exact-fit success.
+Native Stage 2/3 images are identical within each host after the documented seed
+transition. Final pointer-graph check/build/object/link/run gates pass without
+host tools on PATH, with byte-identical object and ELF/PE/Mach-O output across
+hosts. New GitHub CI and actual Intel macOS execution remain pending.
+
 ## SV8.101 - Unicode scalar operations for arena text (2026-10-27)
 
 Starting certified baseline: `b3ea906a` /
