@@ -1,0 +1,31 @@
+module native_text_buffer;
+import sotlas::runtime::results::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::utf8_buffer::*;
+
+fn report(buffer:*mut NativeUtf8Buffer)->NativeU32Result{
+    native_utf8_buffer_append(buffer,"total=",6)?;
+    native_utf8_buffer_append_u32(buffer,42)?;
+    let mut i:u32=0;
+    while i<60{native_utf8_buffer_append(buffer,"; item=42",9)?;i=i+1;}
+    native_utf8_buffer_append_scalar(buffer,8364)?;
+    return native_utf8_buffer_check(buffer);
+}
+
+pub fn main_entry()->u32{
+    let mut bytes:[u8;1024]=[77;1024];let data:*mut u8=unsafe{bytes as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(data,1024);
+    let b:*mut NativeUtf8Buffer=unsafe{(&mut buffer) as *mut NativeUtf8Buffer};
+    defer native_utf8_buffer_reset(b,true);
+    let result:NativeU32Result=report(b);
+    if result.status!=0 || result.value!=549 || buffer.length!=551 || bytes[551]!=77{return 1;}
+    if native_utf8_buffer_replace(b,6,8,"43",2).status!=0
+        || !native_text_equal(native_text_sub(native_utf8_buffer_view(b),0,8),native_text_open("total=43",8)){return 2;}
+    if native_utf8_buffer_truncate(b,549).status!=8 || buffer.length!=551{return 3;}
+    if native_utf8_buffer_truncate(b,8).status!=0{return 4;}
+    // Append accepts a borrowed view of its own initialized backing.
+    if native_utf8_buffer_append_slice(b,native_utf8_buffer_view(b)).status!=0
+        || !native_text_equal(native_utf8_buffer_view(b),native_text_open("total=43total=43",16)){return 5;}
+    if native_utf8_buffer_replace(b,0,1,data,2).status!=7 || buffer.length!=16{return 6;}
+    return 42;
+}

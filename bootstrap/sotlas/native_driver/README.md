@@ -14,6 +14,9 @@ and formatting; error returns execute lexical defers without a C error ABI.
 SV8.98 adds [bounded UTF-8 value text](../../../docs/native_text.md), result
 propagation from conditional/match choices and an imported
 [configuration-to-report example](../../../examples/native_text_pipeline/README.md).
+SV8.99 adds [caller-backed UTF-8 buffers](../../../docs/native_utf8_buffer.md)
+and a [larger report example](../../../examples/native_text_buffer/README.md)
+with checked edits, borrowed views and deferred cleanup.
 
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:
