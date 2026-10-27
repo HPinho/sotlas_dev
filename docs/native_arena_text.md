@@ -57,3 +57,7 @@ input, self append, stale epochs, descriptor reuse and failure atomicity.
 This implements arena-managed allocation and growth. OS-heap strings, automatic
 ARC/drop, compiler-proven slice lifetimes, allocation identity/alias tracking and
 general string-language parity remain open.
+
+SV8.101 adds [Unicode scalar-indexed queries and editing](native_arena_unicode.md)
+with cross-text composition. This extends the explicit-arena profile; it does
+not add automatic ownership, OS allocation or compiler-proven borrow lifetimes.

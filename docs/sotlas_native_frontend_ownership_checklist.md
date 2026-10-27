@@ -2,6 +2,33 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.101 - Unicode scalar operations for arena text (2026-10-27)
+
+Starting certified baseline: `b3ea906a` /
+[green CI](https://github.com/HPinho/sotlas_dev/actions/runs/40533008504) (19 jobs).
+
+- [x] Add codepoint-to-byte indexing, scalar reads and borrowed scalar slices
+  after full UTF-8 and generation validation.
+- [x] Insert, replace, remove and pop Unicode scalars, preserving the native
+  result contract and existing transactional editing semantics.
+- [x] Append whole texts and scalar ranges between arena descriptors, including
+  same-descriptor self append across allocation relocation.
+- [x] Cover 1/2/3/4-byte encodings, invalid indices/scalars, aliases, stale
+  generations, malformed backing and allocation failure in native execution tests.
+- [x] Extend the imported arena-report example without changing its expected
+  exit status or cleanup discipline.
+- [ ] Confirm the new block against the full GitHub Linux/Windows/Intel macOS
+  matrix before treating this commit as a new green baseline.
+- [ ] Automatic ARC/drop, checked borrow lifetimes, general heap allocation and
+  grapheme-aware string operations remain unimplemented.
+
+[Scalar-indexed arena text](native_arena_unicode.md) specifies contracts and
+limitations. This is an additional native runtime capability, **not** removal
+of Python from the hosted seed, CI harness or canonical C11 backend.
+
+**Next item: SV8.102** — investigate native persistent string ownership and
+lifetime/alias invariants, with a new fail-closed executable contract.
+
 ## SV8.100 - arena-allocated growing UTF-8 text (2026-10-27)
 
 Green starting baseline: cefbd7a, as confirmed by the user.

@@ -21,3 +21,8 @@ Use `--build-win` and an `.exe` output name on Windows. The generated source roo
 contains the required runtime modules. No host compiler or linker is used by this
 post-seed path. See [arena text](../../docs/native_arena_text.md) for generation,
 alias, allocation-failure and reclamation rules.
+
+SV8.101 additionally validates Unicode scalar-indexed lookup, borrowed slicing
+and a scalar-range edit in the same imported executable; the report's length,
+exit code and cleanup contract stay unchanged. See
+[scalar-indexed arena text](../../docs/native_arena_unicode.md).

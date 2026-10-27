@@ -174,3 +174,88 @@ pub fn native_arena_text_close(text:*mut NativeArenaText,wipe:bool)->NativeU32Re
     native_arena_text_reset(text,wipe)?;
     native_arena_text_detach(text);return native_u32_ok(0);
 }
+
+// SV8.101: scalar-indexed operations sit on the checked arena text contract.
+// Indices count Unicode scalar values, not bytes or grapheme clusters. All
+// scans validate the arena epoch and complete existing UTF-8 before access.
+// Borrowed slices still depend on the caller preserving the arena generation.
+pub fn native_arena_text_scalar_offset(text:*const NativeArenaText,index:u32)->NativeU32Result{
+    let checked:NativeU32Result=native_arena_text_check(text);
+    if checked.status!=0{return checked;}
+    if index>checked.value{return native_u32_error(7,index as usize);}
+    let bytes:NativeUtf8Buffer=unsafe{text.buffer};
+    let mut offset:usize=0;let mut scalar_index:u32=0;
+    while scalar_index<index{
+        let current:NativeUtf8Scalar=native_utf8_scalar(bytes.data,bytes.length,offset);
+        if !current.valid{return native_u32_error(8,offset);}
+        offset=current.next;scalar_index=scalar_index+1;
+    }
+    return native_u32_ok(offset as u32);
+}
+
+pub fn native_arena_text_scalar_at(text:*const NativeArenaText,index:u32)->NativeU32Result{
+    let offset:u32=native_arena_text_scalar_offset(text,index)?;
+    let bytes:NativeUtf8Buffer=unsafe{text.buffer};
+    if (offset as usize)>=bytes.length{return native_u32_error(7,index as usize);}
+    let value:NativeUtf8Scalar=native_utf8_scalar(bytes.data,bytes.length,offset as usize);
+    if !value.valid{return native_u32_error(8,offset as usize);}
+    return native_u32_ok(value.scalar);
+}
+
+pub fn native_arena_text_slice_scalars(text:*const NativeArenaText,start:u32,end:u32)->NativeByteSlice{
+    if start>end{return native_text_invalid();}
+    let first:NativeU32Result=native_arena_text_scalar_offset(text,start);
+    if first.status!=0{return native_text_invalid();}
+    let last:NativeU32Result=native_arena_text_scalar_offset(text,end);
+    if last.status!=0{return native_text_invalid();}
+    let view:NativeByteSlice=native_arena_text_view(text);
+    if !native_text_valid(view){return native_text_invalid();}
+    return native_text_sub(view,first.value as usize,(last.value-first.value) as usize);
+}
+
+// Both same-descriptor self append and copying from a different live text are
+// supported. The source bytes remain in the arena after destination relocation.
+pub fn native_arena_text_append_text(destination:*mut NativeArenaText,source:*const NativeArenaText)->NativeU32Result{
+    let view:NativeByteSlice=native_arena_text_view(source);
+    if !native_text_valid(view){return native_u32_error(7,0);}
+    return native_arena_text_append_slice(destination,view);
+}
+
+pub fn native_arena_text_append_scalars(destination:*mut NativeArenaText,source:*const NativeArenaText,
+    start:u32,end:u32)->NativeU32Result{
+    let view:NativeByteSlice=native_arena_text_slice_scalars(source,start,end);
+    if !native_text_valid(view){return native_u32_error(7,start as usize);}
+    return native_arena_text_append_slice(destination,view);
+}
+
+// Reuse byte-based replacement's preflight, alias rejection and OOM atomicity.
+pub fn native_arena_text_replace_scalars(text:*mut NativeArenaText,start:u32,end:u32,
+    data:*const u8,length:usize)->NativeU32Result{
+    if start>end{return native_u32_error(7,start as usize);}
+    let first:u32=native_arena_text_scalar_offset(text,start)?;
+    let last:u32=native_arena_text_scalar_offset(text,end)?;
+    return native_arena_text_replace(text,first as usize,last as usize,data,length);
+}
+
+pub fn native_arena_text_insert_scalar(text:*mut NativeArenaText,index:u32,value:u32)->NativeU32Result{
+    let mut encoded:[u8;4]=0;let pointer:*mut u8=unsafe{encoded as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(pointer,4);
+    let count:u32=native_utf8_buffer_append_scalar(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},value)?;
+    return native_arena_text_replace_scalars(text,index,index,pointer,count as usize);
+}
+
+// Removal and pop return the removed Unicode scalar, not the new byte length.
+// A failed index, stale generation or malformed text never publishes an edit.
+pub fn native_arena_text_remove_scalar(text:*mut NativeArenaText,index:u32)->NativeU32Result{
+    let scalar:u32=native_arena_text_scalar_at(text,index)?;
+    let first:u32=native_arena_text_scalar_offset(text,index)?;
+    let last:u32=native_arena_text_scalar_offset(text,index+1)?;
+    native_arena_text_replace(text,first as usize,last as usize,null,0)?;
+    return native_u32_ok(scalar);
+}
+
+pub fn native_arena_text_pop_scalar(text:*mut NativeArenaText)->NativeU32Result{
+    let count:u32=native_arena_text_check(text)?;
+    if count==0{return native_u32_error(7,0);}
+    return native_arena_text_remove_scalar(text,count-1);
+}

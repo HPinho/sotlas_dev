@@ -20,6 +20,13 @@ fn report(text:*mut NativeArenaText,arena:*mut NativeArena)->NativeU32Result{
         || !native_text_equal(native_text_sub(view,0,8),native_text_open("total=43",8)){
         return native_u32_error(7,0);
     }
+    // Exercise scalar-indexed lookups/edits through the native runtime API.
+    if native_arena_text_scalar_at(text,548).value!=8364
+        || native_arena_text_scalar_offset(text,549).value!=551
+        || !native_text_equal(native_arena_text_slice_scalars(text,6,8),native_text_open("43",2))
+        || native_arena_text_replace_scalars(text,6,8,"43",2).status!=0{
+        return native_u32_error(7,0);
+    }
     return native_arena_text_check(text);
 }
 

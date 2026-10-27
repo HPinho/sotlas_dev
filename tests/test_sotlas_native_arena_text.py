@@ -132,4 +132,120 @@ if native_arena_text_check(t).status!=8 || native_arena_text_reset(t,true).statu
 || unsafe{*pointer}!=0 || native_arena_text_append_u32(t,42).status!=0{return 1;}return 42;''')
 
 
+
+    def test_scalar_positions_and_slices_across_all_utf8_widths(self):
+        self.program('arena_scalar_positions','''native_arena_text_init(t,a,0);
+native_arena_text_append_scalar(t,65);native_arena_text_append_scalar(t,162);
+native_arena_text_append_scalar(t,8364);native_arena_text_append_scalar(t,128512);
+native_arena_text_append_scalar(t,90);
+if native_arena_text_check(t).value!=5 || text.buffer.length!=11
+|| native_arena_text_scalar_offset(t,0).value!=0
+|| native_arena_text_scalar_offset(t,1).value!=1
+|| native_arena_text_scalar_offset(t,2).value!=3
+|| native_arena_text_scalar_offset(t,3).value!=6
+|| native_arena_text_scalar_offset(t,4).value!=10
+|| native_arena_text_scalar_offset(t,5).value!=11
+|| native_arena_text_scalar_at(t,3).value!=128512
+|| native_arena_text_scalar_at(t,4).value!=90{return 1;}
+let part:NativeByteSlice=native_arena_text_slice_scalars(t,1,4);
+if !part.valid || part.length!=9
+|| !native_text_equal(part,native_text_sub(native_arena_text_view(t),1,9))
+|| native_arena_text_scalar_offset(t,6).status!=7
+|| native_arena_text_scalar_at(t,5).status!=7
+|| native_arena_text_slice_scalars(t,3,2).valid
+|| native_arena_text_slice_scalars(t,0,6).valid{return 2;}return 42;''')
+
+    def test_insert_replace_remove_and_pop_use_scalar_indices(self):
+        self.program('arena_scalar_edits','''native_arena_text_init(t,a,0);
+native_arena_text_append(t,"AC",2);
+if native_arena_text_insert_scalar(t,1,8364).status!=0
+|| native_arena_text_replace_scalars(t,2,3,"B",1).status!=0
+|| native_arena_text_check(t).value!=3 || text.buffer.length!=5{return 1;}
+let removed:NativeU32Result=native_arena_text_remove_scalar(t,1);
+if removed.status!=0 || removed.value!=8364
+|| !native_text_equal(native_arena_text_view(t),native_text_open("AB",2)){return 2;}
+native_arena_text_append_scalar(t,128512);
+let popped:NativeU32Result=native_arena_text_pop_scalar(t);
+if popped.status!=0 || popped.value!=128512
+|| !native_text_equal(native_arena_text_view(t),native_text_open("AB",2))
+|| native_arena_text_scalar_at(t,0).value!=65{return 3;}return 42;''')
+
+    def test_self_append_after_relocation_and_scalar_range_copy(self):
+        self.program('arena_scalar_alias','''native_arena_text_init(t,a,16);
+native_arena_text_append(t,"abcdefghij",10);
+let old:*mut u8=text.buffer.data;let neighbor:*mut u8=native_arena_alloc(a,8,1);
+unsafe{*neighbor=99;}
+if native_arena_text_append_text(t,t).status!=0 || text.buffer.data==old
+|| unsafe{*neighbor}!=99 || unsafe{*old}!=97 || text.buffer.length!=20
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghijabcdefghij",20)){return 1;}
+if native_arena_text_append_scalars(t,t,0,2).status!=0
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghijabcdefghijab",22)){return 2;}return 42;''')
+
+    def test_append_from_another_live_arena_text(self):
+        self.program('arena_scalar_other','''native_arena_text_init(t,a,0);
+native_arena_text_append(t,"prefix",6);
+let mut other:NativeArenaText=native_arena_text_empty();
+let p:*mut NativeArenaText=unsafe{(&mut other) as *mut NativeArenaText};
+native_arena_text_init(p,a,0);native_arena_text_append_scalar(p,8364);
+native_arena_text_append_scalar(p,128512);
+if native_arena_text_append_scalars(t,p,1,2).status!=0
+|| native_arena_text_append_text(t,p).status!=0
+|| native_arena_text_check(t).value!=9
+|| text.buffer.length!=17
+|| native_arena_text_scalar_at(t,6).value!=128512
+|| native_arena_text_scalar_at(t,7).value!=8364{return 1;}return 42;''')
+
+    def test_invalid_index_and_scalar_are_atomic(self):
+        self.program('arena_scalar_invalid','''native_arena_text_init(t,a,16);
+native_arena_text_append(t,"abcd",4);let used:usize=arena.used;
+let old:*mut u8=text.buffer.data;
+if native_arena_text_insert_scalar(t,2,55296).status!=8
+|| native_arena_text_insert_scalar(t,9,8364).status!=7
+|| native_arena_text_replace_scalars(t,3,2,"x",1).status!=7
+|| native_arena_text_replace_scalars(t,0,5,"x",1).status!=7
+|| native_arena_text_remove_scalar(t,4).status!=7
+|| arena.used!=used || text.buffer.data!=old || text.buffer.length!=4
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcd",4)){return 1;}
+native_arena_text_reset(t,false);
+if native_arena_text_pop_scalar(t).status!=7 || arena.used!=used{return 2;}return 42;''')
+
+    def test_scalar_insert_out_of_memory_preserves_arena_and_bytes(self):
+        self.program('arena_scalar_oom','''native_arena_text_init(t,a,16);
+native_arena_text_append(t,"abcdefghijklmnop",16);
+let old:*mut u8=text.buffer.data;let used:usize=arena.used;
+if native_arena_text_insert_scalar(t,8,8364).status!=10
+|| native_arena_text_replace_scalars(t,0,1,"123456",6).status!=10
+|| arena.used!=used || text.buffer.data!=old || text.buffer.capacity!=16
+|| text.buffer.length!=16 || storage[16]!=77
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghijklmnop",16)){return 1;}return 42;''',20)
+
+    def test_stale_epoch_and_corrupt_utf8_fail_before_scalar_read(self):
+        self.program('arena_scalar_stale','''let mark:NativeArenaMark=native_arena_mark(a);
+native_arena_text_init(t,a,16);native_arena_text_append(t,"42",2);
+if !native_arena_rewind(a,mark){return 1;}
+let address:u64=18446744073709551615;
+text.buffer.data=unsafe{address as *mut u8};
+if native_arena_text_scalar_offset(t,0).status!=7
+|| native_arena_text_scalar_at(t,0).status!=7
+|| native_arena_text_slice_scalars(t,0,0).valid
+|| native_arena_text_pop_scalar(t).status!=7{return 2;}
+native_arena_text_detach(t);native_arena_text_init(t,a,0);
+native_arena_text_append(t,"abc",3);
+unsafe{*text.buffer.data=255;}
+if native_arena_text_scalar_offset(t,1).status!=8
+|| native_arena_text_scalar_at(t,0).status!=8
+|| native_arena_text_append_text(t,t).status!=7
+|| native_arena_text_slice_scalars(t,0,1).valid{return 3;}return 42;''')
+
+    def test_utf8_replacement_alias_and_invalid_source_fail_before_growth(self):
+        self.program('arena_scalar_source','''native_arena_text_init(t,a,16);
+native_arena_text_append(t,"abcdefghij",10);
+let used:usize=arena.used;let source:*mut u8=text.buffer.data;
+let broken:[u8;2]=[226,130];
+if native_arena_text_replace_scalars(t,2,3,source,3).status!=7
+|| native_arena_text_replace_scalars(t,2,3,unsafe{broken as *const u8},2).status!=8
+|| native_arena_text_append_scalars(t,t,9,11).status!=7
+|| arena.used!=used || text.buffer.length!=10
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghij",10)){return 1;}return 42;''')
+
 if __name__=='__main__':unittest.main()
