@@ -58,7 +58,7 @@ Native tests cover capacity limits, invalid public storage, all UTF-8 sequence
 widths, malformed encodings, independent copies, replacement expansion, numeric
 round trips and transactional destination writes.
 
-This is a bounded value library. Dynamic strings, general borrowed slices,
+This is a bounded value library. Builtin dynamic strings, general borrowed slices,
 Unicode normalization/case folding, grapheme indexing and automatic ARC-backed
 string storage remain open. Foreign byte-range interfaces are optional; this
 module does not require C glue or a C runtime.
@@ -71,3 +71,7 @@ original backing buffer do not change that value.
 For text larger than 256 bytes, [caller-backed UTF-8 buffers](native_utf8_buffer.md)
 use program-supplied storage with checked append/edit operations and borrowed
 views. They do not add automatic allocation or compiler-proven slice lifetimes.
+
+[Arena text](native_arena_text.md) adds allocation and geometric growth inside
+an explicit Sotlas arena, with generation checks and scope cleanup. Its raw
+descriptor/view rules remain separate from compiler-proven string ownership.

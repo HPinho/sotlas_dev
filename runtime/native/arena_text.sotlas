@@ -1,0 +1,176 @@
+module sotlas::runtime::arena_text;
+import sotlas::runtime::results::*;
+import sotlas::runtime::managed::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::utf8_buffer::*;
+
+// Descriptor and arena header must outlive calls and remain disjoint from arena
+// backing. Copying this descriptor aliases storage; this is not an ARC owner.
+pub struct NativeArenaText{pub arena:*mut NativeArena;pub epoch:u64;pub buffer:NativeUtf8Buffer;}
+
+pub fn native_arena_text_empty()->NativeArenaText{
+    return NativeArenaText{arena:null,epoch:0,buffer:native_utf8_buffer_open(null,0)};
+}
+
+pub fn native_arena_text_arena_valid(arena:*const NativeArena)->bool{
+    if arena==null{return false;}
+    unsafe{return arena.epoch!=0 && arena.used<=arena.capacity
+        && (arena.buffer!=null || arena.capacity==0)
+        && arena.capacity<=18446744073709551615-(arena.buffer as usize);}
+}
+
+// Epoch is checked before reading text backing. Rewind/shrink invalidates all
+// descriptors from the previous arena generation, even if an address is reused.
+pub fn native_arena_text_alive(text:*const NativeArenaText)->bool{
+    if text==null{return false;}
+    unsafe{
+        let arena:*const NativeArena=text.arena;
+        if !native_arena_text_arena_valid(arena) || text.epoch==0 || text.epoch!=arena.epoch{return false;}
+        let buffer:NativeUtf8Buffer=text.buffer;
+        let p:*const NativeUtf8Buffer=unsafe{(&buffer) as *const NativeUtf8Buffer};
+        if !native_utf8_buffer_shape(p){return false;}
+        if buffer.capacity==0{return buffer.data==null;}
+        return native_arena_contains(text.arena,buffer.data,buffer.capacity);
+    }
+}
+
+pub fn native_arena_text_check(text:*const NativeArenaText)->NativeU32Result{
+    if !native_arena_text_alive(text){return native_u32_error(7,0);}
+    let buffer:NativeUtf8Buffer=unsafe{text.buffer};
+    return native_utf8_buffer_check(unsafe{(&buffer) as *const NativeUtf8Buffer});
+}
+
+pub fn native_arena_text_view(text:*const NativeArenaText)->NativeByteSlice{
+    if native_arena_text_check(text).status!=0{return native_text_invalid();}
+    unsafe{return native_text_open(text.buffer.data,text.buffer.length);}
+}
+
+// Grow the last allocation first. Otherwise allocate/copy, retaining old arena
+// bytes until rewind. Try geometric capacity, then the exact requested size.
+pub fn native_arena_text_reserve(mut text:*mut NativeArenaText,needed:usize)->NativeU32Result{
+    let checked:NativeU32Result=native_arena_text_check(text);if checked.status!=0{return checked;}
+    if needed>4294967295{return native_u32_error(7,needed);}
+    unsafe{
+        let old:NativeUtf8Buffer=text.buffer;if needed<=old.capacity{return native_u32_ok(old.capacity as u32);}
+        let mut capacity:usize=old.capacity;if capacity<16{capacity=16;}
+        while capacity<needed{if capacity>2147483647{capacity=needed;}else{capacity=capacity*2;}}
+        let arena:*mut NativeArena=text.arena;
+        if old.capacity!=0{
+            if native_arena_grow_last(arena,old.data,old.capacity,capacity){text.buffer.capacity=capacity;return native_u32_ok(capacity as u32);}
+            if capacity!=needed && native_arena_grow_last(arena,old.data,old.capacity,needed){text.buffer.capacity=needed;return native_u32_ok(needed as u32);}
+        }
+        let mut memory:*mut u8=native_arena_alloc(arena,capacity,1);
+        if memory==null && capacity!=needed{capacity=needed;memory=native_arena_alloc(arena,capacity,1);}
+        if memory==null{return native_u32_error(10,needed);}
+        let mut i:usize=0;while i<old.length{*(memory+i)=*(old.data+i);i=i+1;}
+        text.buffer=NativeUtf8Buffer{data:memory,capacity:capacity,length:old.length,valid:true};
+        return native_u32_ok(capacity as u32);
+    }
+}
+
+pub fn native_arena_text_init(mut text:*mut NativeArenaText,arena:*mut NativeArena,capacity:usize)->NativeU32Result{
+    if text==null || !native_arena_text_arena_valid(arena) || capacity>4294967295{return native_u32_error(7,capacity);}
+    unsafe{if text.arena!=null || text.epoch!=0{return native_u32_error(7,0);}}
+    let mut staged:NativeArenaText=NativeArenaText{arena:arena,epoch:unsafe{arena.epoch},buffer:native_utf8_buffer_open(null,0)};
+    let p:*mut NativeArenaText=unsafe{(&mut staged) as *mut NativeArenaText};
+    let reserved:u32=native_arena_text_reserve(p,capacity)?;
+    unsafe{text.arena=staged.arena;text.epoch=staged.epoch;text.buffer=staged.buffer;}
+    return native_u32_ok(reserved);
+}
+
+// Sources may point into already allocated arena storage, including this text.
+// On growth, reject overlap with the arena's free tail before allocation/copy.
+pub fn native_arena_text_source(text:*const NativeArenaText,data:*const u8,length:usize,growing:bool)->NativeU32Result{
+    if !native_arena_text_alive(text){return native_u32_error(7,0);}
+    if data==null && length!=0{return native_u32_error(1,0);}
+    let source:usize=unsafe{data as usize};
+    if length>4294967295 || length>18446744073709551615-source{return native_u32_error(7,length);}
+    if growing && length!=0{
+        unsafe{
+            let arena:*const NativeArena=text.arena;
+            let free:usize=(arena.buffer as usize)+arena.used;let available:usize=arena.capacity-arena.used;
+            if available!=0 && ((source>=free && source-free<available) || (free>source && free-source<length)){return native_u32_error(7,0);}
+        }
+    }
+    let mut offset:usize=0;
+    while offset<length{let scalar:NativeUtf8Scalar=native_utf8_scalar(data,length,offset);
+        if !scalar.valid{return native_u32_error(8,offset);}offset=scalar.next;}
+    return native_u32_ok(length as u32);
+}
+
+pub fn native_arena_text_append(mut text:*mut NativeArenaText,data:*const u8,length:usize)->NativeU32Result{
+    native_arena_text_check(text)?;
+    let old:NativeUtf8Buffer=unsafe{text.buffer};
+    if length>4294967295-old.length{return native_u32_error(7,length);}
+    let needed:usize=old.length+length;
+    native_arena_text_source(text,data,length,needed>old.capacity)?;
+    native_arena_text_reserve(text,needed)?;
+    let mut staged:NativeUtf8Buffer=unsafe{text.buffer};
+    let result:NativeU32Result=native_utf8_buffer_append(unsafe{(&mut staged) as *mut NativeUtf8Buffer},data,length);
+    unsafe{text.buffer=staged;}return result;
+}
+
+pub fn native_arena_text_append_slice(text:*mut NativeArenaText,value:NativeByteSlice)->NativeU32Result{
+    if !native_text_valid(value){return native_u32_error(7,0);}
+    return native_arena_text_append(text,value.data,value.length);
+}
+
+pub fn native_arena_text_append_u32(text:*mut NativeArenaText,value:u32)->NativeU32Result{
+    let mut bytes:[u8;10]=0;let pointer:*mut u8=unsafe{bytes as *mut u8};
+    let count:u32=native_format_u32(value,pointer,10)?;
+    return native_arena_text_append(text,pointer,count as usize);
+}
+
+pub fn native_arena_text_append_scalar(text:*mut NativeArenaText,value:u32)->NativeU32Result{
+    let mut bytes:[u8;4]=0;let pointer:*mut u8=unsafe{bytes as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(pointer,4);
+    let count:u32=native_utf8_buffer_append_scalar(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},value)?;
+    return native_arena_text_append(text,pointer,count as usize);
+}
+
+pub fn native_arena_text_replace(mut text:*mut NativeArenaText,start:usize,end:usize,data:*const u8,length:usize)->NativeU32Result{
+    native_arena_text_check(text)?;let old:NativeUtf8Buffer=unsafe{text.buffer};
+    if start>end || end>old.length{return native_u32_error(7,start);}
+    unsafe{
+        if start<old.length && *(old.data+start)>=128 && *(old.data+start)<=191{return native_u32_error(8,start);}
+        if end<old.length && *(old.data+end)>=128 && *(old.data+end)<=191{return native_u32_error(8,end);}
+    }
+    let retained:usize=old.length-(end-start);
+    if length>4294967295-retained{return native_u32_error(7,length);}
+    if length!=0{
+        let source:usize=unsafe{data as usize};let base:usize=unsafe{old.data as usize};
+        if (source>=base && source-base<old.capacity) || (base>source && base-source<length){return native_u32_error(7,start);}
+    }
+    let needed:usize=retained+length;
+    native_arena_text_source(text,data,length,needed>old.capacity)?;
+    native_arena_text_reserve(text,needed)?;
+    let mut staged:NativeUtf8Buffer=unsafe{text.buffer};
+    let result:NativeU32Result=native_utf8_buffer_replace(unsafe{(&mut staged) as *mut NativeUtf8Buffer},start,end,data,length);
+    unsafe{text.buffer=staged;}return result;
+}
+
+pub fn native_arena_text_truncate(mut text:*mut NativeArenaText,length:usize)->NativeU32Result{
+    native_arena_text_check(text)?;let mut staged:NativeUtf8Buffer=unsafe{text.buffer};
+    let result:NativeU32Result=native_utf8_buffer_truncate(unsafe{(&mut staged) as *mut NativeUtf8Buffer},length);
+    unsafe{text.buffer=staged;}return result;
+}
+
+pub fn native_arena_text_reset(mut text:*mut NativeArenaText,wipe:bool)->NativeU32Result{
+    if !native_arena_text_alive(text){return native_u32_error(7,0);}
+    let mut staged:NativeUtf8Buffer=unsafe{text.buffer};
+    let result:NativeU32Result=native_utf8_buffer_reset(unsafe{(&mut staged) as *mut NativeUtf8Buffer},wipe);
+    unsafe{text.buffer=staged;}return result;
+}
+
+// Detach only: no backing read, wipe or arena rewind. Safe for stale epochs
+// while the descriptor itself remains valid. Existing raw views are not revoked.
+pub fn native_arena_text_detach(mut text:*mut NativeArenaText)->bool{
+    if text==null{return false;}
+    unsafe{text.arena=null;text.epoch=0;text.buffer=native_utf8_buffer_open(null,0);}return true;
+}
+
+pub fn native_arena_text_close(text:*mut NativeArenaText,wipe:bool)->NativeU32Result{
+    native_arena_text_reset(text,wipe)?;
+    native_arena_text_detach(text);return native_u32_ok(0);
+}

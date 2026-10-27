@@ -17,6 +17,9 @@ propagation from conditional/match choices and an imported
 SV8.99 adds [caller-backed UTF-8 buffers](../../../docs/native_utf8_buffer.md)
 and a [larger report example](../../../examples/native_text_buffer/README.md)
 with checked edits, borrowed views and deferred cleanup.
+SV8.100 adds [growing arena text](../../../docs/native_arena_text.md) and an
+[allocation/report example](../../../examples/native_arena_text/README.md),
+including relocation, allocation failure and arena-generation checks.
 
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:

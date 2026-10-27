@@ -2,6 +2,37 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.100 - arena-allocated growing UTF-8 text (2026-10-27)
+
+Green starting baseline: cefbd7a, as confirmed by the user.
+
+- [x] Allocate and grow UTF-8 text within the existing Sotlas arena, starting
+  lazily or with explicit capacity, without a C allocator or hidden OS calls.
+- [x] Grow the last allocation in place, relocate/copy non-last allocations and
+  fall back to exact capacity when geometric growth cannot fit.
+- [x] Preserve cursor, descriptor and existing bytes on exhaustion; preflight
+  malformed input, boundaries and source aliases before allocating.
+- [x] Support append, numeric/scalar encoding, replacement, truncate, reset,
+  borrowed views, explicit close and descriptor detach.
+- [x] Check generation/range before text backing access after arena invalidation;
+  compose result propagation, return snapshots and deferred close on both paths.
+- [x] Execute an imported report with interleaved allocation, relocation,
+  in-place growth, neighboring storage checks and cleanup before arena rewind.
+- [ ] OS-heap strings, automatic ARC/drop, allocation identity/alias tracking,
+  compiler-proven slice lifetimes and unrestricted string-language parity.
+
+[Arena text](native_arena_text.md) defines this runtime API. Relocated blocks
+remain in the arena until rewind; close does not individually reclaim them or
+revoke raw borrowed views. Compiler sources are unchanged in this block.
+
+Local validation: 112 focused arena, managed-runtime, numeric, result, inline
+UTF-8 and caller-backed buffer tests pass on each Windows/Linux native driver.
+All 16 new arena-text tests pass through the hosted seed route, plus 21 manifest/
+documentation gates. The imported report passes direct build/run and object/link
+paths with host tools absent from PATH; objects and ELF/PE/Mach-O bytes match
+across hosts. The report is integrated into all three Stage 3 platform gates.
+New GitHub CI and actual Intel macOS execution of this report remain pending.
+
 ## SV8.99 - caller-backed UTF-8 report buffers (2026-10-27)
 
 Verified starting baseline: 3ec0990, [CI #1311](https://github.com/HPinho/sotlas_dev/actions/runs/40468078041),

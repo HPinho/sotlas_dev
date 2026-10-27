@@ -46,5 +46,9 @@ each edit, so repeated tiny appends should be batched when performance matters.
 [The report example](../examples/native_text_buffer/README.md) builds text beyond
 256 bytes and exercises edits, self append, Unicode boundaries and defer. Tests
 run the same native implementation through hosted and rebuilt native drivers.
-Allocated strings, automatic reallocation, general compiler-tracked slice
-lifetimes and ARC-backed string storage remain open.
+OS-heap allocation, general compiler-tracked slice lifetimes and ARC-backed
+string storage remain open.
+
+[Arena text](native_arena_text.md) now layers explicit arena-managed allocation
+and growth over this buffer API. The fixed caller-backed buffer itself retains
+the capacity and lifetime contract described above.
