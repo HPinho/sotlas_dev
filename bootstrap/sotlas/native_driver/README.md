@@ -21,6 +21,10 @@ SV8.100 adds [growing arena text](../../../docs/native_arena_text.md) and an
 [allocation/report example](../../../examples/native_arena_text/README.md),
 including relocation, allocation failure and arena-generation checks.
 
+SV8.101 extends this native arena text with [scalar-indexed Unicode operations](../../../docs/native_arena_unicode.md),
+including lookups, edits and alias-safe text composition, exercised by the same
+report's Stage 3 platform gates.
+
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:
 
