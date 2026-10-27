@@ -88,3 +88,6 @@ ownership.sotlas|6|use of moved or maybe-moved value
 ../match_profile/result_defer.sotlas|6|semantic error
 ../match_profile/result_choices.sotlas|42|
 ../match_profile/result_choice_nominal.sotlas|6|semantic error
+../../../examples/native_pointer_graph/main.sotlas|42|
+../match_profile/projection_const.sotlas|6|semantic error
+../match_profile/projection_unsafe.sotlas|6|semantic error

@@ -1,0 +1,5 @@
+module projection_unsafe;
+struct Leaf{pub n:u32;}
+struct Root{pub leaf:*mut Leaf;}
+// Producing the pointer inside unsafe does not authorize the later field read.
+pub fn main_entry()->u32{let root:Root=Root{leaf:null};return (unsafe{root.leaf}).n;}

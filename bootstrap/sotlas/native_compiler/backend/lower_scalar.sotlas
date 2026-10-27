@@ -1425,7 +1425,7 @@ impl ScalarLowering {
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         if self.structured_cfg && expression.kind == AstKind::ExprFieldAccess {
-            let owner: u32 = self.cfg_struct_id(expression.first_child, 0);
+            let owner: u32 = self.cfg_record_receiver_id(expression.first_child, 0);
             let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
             if field != 0 {
                 let declared: usize = self.field_type_refs[field as usize - 1];
@@ -2638,13 +2638,14 @@ impl ScalarLowering {
         let mut struct_id: u32 = 0;
         let mut base_ptr: u32 = 0;
         if base_node.kind == AstKind::ExprIdent {
-            struct_id = self.cfg_struct_id(base_index,0);
-            base_ptr = self.cfg_struct_address(base_index,first_parameter,parameter_count,0);
+            struct_id = self.cfg_record_receiver_id(base_index,0);
+            base_ptr = self.cfg_record_receiver_address(base_index,first_parameter,parameter_count,0);
         } else if self.structured_cfg && (base_node.kind == AstKind::ExprFieldAccess
             || base_node.kind == AstKind::ExprIndex || base_node.kind == AstKind::UnsafeExpr
+            || base_node.kind == AstKind::ExprCall
             || (base_node.kind == AstKind::ExprUnary && base_node.int_value == 82)) {
-            struct_id = self.cfg_struct_id(base_index, 0);
-            base_ptr = self.cfg_struct_address(base_index, first_parameter, parameter_count, 0);
+            struct_id = self.cfg_record_receiver_id(base_index, 0);
+            base_ptr = self.cfg_record_receiver_address(base_index, first_parameter, parameter_count, 0);
         } else { return false; }
         if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return false; }
         let field_id: u32 = self.find_field(struct_id, field_node.str_offset, field_node.str_len);
@@ -3907,16 +3908,16 @@ impl ScalarLowering {
             let mut struct_id: u32 = 0;
             let mut base_ptr_val: u32 = TARGET_VALUE_NONE;
             if base_node.kind == AstKind::ExprIdent {
-                struct_id = self.cfg_struct_id(base_expr_index,0);
-                base_ptr_val = self.cfg_struct_address(base_expr_index,first_parameter,parameter_count,0);
+                struct_id = self.cfg_record_receiver_id(base_expr_index,0);
+                base_ptr_val = self.cfg_record_receiver_address(base_expr_index,first_parameter,parameter_count,0);
             } else if base_node.kind == AstKind::ExprStructLiteral || base_node.kind == AstKind::ExprCall || base_node.kind == AstKind::TryExpr {
                 base_ptr_val = self.lower_expression(
                     base_expr_index, TargetTypeTag::Pointer, first_parameter, parameter_count
                 );
-                struct_id = self.cfg_struct_id(base_expr_index, 0);
-            } else if self.structured_cfg && (base_node.kind == AstKind::ExprFieldAccess || base_node.kind == AstKind::ExprIndex) {
-                struct_id = self.cfg_struct_id(base_expr_index, 0);
-                base_ptr_val = self.cfg_struct_address(base_expr_index, first_parameter, parameter_count, 0);
+                struct_id = self.cfg_record_receiver_id(base_expr_index, 0);
+            } else if self.structured_cfg && (base_node.kind == AstKind::ExprFieldAccess || base_node.kind == AstKind::ExprIndex || base_node.kind == AstKind::UnsafeExpr) {
+                struct_id = self.cfg_record_receiver_id(base_expr_index, 0);
+                base_ptr_val = self.cfg_record_receiver_address(base_expr_index, first_parameter, parameter_count, 0);
             } else if base_node.kind == AstKind::ExprUnary
                 && base_node.int_value == 82 {
                 let pointer_expression: usize = base_node.first_child;
@@ -4415,7 +4416,7 @@ impl ScalarLowering {
         }
 
         if self.structured_cfg && expression.kind == AstKind::ExprFieldAccess {
-            let owner: u32 = self.cfg_struct_id(expression.first_child, 0);
+            let owner: u32 = self.cfg_record_receiver_id(expression.first_child, 0);
             let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
             if field != 0 { return self.field_type_tags[field as usize - 1] as TargetTypeTag; }
         }
@@ -5867,7 +5868,7 @@ impl ScalarLowering {
         if expression.kind != AstKind::ExprIndex || base == 0 || base >= self.node_count { return 0; }
         let field: AstNode = unsafe { *(self.nodes + base) };
         if field.kind != AstKind::ExprFieldAccess { return 0; }
-        let owner: u32 = self.cfg_struct_id(field.first_child, 0);
+        let owner: u32 = self.cfg_record_receiver_id(field.first_child, 0);
         let result: u32 = self.find_field(owner, field.str_offset, field.str_len);
         if result == 0 || self.field_byte_counts[result as usize - 1] == 0 { return 0; }
         return result;
@@ -6663,6 +6664,33 @@ impl ScalarLowering {
         return (node.kind == AstKind::ExprConditional || node.kind == AstKind::ExprMatch) && self.cfg_record_value_id(index, 0) != 0;
     }
 
+    // Member receivers may be inline records or typed raw record pointers.
+    // Keep this separate from value identity: a pointer field is not a record
+    // value and must never trigger aggregate copying when stored in a local.
+    pub fn cfg_record_receiver_id(self: &Self, index: usize, depth: usize) -> u32 {
+        if index == 0 || index >= self.node_count || depth >= 64 { return 0; }
+        let record: u32 = self.cfg_struct_id(index,depth+1);
+        if record != 0 { return record; }
+        return self.pointer_pointee_struct_id(self.pointer_expression_type_ref(index));
+    }
+
+    pub fn cfg_record_receiver_address(mut self: &mut Self, index: usize,
+        first_parameter: usize, parameter_count: usize, depth: usize) -> u32 {
+        if index == 0 || index >= self.node_count || depth >= 64 { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind == AstKind::UnsafeExpr {
+            return self.cfg_record_receiver_address(node.first_child,first_parameter,parameter_count,depth+1);
+        }
+        // Existing identifier/dereference/index paths already load the correct
+        // address. Only new field/call receivers need pointer-vs-value lookup.
+        if node.kind == AstKind::ExprFieldAccess || node.kind == AstKind::ExprCall {
+            if self.pointer_pointee_struct_id(self.pointer_expression_type_ref(index)) != 0 {
+                return self.lower_expression(index,TargetTypeTag::Pointer,first_parameter,parameter_count);
+            }
+        }
+        return self.cfg_struct_address(index,first_parameter,parameter_count,depth+1);
+    }
+
     pub fn cfg_struct_id(self: &Self, expression_index: usize, depth: usize) -> u32 {
         if expression_index == 0 || expression_index >= self.node_count || depth >= 64 { return 0; }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
@@ -6718,7 +6746,7 @@ impl ScalarLowering {
             return self.pointer_pointee_struct_id(self.pointer_expression_type_ref(expression.first_child));
         }
         if expression.kind == AstKind::ExprFieldAccess {
-            let owner: u32 = self.cfg_struct_id(expression.first_child, depth + 1);
+            let owner: u32 = self.cfg_record_receiver_id(expression.first_child, depth + 1);
             let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
             if field != 0 { return self.field_struct_ids[field as usize - 1] as u32; }
         }
@@ -6769,11 +6797,11 @@ impl ScalarLowering {
             return self.lower_expression(expression.first_child, TargetTypeTag::Pointer, first_parameter, parameter_count);
         }
         if expression.kind != AstKind::ExprFieldAccess { return 0; }
-        let owner: u32 = self.cfg_struct_id(expression.first_child, depth + 1);
+        let owner: u32 = self.cfg_record_receiver_id(expression.first_child, depth + 1);
         let field: u32 = self.find_field(owner, expression.str_offset, expression.str_len);
         if field == 0 || (self.field_struct_ids[field as usize - 1] == 0
             && self.field_byte_counts[field as usize - 1] == 0) { return 0; }
-        let address: u32 = self.cfg_struct_address(expression.first_child, first_parameter, parameter_count, depth + 1);
+        let address: u32 = self.cfg_record_receiver_address(expression.first_child, first_parameter, parameter_count, depth + 1);
         let offset: u32 = self.append_value(TargetTypeTag::U64, 0, 0);
         if address == 0 || offset == 0 || !self.append_instruction(TargetOpcode::ConstInt,
             offset, TargetTypeTag::U64, 0, 0, expression_index) { return 0; }
@@ -7368,7 +7396,8 @@ impl ScalarLowering {
             if struct_id != 0 && (value_node.kind == AstKind::ExprIdent || value_node.kind == AstKind::ExprFieldAccess || value_node.kind == AstKind::ExprIndex
                 || (value_node.kind == AstKind::UnsafeExpr && value_node.first_child != 0
                     && (unsafe { (*(self.nodes + value_node.first_child)).kind } != AstKind::ExprUnary
-                        || unsafe { (*(self.nodes + value_node.first_child)).int_value } != 82))
+                        || unsafe { (*(self.nodes + value_node.first_child)).int_value } != 82
+                        || (type_index != 0 && unsafe{(*(self.nodes+type_index)).int_value} == 0)))
                 || (stmt.int_value == 1 && value_node.kind != AstKind::ExprStructLiteral
                     && value_node.kind != AstKind::ExprCall)) {
                 let copy: u32 = self.allocate_struct(struct_id, index);

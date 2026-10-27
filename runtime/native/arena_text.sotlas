@@ -25,8 +25,7 @@ pub fn native_arena_text_arena_valid(arena:*const NativeArena)->bool{
 pub fn native_arena_text_alive(text:*const NativeArenaText)->bool{
     if text==null{return false;}
     unsafe{
-        let arena:*const NativeArena=text.arena;
-        if !native_arena_text_arena_valid(arena) || text.epoch==0 || text.epoch!=arena.epoch{return false;}
+        if !native_arena_text_arena_valid(text.arena) || text.epoch==0 || text.epoch!=text.arena.epoch{return false;}
         let buffer:NativeUtf8Buffer=text.buffer;
         let p:*const NativeUtf8Buffer=unsafe{(&buffer) as *const NativeUtf8Buffer};
         if !native_utf8_buffer_shape(p){return false;}

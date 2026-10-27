@@ -1,0 +1,4 @@
+module projection_const;
+struct Leaf{pub n:u32;}
+struct Root{pub leaf:*const Leaf;}
+pub fn main_entry()->u32{let mut root:Root=Root{leaf:null};unsafe{root.leaf.n=42;}return 42;}

@@ -47,7 +47,7 @@ example exercises the public APIs through the native module import. The
 post-seed execution path does not call an external C compiler or Python; the
 hosted CI harness still uses Python for tests and initial seed generation.
 
-**Next SV candidate — SV8.102:** close additional text ownership/lifetime gaps
-and add a native-managed persistent allocation profile, subject to full matrix
-validation. This is a target, not a claim that automatic ARC or heap allocation
-already exists.
+SV8.102 corrects the scalar-insertion exhaustion fixture and adds
+[typed pointer projections and record snapshots](native_pointer_projections.md).
+A native-managed persistent allocation profile and additional text lifetime
+analysis remain open; automatic ARC and OS heap allocation are not claimed here.

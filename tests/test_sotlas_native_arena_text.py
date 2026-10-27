@@ -210,6 +210,7 @@ native_arena_text_reset(t,false);
 if native_arena_text_pop_scalar(t).status!=7 || arena.used!=used{return 2;}return 42;''')
 
     def test_scalar_insert_out_of_memory_preserves_arena_and_bytes(self):
+        # Sixteen bytes plus a three-byte scalar need 19 bytes, so use only 18.
         self.program('arena_scalar_oom','''native_arena_text_init(t,a,16);
 native_arena_text_append(t,"abcdefghijklmnop",16);
 let old:*mut u8=text.buffer.data;let used:usize=arena.used;
@@ -217,7 +218,15 @@ if native_arena_text_insert_scalar(t,8,8364).status!=10
 || native_arena_text_replace_scalars(t,0,1,"123456",6).status!=10
 || arena.used!=used || text.buffer.data!=old || text.buffer.capacity!=16
 || text.buffer.length!=16 || storage[16]!=77
-|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghijklmnop",16)){return 1;}return 42;''',20)
+|| !native_text_equal(native_arena_text_view(t),native_text_open("abcdefghijklmnop",16)){return 1;}return 42;''',18)
+
+    def test_scalar_insert_succeeds_at_exact_byte_capacity(self):
+        self.program('arena_scalar_exact','''native_arena_text_init(t,a,16);
+native_arena_text_append(t,"abcdefghijklmnop",16);
+if native_arena_text_insert_scalar(t,8,8364).status!=0 || arena.used!=19
+|| text.buffer.capacity!=19 || text.buffer.length!=19
+|| native_arena_text_check(t).value!=17 || native_arena_text_scalar_at(t,8).value!=8364
+|| native_arena_text_scalar_at(t,9).value!=105{return 1;}return 42;''',19)
 
     def test_stale_epoch_and_corrupt_utf8_fail_before_scalar_read(self):
         self.program('arena_scalar_stale','''let mark:NativeArenaMark=native_arena_mark(a);

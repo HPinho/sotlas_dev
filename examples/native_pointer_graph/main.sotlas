@@ -1,0 +1,26 @@
+module native_pointer_graph;
+
+struct Counter{pub value:u32;pub samples:[u32;2];}
+struct Node{pub next:*mut Node;pub counter:*mut Counter;}
+struct Graph{pub head:*mut Node;}
+static mut calls:u32=0;
+
+fn select(graph:*mut Graph)->*mut Graph{unsafe{calls=calls+1;}return graph;}
+
+pub fn main_entry()->u32{
+    let mut counter:Counter=Counter{value:20,samples:[20,0]};
+    let c:*mut Counter=unsafe{(&mut counter) as *mut Counter};
+    let mut tail:Node=Node{next:null,counter:c};
+    let t:*mut Node=unsafe{(&mut tail) as *mut Node};
+    let mut head:Node=Node{next:t,counter:c};
+    let h:*mut Node=unsafe{(&mut head) as *mut Node};
+    let mut graph:Graph=Graph{head:h};
+    let g:*mut Graph=unsafe{(&mut graph) as *mut Graph};
+    unsafe{graph.head.next.counter.samples[1]=22;}
+    let snapshot:Counter=unsafe{*graph.head.next.counter};
+    unsafe{select(g).head.next.counter.value=42;}
+    if unsafe{calls}!=1 || counter.value!=42{return 1;}
+    unsafe{graph.head.next.counter.samples[0]=0;}
+    if snapshot.samples[0]!=20 || counter.samples[0]!=0{return 2;}
+    return snapshot.samples[0]+snapshot.samples[1];
+}
