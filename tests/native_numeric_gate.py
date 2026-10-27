@@ -52,6 +52,10 @@ def verify_text_pipeline(compiler, output):
     verify_numeric_pipeline(compiler, output, 'native_text_pipeline', ('results', 'text', 'utf8'))
 
 
+def verify_text_buffer(compiler, output):
+    verify_numeric_pipeline(compiler, output, 'native_text_buffer', ('results', 'text', 'unicode', 'utf8_buffer'))
+
+
 if __name__ == '__main__':
-    verify = verify_text_pipeline if len(sys.argv) > 3 and sys.argv[3] == 'text' else verify_numeric_pipeline
+    verify = verify_text_buffer if len(sys.argv) > 3 and sys.argv[3] == 'buffer' else verify_text_pipeline if len(sys.argv) > 3 and sys.argv[3] == 'text' else verify_numeric_pipeline
     verify(sys.argv[1], sys.argv[2])

@@ -67,3 +67,7 @@ The existing `sotlas::runtime::text` byte-slice API retains its contract. The
 new `utf8` module uses distinct names and can be imported with it. Converting a
 borrowed slice copies its bytes into owned inline storage; later changes to the
 original backing buffer do not change that value.
+
+For text larger than 256 bytes, [caller-backed UTF-8 buffers](native_utf8_buffer.md)
+use program-supplied storage with checked append/edit operations and borrowed
+views. They do not add automatic allocation or compiler-proven slice lifetimes.

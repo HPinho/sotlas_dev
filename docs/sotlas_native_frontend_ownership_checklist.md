@@ -2,6 +2,37 @@
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.99 - caller-backed UTF-8 report buffers (2026-10-27)
+
+Verified starting baseline: 3ec0990, [CI #1311](https://github.com/HPinho/sotlas_dev/actions/runs/40468078041),
+all jobs successful, including Linux/Windows/Intel macOS matrix and C11 gate.
+
+- [x] Build UTF-8 text beyond the inline 256-byte value limit using explicit
+  caller-provided capacity and borrowed views, without allocation or C glue.
+- [x] Validate descriptor shape, byte ranges and full UTF-8 before publishing
+  edits; reject capacity, malformed input and split-scalar failures atomically.
+- [x] Append byte ranges, borrowed slices, checked decimal values and scalars;
+  support self append and overlapping sources with memmove order.
+- [x] Replace scalar-aligned ranges, shift suffixes, reject replacement aliases,
+  truncate, reset and optionally clear used storage.
+- [x] Compose native result propagation with LIFO cleanup and deferred wipe on
+  success/error; preserve return values before cleanup changes backing storage.
+- [x] Build an imported 551-byte report with edits, Unicode and self append.
+- [ ] Allocated/growing strings, compiler-proven backing lifetimes, alias
+  revocation, concurrent access and automatic ARC-backed text storage.
+
+[UTF-8 buffers](native_utf8_buffer.md) specifies the raw-storage contract.
+The existing byte-slice and inline UTF-8 APIs remain available. Compiler sources
+are unchanged in this block; it exercises the current native compiler/runtime ABI.
+
+Local validation: 82 focused numeric/result/UTF-8/buffer tests pass on each
+Windows/Linux native driver from the certified compiler sources. All 15 new
+buffer tests pass through the hosted seed route, plus 21 manifest/documentation
+gates. The imported report builds and executes with host tools absent from PATH;
+object and ELF/PE/Mach-O bytes are identical across hosts. The report gate is
+integrated into Linux, Windows and Intel macOS Stage 3 tests. New GitHub CI and
+actual Intel macOS execution of this new report remain pending.
+
 ## SV8.98 - bounded native UTF-8 text and result choices (2026-10-26)
 
 Starting point: main commit 37f36a4 (native results and checked numeric runtime).
