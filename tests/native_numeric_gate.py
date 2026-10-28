@@ -60,7 +60,12 @@ def verify_arena_text(compiler, output):
     verify_numeric_pipeline(compiler, output, 'native_arena_text', ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'arena_text'))
 
 
+def verify_pool_text(compiler, output):
+    verify_numeric_pipeline(compiler, output, 'native_pool_text',
+                            ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'pool', 'pool_text'))
+
+
 if __name__ == '__main__':
-    choices = {'arena': verify_arena_text, 'buffer': verify_text_buffer, 'text': verify_text_pipeline}
+    choices = {'pool': verify_pool_text, 'arena': verify_arena_text, 'buffer': verify_text_buffer, 'text': verify_text_pipeline}
     verify = choices.get(sys.argv[3] if len(sys.argv) > 3 else '', verify_numeric_pipeline)
     verify(sys.argv[1], sys.argv[2])

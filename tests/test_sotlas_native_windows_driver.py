@@ -349,6 +349,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_text_buffer(stage3, self.directory / "text buffer cases")
         from native_numeric_gate import verify_arena_text
         verify_arena_text(stage3, self.directory / "arena text cases")
+        from native_numeric_gate import verify_pool_text
+        verify_pool_text(stage3, self.directory / "pool text cases")
         from native_window_gate import verify_window
         verify_window(stage3, self.directory / "window cases")
         from native_ui_gate import verify_ui

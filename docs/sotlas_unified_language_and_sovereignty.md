@@ -1,5 +1,9 @@
 # Sotlas: Unified Language, Interoperability and Toolchain Roadmap
 
+This is the detailed language/interoperability inventory. Current work is grouped
+in the shorter [active plan](sotlas_sovereignty_roadmap.md); completed checkpoint
+reports are retained in [implementation history](sotlas_sovereignty_history.md).
+
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)
 
 ## SV8.102 - pointer projections, snapshots and CI repair (2026-10-27)
