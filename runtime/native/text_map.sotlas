@@ -1,0 +1,244 @@
+module sotlas::runtime::text_map;
+import sotlas::runtime::pool::*;
+import sotlas::runtime::pool_text::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+
+// Bounded, linear UTF-8 map. Seven u64 words per entry contain occupancy and
+// key/value slot indices, generations and revisions. The map owns those slots.
+pub struct NativeTextMap{pub pool:*mut NativePool;pub epoch:u64;pub entries:*mut u64;
+    pub capacity:u32;pub count:u32;pub revision:u64;pub live:bool;}
+pub struct NativeTextMapCursor{pub map:*const NativeTextMap;pub revision:u64;pub next:u32;}
+pub struct NativeTextMapItem{pub valid:bool;pub done:bool;pub key:NativePoolView;
+    pub value:NativePoolView;pub next:NativeTextMapCursor;}
+
+pub fn native_text_map_empty()->NativeTextMap{
+    return NativeTextMap{pool:null,epoch:0,entries:null,capacity:0,count:0,revision:1,live:false};
+}
+pub fn native_text_map_layout(map:*const NativeTextMap,pool:*const NativePool,
+    entries:*mut u64,capacity:u32)->bool{
+    if !native_pool_shape(pool) || capacity==0 || capacity>256{return false;}
+    let control:usize=unsafe{map as usize};let table:usize=unsafe{entries as usize};
+    let size:usize=(capacity as usize)*56;
+    if !native_pool_range(control,48) || control%8!=0 || !native_pool_range(table,size)
+        || table%8!=0 || native_pool_overlap(control,48,table,size){return false;}
+    unsafe{
+        let owner:usize=pool as usize;let metadata:usize=pool.slots as usize;
+        let bytes:usize=pool.data as usize;let metadata_size:usize=(pool.count as usize)*32;
+        return !native_pool_overlap(control,48,owner,56) && !native_pool_overlap(table,size,owner,56)
+            && !native_pool_overlap(control,48,metadata,metadata_size)
+            && !native_pool_overlap(table,size,metadata,metadata_size)
+            && !native_pool_overlap(control,48,bytes,pool.capacity)
+            && !native_pool_overlap(table,size,bytes,pool.capacity);
+    }
+}
+pub fn native_text_map_open(mut map:*mut NativeTextMap,pool:*mut NativePool,
+    mut entries:*mut u64,word_capacity:usize,capacity:u32)->bool{
+    if word_capacity>2305843009213693951 || (capacity as usize)*7>word_capacity
+        || !native_pool_range(unsafe{entries as usize},word_capacity*8)
+        || !native_text_map_layout(map,pool,entries,capacity){return false;}
+    unsafe{
+        if map.live || map.revision==0 || map.revision==18446744073709551615{return false;}
+        let mut i:usize=0;while i<(capacity as usize)*7{*(entries+i)=0;i=i+1;}
+        map.pool=pool;map.epoch=pool.epoch;map.entries=entries;map.capacity=capacity;
+        map.count=0;map.revision=map.revision+1;map.live=true;return true;
+    }
+}
+// Internal projection; callers must validate map/index before using it.
+pub fn native_text_map_handle(map:*const NativeTextMap,index:u32,value:bool)->NativePoolHandle{
+    if map==null{return native_pool_invalid();}
+    unsafe{
+        if !map.live || map.pool==null || !map.pool.live || map.epoch!=map.pool.epoch
+            || !native_text_map_layout(map,map.pool,map.entries,map.capacity)
+            || index>=map.capacity || *(map.entries+(index as usize)*7)!=1{return native_pool_invalid();}
+        let mut offset:usize=(index as usize)*7+1;if value{offset=offset+3;}
+        let words:*const u64=map.entries;
+        let slot:u64=*(words+offset);let generation:u64=*(words+offset+1);
+        return NativePoolHandle{pool:map.pool,epoch:map.epoch,generation:generation,index:slot as u32};
+    }
+}
+pub fn native_text_map_shape(map:*const NativeTextMap)->bool{
+    if map==null{return false;}
+    unsafe{
+        // Epoch mismatch must be rejected before reading the entry table.
+        if !map.live || map.pool==null || !map.pool.live || map.epoch!=map.pool.epoch
+            || map.revision==0 || !native_text_map_layout(map,map.pool,map.entries,map.capacity)
+            || map.count>map.capacity{return false;}
+        let mut occupied:u32=0;let mut i:u32=0;
+        while i<map.capacity{
+            let entry:*const u64=map.entries+(i as usize)*7;
+            if *entry>1{return false;}
+            if *entry==1{
+                if *(entry+1)>4294967295 || *(entry+4)>4294967295{return false;}
+                let key:NativePoolHandle=native_text_map_handle(map,i,false);
+                let value:NativePoolHandle=native_text_map_handle(map,i,true);
+                if key.index==value.index || !native_pool_current(key) || !native_pool_current(value)
+                    || native_pool_text_check(key).status!=0 || native_pool_text_check(value).status!=0{return false;}
+                let key_view:NativePoolView=native_pool_text_view(key);
+                let value_view:NativePoolView=native_pool_text_view(value);
+                if key_view.revision!=*(entry+3) || value_view.revision!=*(entry+6){return false;}
+                let mut j:u32=0;while j<i{
+                    let prior:*const u64=map.entries+(j as usize)*7;
+                    if *prior==1 && (*(prior+1)==*(entry+1) || *(prior+4)==*(entry+1)
+                        || *(prior+1)==*(entry+4) || *(prior+4)==*(entry+4)){return false;}j=j+1;
+                }occupied=occupied+1;
+            }i=i+1;
+        }return occupied==map.count;
+    }
+}
+pub fn native_text_map_source(map:*const NativeTextMap,data:*const u8,length:usize)->bool{
+    if !native_text_map_shape(map){return false;}
+    unsafe{return native_pool_source(map.pool,data,length)
+        && !native_pool_overlap(data as usize,length,map as usize,48)
+        && !native_pool_overlap(data as usize,length,map.entries as usize,(map.capacity as usize)*56);}
+}
+pub fn native_text_map_utf8(data:*const u8,length:usize)->bool{
+    if !native_pool_range(unsafe{data as usize},length){return false;}
+    let mut offset:usize=0;while offset<length{
+        let scalar:NativeUtf8Scalar=native_utf8_scalar(data,length,offset);
+        if !scalar.valid{return false;}offset=scalar.next;
+    }return true;
+}
+pub fn native_text_map_find(map:*const NativeTextMap,key:*const u8,length:usize)->NativeU32Result{
+    if !native_text_map_shape(map){return native_u32_error(7,0);}
+    if !native_text_map_source(map,key,length){return native_u32_error(7,0);}
+    if !native_text_map_utf8(key,length){return native_u32_error(8,0);}
+    unsafe{let mut i:u32=0;while i<map.capacity{
+        if *(map.entries+(i as usize)*7)==1{
+            let buffer:NativeUtf8Buffer=native_pool_text_buffer(native_text_map_handle(map,i,false));
+            if native_text_equal(native_text_open(buffer.data,buffer.length),native_text_open(key,length)){
+                return native_u32_ok(i);
+            }
+        }i=i+1;
+    }return native_u32_error(9,0);}
+}
+pub fn native_text_map_get(map:*const NativeTextMap,key:*const u8,length:usize)->NativePoolView{
+    let found:NativeU32Result=native_text_map_find(map,key,length);
+    if found.status!=0{return native_pool_view(native_pool_invalid(),0,0);}
+    return native_pool_text_view(native_text_map_handle(map,found.value,true));
+}
+pub fn native_text_map_get_u32(map:*const NativeTextMap,key:*const u8,length:usize)->NativeU32Result{
+    let index:u32=native_text_map_find(map,key,length)?;
+    return native_pool_text_parse_u32(native_pool_text_view(native_text_map_handle(map,index,true)));
+}
+// Insert copies both external ranges. Update edits the existing value in place,
+// so it also succeeds in a full pool. Inputs may not alias map-owned storage.
+fn native_text_map_copy(pool:*mut NativePool,data:*const u8,length:usize)->NativePoolHandle{
+    let copy:NativePoolHandle=native_pool_allocate(pool,length);
+    if !native_pool_current(copy){return copy;}
+    if !native_pool_write(copy,0,data,length){native_pool_release(copy,true);return native_pool_invalid();}
+    return copy;
+}
+fn native_text_map_store(mut map:*mut NativeTextMap,key:*const u8,key_length:usize,
+    value:*const u8,value_length:usize,checked:bool)->NativeU32Result{
+    let found:NativeU32Result=native_text_map_find(map,key,key_length);
+    if found.status!=0 && found.status!=9{return found;}
+    if !native_text_map_source(map,value,value_length){return native_u32_error(7,0);}
+    if !native_text_map_utf8(value,value_length){return native_u32_error(8,0);}
+    unsafe{
+        if map.revision==18446744073709551615 || key_length>map.pool.block_size
+            || value_length>map.pool.block_size{return native_u32_error(7,0);}
+        if !checked && (native_pool_overlap(key as usize,key_length,map.pool.data as usize,map.pool.capacity)
+            || native_pool_overlap(value as usize,value_length,map.pool.data as usize,map.pool.capacity)){return native_u32_error(7,0);}
+        if found.status==0{
+            let stored:NativePoolHandle=native_text_map_handle(map,found.value,true);
+            native_pool_text_replace(stored,0,native_pool_length(stored),value,value_length)?;
+            let revision:u64=native_pool_text_view(stored).revision;
+            *(map.entries+(found.value as usize)*7+6)=revision;
+            map.revision=map.revision+1;return native_u32_ok(map.count);
+        }
+        if map.count==map.capacity{return native_u32_error(10,0);}
+        let mut free:u32=0;let mut i:u32=0;
+        while i<map.pool.count{
+            let slot:*const NativePoolSlot=map.pool.slots+(i as usize);
+            if !slot.live && slot.generation!=0 && slot.generation<18446744073709551615{free=free+1;}i=i+1;
+        }
+        if free<2{return native_u32_error(10,0);}
+        let key_copy:NativePoolHandle=native_text_map_copy(map.pool,key,key_length);
+        if !native_pool_current(key_copy){return native_u32_error(10,0);}
+        let value_copy:NativePoolHandle=native_text_map_copy(map.pool,value,value_length);
+        if !native_pool_current(value_copy){native_pool_release(key_copy,true);return native_u32_error(10,0);}
+        i=0;while i<map.capacity && *(map.entries+(i as usize)*7)!=0{i=i+1;}
+        let mut entry:*mut u64=map.entries+(i as usize)*7;
+        *(entry+1)=key_copy.index as u64;*(entry+2)=key_copy.generation;
+        *(entry+3)=native_pool_text_view(key_copy).revision;
+        *(entry+4)=value_copy.index as u64;*(entry+5)=value_copy.generation;
+        *(entry+6)=native_pool_text_view(value_copy).revision;*entry=1;
+        map.count=map.count+1;map.revision=map.revision+1;return native_u32_ok(map.count);
+    }
+}
+pub fn native_text_map_set(map:*mut NativeTextMap,key:*const u8,key_length:usize,
+    value:*const u8,value_length:usize)->NativeU32Result{
+    return native_text_map_store(map,key,key_length,value,value_length,false);
+}
+// Checked source allocations stay live throughout copying, including sources
+// in the destination pool. Slices must themselves contain complete UTF-8.
+pub fn native_text_map_set_views(map:*mut NativeTextMap,key:NativePoolView,value:NativePoolView)->NativeU32Result{
+    if !native_pool_view_current(key) || !native_pool_view_current(value){return native_u32_error(7,0);}
+    let key_buffer:NativeUtf8Buffer=native_pool_text_buffer(key.handle);
+    let value_buffer:NativeUtf8Buffer=native_pool_text_buffer(value.handle);
+    return native_text_map_store(map,unsafe{key_buffer.data+key.offset},key.length,
+        unsafe{value_buffer.data+value.offset},value.length,true);
+}
+pub fn native_text_map_set_u32(map:*mut NativeTextMap,key:*const u8,length:usize,value:u32)->NativeU32Result{
+    let mut bytes:[u8;10]=0;let data:*mut u8=unsafe{bytes as *mut u8};
+    let count:u32=native_format_u32(value,data,10)?;
+    return native_text_map_set(map,key,length,data,count as usize);
+}
+pub fn native_text_map_remove(mut map:*mut NativeTextMap,key:*const u8,length:usize,wipe:bool)->NativeU32Result{
+    let index:u32=native_text_map_find(map,key,length)?;
+    unsafe{
+        if map.revision==18446744073709551615{return native_u32_error(7,0);}
+        native_pool_release(native_text_map_handle(map,index,false),wipe);
+        native_pool_release(native_text_map_handle(map,index,true),wipe);
+        *(map.entries+(index as usize)*7)=0;map.count=map.count-1;
+        map.revision=map.revision+1;return native_u32_ok(map.count);
+    }
+}
+pub fn native_text_map_clear(mut map:*mut NativeTextMap,wipe:bool)->bool{
+    if !native_text_map_shape(map){return false;}
+    unsafe{
+        if map.revision==18446744073709551615{return false;}
+        let mut i:u32=0;while i<map.capacity{
+            if *(map.entries+(i as usize)*7)==1{
+                native_pool_release(native_text_map_handle(map,i,false),wipe);
+                native_pool_release(native_text_map_handle(map,i,true),wipe);
+                *(map.entries+(i as usize)*7)=0;
+            }i=i+1;
+        }map.count=0;map.revision=map.revision+1;return true;
+    }
+}
+pub fn native_text_map_close(mut map:*mut NativeTextMap,wipe:bool)->bool{
+    if !native_text_map_clear(map,wipe){return false;}
+    unsafe{map.live=false;}return true;
+}
+// Explicit recovery after pool reset. Never release reused slots through stale
+// entries. While the pool epoch is unchanged, normal close is required.
+pub fn native_text_map_detach_stale(mut map:*mut NativeTextMap)->bool{
+    if map==null{return false;}
+    unsafe{
+        if !map.live || map.pool==null || (map.pool.live && map.epoch==map.pool.epoch){return false;}
+        map.live=false;map.count=0;return true;
+    }
+}
+pub fn native_text_map_cursor(map:*const NativeTextMap)->NativeTextMapCursor{
+    if !native_text_map_shape(map){return NativeTextMapCursor{map:null,revision:0,next:0};}
+    unsafe{return NativeTextMapCursor{map:map,revision:map.revision,next:0};}
+}
+pub fn native_text_map_next(cursor:NativeTextMapCursor)->NativeTextMapItem{
+    let invalid:NativePoolView=native_pool_view(native_pool_invalid(),0,0);
+    let mut item:NativeTextMapItem=NativeTextMapItem{valid:false,done:false,key:invalid,value:invalid,next:cursor};
+    if !native_text_map_shape(cursor.map){return item;}
+    unsafe{
+        if cursor.revision!=cursor.map.revision || cursor.next>cursor.map.capacity{return item;}
+        let mut i:u32=cursor.next;
+        while i<cursor.map.capacity && *(cursor.map.entries+(i as usize)*7)==0{i=i+1;}
+        item.valid=true;item.next.next=i;
+        if i==cursor.map.capacity{item.done=true;return item;}
+        item.key=native_pool_text_view(native_text_map_handle(cursor.map,i,false));
+        item.value=native_pool_text_view(native_text_map_handle(cursor.map,i,true));
+        item.next.next=i+1;return item;
+    }
+}

@@ -1,5 +1,9 @@
 # Sotlas: Unified Language, Interoperability and Toolchain Roadmap
 
+The current [native collection delivery](native_text_map.md) adds executable
+configuration storage on reusable pools. General generics, automatic ARC and
+frontend parity retain their existing open status.
+
 This is the detailed language/interoperability inventory. Current work is grouped
 in the shorter [active plan](sotlas_sovereignty_roadmap.md); completed checkpoint
 reports are retained in [implementation history](sotlas_sovereignty_history.md).

@@ -1,0 +1,49 @@
+module native_config_map;
+import sotlas::runtime::text_map::*;
+import sotlas::runtime::pool::*;
+import sotlas::runtime::pool_text::*;
+import sotlas::runtime::results::*;
+
+fn configured(map:*mut NativeTextMap)->NativeU32Result{
+    defer{native_text_map_close(map,true);}
+    native_text_map_set(map,"mode",4,"native",6)?;
+    native_text_map_set_u32(map,"base",4,20)?;
+    let source:NativePoolHandle=unsafe{native_pool_text_create(map.pool,"increment=22",12)};
+    let field:NativePoolTextSplit=native_pool_text_split_once(source,"=",1);
+    if !field.found{native_pool_release(source,true);return native_u32_error(11,4);}
+    let inserted:NativeU32Result=native_text_map_set_views(map,field.before,field.after);
+    native_pool_release(source,true);
+    inserted?;
+    native_text_map_set(map,"label",5,"Sotlas €",10)?;
+    let old:NativePoolView=native_text_map_get(map,"base",4);
+    native_text_map_set_u32(map,"base",4,21)?;
+    native_text_map_set_u32(map,"increment",9,21)?;
+    if native_pool_view_current(old){return native_u32_error(11,0);}
+    native_text_map_remove(map,"mode",4,true)?;
+    native_text_map_set(map,"mode",4,"ready",5)?;
+    let mut cursor:NativeTextMapCursor=native_text_map_cursor(map);
+    let mut count:u32=0;
+    while true{
+        let item:NativeTextMapItem=native_text_map_next(cursor);
+        if !item.valid{return native_u32_error(11,1);}if item.done{break;}
+        if !native_pool_view_current(item.key) || !native_pool_view_current(item.value){return native_u32_error(11,2);}
+        count=count+1;cursor=item.next;
+    }
+    if count!=4{return native_u32_error(11,3);}
+    let base:u32=native_text_map_get_u32(map,"base",4)?;
+    let increment:u32=native_text_map_get_u32(map,"increment",9)?;
+    return native_u32_ok(base+increment);
+}
+
+pub fn main_entry()->u32{
+    let mut bytes:[u8;320]=0;let data:*mut u8=unsafe{bytes as *mut u8};
+    let mut metadata:[u64;40]=0;let words:*mut u64=unsafe{metadata as *mut u64};
+    let mut pool:NativePool=native_pool_empty();let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
+    if !native_pool_open_words(p,data,320,words,40,10,32){return 1;}
+    let mut entries:[u64;28]=0;let table:*mut u64=unsafe{entries as *mut u64};
+    let mut map:NativeTextMap=native_text_map_empty();let m:*mut NativeTextMap=unsafe{(&mut map) as *mut NativeTextMap};
+    if !native_text_map_open(m,p,table,28,4){return 2;}
+    let result:NativeU32Result=configured(m);
+    if result.status!=0 || map.live || !native_pool_close(p){return 3;}
+    return result.value;
+}

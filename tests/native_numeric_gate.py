@@ -65,7 +65,12 @@ def verify_pool_text(compiler, output):
                             ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'pool', 'pool_text'))
 
 
+def verify_config_map(compiler, output):
+    verify_numeric_pipeline(compiler, output, 'native_config_map',
+                            ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'pool', 'pool_text', 'text_map'))
+
+
 if __name__ == '__main__':
-    choices = {'pool': verify_pool_text, 'arena': verify_arena_text, 'buffer': verify_text_buffer, 'text': verify_text_pipeline}
+    choices = {'map': verify_config_map, 'pool': verify_pool_text, 'arena': verify_arena_text, 'buffer': verify_text_buffer, 'text': verify_text_pipeline}
     verify = choices.get(sys.argv[3] if len(sys.argv) > 3 else '', verify_numeric_pipeline)
     verify(sys.argv[1], sys.argv[2])

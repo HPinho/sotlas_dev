@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Current runtime candidate: [bounded native text map](native_text_map.md), with
+owned key/value slots, checked-source copying, iteration and explicit cleanup.
+This evidence does not complete generic collections or automatic ownership.
+
 Detailed inventory and checkpoint reference. Use the shorter
 [active plan](sotlas_sovereignty_roadmap.md) for current priorities;
 [implementation history](sotlas_sovereignty_history.md) preserves past deliveries.

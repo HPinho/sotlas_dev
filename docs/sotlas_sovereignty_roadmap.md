@@ -11,17 +11,18 @@ Last inspected green baseline: `d02fe88bf9c6513561dab623a04fadb3da7b1cd2`,
 [green CI](https://github.com/HPinho/sotlas_dev/actions/runs/40690756562)
 (19/19 jobs across Linux, Windows and Intel macOS).
 The reusable allocation and persistent text block now has CI confirmation.
-SV8.103 extends this with Unicode editing, revision-bound field parsing,
-cross-slot composition and independent range copying, including a full native
-application gate. This new block remains a candidate until its own CI passes.
-See [persistent text composition](native_pool_text_composition.md).
+The local main also includes SV8.103 persistent text composition. The current
+delivery builds a bounded UTF-8 configuration collection on that storage, with
+owned entries, checked field copying, full-pool updates, iteration and cleanup.
+See [the collection contract](native_text_map.md) and its executable example.
+This new block remains a candidate until its own CI passes.
 
 ## Remaining work, grouped by outcome
 
 | Block | Available | Required to close the block |
 | --- | --- | --- |
 | Native frontend | Scalar and structured control flow; bounded arrays, records, payload matches, concrete results, raw pointer projections | Contracted generics, strings/slices as language values, module parity, full diagnostics and remaining accepted language forms |
-| Resources and runtime | Explicit arena, reference-header and cleanup APIs; growing arena text; reusable slots and checked views in this candidate | Automatic ARC/drop integration, general lifetime/escape and alias analysis, resource-bearing aggregates and all contracted domain transitions |
+| Resources and runtime | Explicit arenas, reference headers, growing text, reusable slots and checked views; bounded configuration collection in this candidate | Automatic ARC/drop integration, general lifetime/escape and alias analysis, resource-bearing aggregates and all contracted domain transitions |
 | Machine pipeline | Sotlas Target IR, x86-64 emission, owned object/link paths for ELF/PE/Mach-O | Remaining ABI/resource lowering, promised linking modes, target/debug/unwind coverage and rejection of every unsupported combination |
 | Self-build and delivery | Original-source native rebuilds and strict Stage 2/3 equality within the declared profile | Full compiler parity, native packaging/project tools and clean installation/rebuild certification without Python/C |
 | User-facing preview | Native executable examples, numeric/results/text APIs and separate kernel/GUI experiments | A reproducible installed application path, documented limits and platform gates for each advertised experience |
