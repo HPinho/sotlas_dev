@@ -3,6 +3,7 @@ import sotlas::runtime::pool::*;
 import sotlas::runtime::utf8_buffer::*;
 import sotlas::runtime::results::*;
 import sotlas::runtime::unicode::*;
+import sotlas::runtime::text::*;
 
 // Text occupies one reusable slot. Capacity is fixed by the pool, with no hidden
 // allocation. Every successful edit invalidates checked views of that slot.
@@ -91,4 +92,113 @@ pub fn native_pool_text_append_u32(handle:NativePoolHandle,value:u32)->NativeU32
     let mut digits:[u8;10]=0;let data:*mut u8=unsafe{digits as *mut u8};
     let length:u32=native_format_u32(value,data,10)?;
     return native_pool_text_append(handle,data,length as usize);
+}
+
+// SV8.103: persistent text composition and scalar-safe editing.
+// Raw handles identify one allocation; checked views retain its revision.
+// No implicit allocation beyond the explicitly requested clone operation.
+pub struct NativePoolTextSplit{pub found:bool;pub before:NativePoolView;pub after:NativePoolView;}
+
+pub fn native_pool_text_append_scalar(handle:NativePoolHandle,value:u32)->NativeU32Result{
+    let mut bytes:[u8;4]=0;let address:*mut u8=unsafe{bytes as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(address,4);
+    let count:u32=native_utf8_buffer_append_scalar(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},value)?;
+    return native_pool_text_append(handle,address,count as usize);
+}
+pub fn native_pool_text_insert_scalar(handle:NativePoolHandle,index:usize,value:u32)->NativeU32Result{
+    let mut bytes:[u8;4]=0;let address:*mut u8=unsafe{bytes as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(address,4);
+    let count:u32=native_utf8_buffer_append_scalar(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},value)?;
+    return native_pool_text_replace_scalars(handle,index,0,address,count as usize);
+}
+pub fn native_pool_text_remove_scalar(handle:NativePoolHandle,index:usize)->NativeU32Result{
+    let removed:u32=native_pool_text_scalar_at(handle,index)?;
+    native_pool_text_replace_scalars(handle,index,1,null,0)?;
+    return native_u32_ok(removed);
+}
+pub fn native_pool_text_pop_scalar(handle:NativePoolHandle)->NativeU32Result{
+    let count:u32=native_pool_text_check(handle)?;
+    if count==0{return native_u32_error(7,0);}
+    return native_pool_text_remove_scalar(handle,(count-1) as usize);
+}
+// A reset can recover malformed content; it deliberately does not read bytes.
+// Truncated storage is optionally wiped by the existing checked pool operation.
+pub fn native_pool_text_reset(handle:NativePoolHandle,wipe:bool)->NativeU32Result{
+    if !native_pool_current(handle) || !native_pool_resize(handle,0,wipe){return native_u32_error(7,0);}
+    return native_u32_ok(0);
+}
+
+// Append accepts a live, validated source, including a copy of the destination
+// handle. The existing UTF-8 append uses memmove ordering for self references.
+pub fn native_pool_text_append_from(destination:NativePoolHandle,source:NativePoolHandle)->NativeU32Result{
+    native_pool_text_check(source)?;
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(source);
+    return native_pool_text_append(destination,buffer.data,buffer.length);
+}
+pub fn native_pool_text_append_scalars(destination:NativePoolHandle,source:NativePoolHandle,
+    start:usize,count:usize)->NativeU32Result{
+    let checked:NativePoolView=native_pool_text_slice_scalars(source,start,count);
+    if !native_pool_view_current(checked){return native_u32_error(7,start);}
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(source);
+    return native_pool_text_append(destination,unsafe{buffer.data+checked.offset},checked.length);
+}
+// Replacement of a nonempty source from the same destination allocation is
+// rejected by the transactional UTF-8 buffer; another live slot is supported.
+pub fn native_pool_text_replace_from(destination:NativePoolHandle,start:usize,count:usize,
+    source:NativePoolHandle,source_start:usize,source_count:usize)->NativeU32Result{
+    let checked:NativePoolView=native_pool_text_slice_scalars(source,source_start,source_count);
+    if !native_pool_view_current(checked){return native_u32_error(7,source_start);}
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(source);
+    return native_pool_text_replace_scalars(destination,start,count,
+        unsafe{buffer.data+checked.offset},checked.length);
+}
+// Copy a scalar slice into a fresh independent slot. Do not route this through
+// create(raw pool bytes): that API intentionally forbids pool-backed inputs.
+// Exhaustion leaves the original handle and all prior checked views untouched.
+pub fn native_pool_text_clone_scalars(source:NativePoolHandle,start:usize,count:usize)->NativePoolHandle{
+    let checked:NativePoolView=native_pool_text_slice_scalars(source,start,count);
+    if !native_pool_view_current(checked){return native_pool_invalid();}
+    let output:NativePoolHandle=native_pool_allocate(source.pool,checked.length);
+    if !native_pool_current(output){return output;}
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(source);
+    if !native_pool_write(output,0,unsafe{buffer.data+checked.offset},checked.length){
+        native_pool_release(output,true);return native_pool_invalid();
+    }
+    return output;
+}
+
+pub fn native_pool_text_equal_handles(left:NativePoolHandle,right:NativePoolHandle)->bool{
+    if native_pool_text_check(left).status!=0 || native_pool_text_check(right).status!=0{return false;}
+    let a:NativeUtf8Buffer=native_pool_text_buffer(left);
+    let b:NativeUtf8Buffer=native_pool_text_buffer(right);
+    return native_text_equal(native_text_open(a.data,a.length),native_text_open(b.data,b.length));
+}
+
+// A split yields two revision-bound views rather than unchecked raw slices.
+// Separator must be valid, nonempty UTF-8, and cannot come from pool metadata.
+pub fn native_pool_text_split_once(handle:NativePoolHandle,separator:*const u8,length:usize)->NativePoolTextSplit{
+    let invalid:NativePoolView=native_pool_view(native_pool_invalid(),0,0);
+    let absent:NativePoolTextSplit=NativePoolTextSplit{found:false,before:invalid,after:invalid};
+    if length==0 || native_pool_text_check(handle).status!=0
+        || !native_pool_source(handle.pool,separator,length){return absent;}
+    let mut at:usize=0;
+    while at<length{
+        let scalar:NativeUtf8Scalar=native_utf8_scalar(separator,length,at);
+        if !scalar.valid{return absent;}at=scalar.next;
+    }
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+    let mut found_at:usize=0;let address:*mut usize=unsafe{(&mut found_at) as *mut usize};
+    if !native_text_find(native_text_open(buffer.data,buffer.length),
+        native_text_open(separator,length),address){return absent;}
+    return NativePoolTextSplit{found:true,
+        before:native_pool_view(handle,0,found_at),
+        after:native_pool_view(handle,found_at+length,buffer.length-found_at-length)};
+}
+
+// Parse an ASCII decimal field from a checked view, preserving structured
+// errors; an invalidated view never dereferences the old allocation.
+pub fn native_pool_text_parse_u32(view:NativePoolView)->NativeU32Result{
+    if !native_pool_view_current(view){return native_u32_error(7,0);}
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(view.handle);
+    return native_parse_u32(unsafe{buffer.data+view.offset},view.length);
 }

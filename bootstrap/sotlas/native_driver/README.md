@@ -29,6 +29,11 @@ SV8.101 extends this native arena text with [scalar-indexed Unicode operations](
 including lookups, edits and alias-safe text composition, exercised by the same
 report's Stage 3 platform gates.
 
+SV8.103 adds [persistent UTF-8 composition and checked field parsing](../../../docs/native_pool_text_composition.md)
+on top of the reusable pool, exercised by the
+[native pool application](../../../examples/native_pool_text/README.md) on
+Linux, Windows and Intel macOS Stage 3 drivers.
+
 Build the current hosted Stage 1 producer once, then use its native object
 writer and linker to create the seed:
 

@@ -58,6 +58,12 @@ contract: status 7 for bounds/storage, 8 for malformed UTF-8/boundaries.
 descriptor: callers must not retain or mutate it across pool edits/releases.
 Direct descriptor, metadata or backing writes bypass the checked API.
 
+For composition, scalar insert/remove/pop, independent slice cloning, checked
+key/value splitting and numeric parsing, see
+[persistent text composition](native_pool_text_composition.md) (SV8.103).
+The same executable report now exercises these APIs on every supported native
+Stage 3 platform. Previously validated pool identity rules remain unchanged.
+
 ## Limits
 
 Handles copied by value identify the **same allocation**, not separate ownership
