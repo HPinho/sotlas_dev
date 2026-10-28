@@ -1,0 +1,94 @@
+module sotlas::runtime::pool_text;
+import sotlas::runtime::pool::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::unicode::*;
+
+// Text occupies one reusable slot. Capacity is fixed by the pool, with no hidden
+// allocation. Every successful edit invalidates checked views of that slot.
+pub fn native_pool_text_buffer(handle:NativePoolHandle)->NativeUtf8Buffer{
+    if !native_pool_current(handle){return NativeUtf8Buffer{data:null,capacity:0,length:0,valid:false};}
+    unsafe{return NativeUtf8Buffer{data:handle.pool.data+(handle.index as usize)*handle.pool.block_size,
+        capacity:handle.pool.block_size,length:native_pool_length(handle),valid:true};}
+}
+pub fn native_pool_text_check(handle:NativePoolHandle)->NativeU32Result{
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+    return native_utf8_buffer_check(unsafe{(&buffer) as *const NativeUtf8Buffer});
+}
+pub fn native_pool_text_create(pool:*mut NativePool,data:*const u8,length:usize)->NativePoolHandle{
+    if !native_pool_source(pool,data,length){return native_pool_invalid();}
+    unsafe{
+        if length>pool.block_size || native_pool_overlap(data as usize,length,pool.data as usize,pool.capacity){return native_pool_invalid();}
+    }
+    let mut offset:usize=0;while offset<length{
+        let scalar:NativeUtf8Scalar=native_utf8_scalar(data,length,offset);
+        if !scalar.valid{return native_pool_invalid();}offset=scalar.next;
+    }
+    let handle:NativePoolHandle=native_pool_allocate(pool,length);
+    if native_pool_current(handle){native_pool_write(handle,0,data,length);}return handle;
+}
+pub fn native_pool_text_append(handle:NativePoolHandle,data:*const u8,length:usize)->NativeU32Result{
+    if !native_pool_current(handle) || !native_pool_source(handle.pool,data,length){return native_u32_error(7,0);}
+    unsafe{
+        let mut slot:*mut NativePoolSlot=handle.pool.slots+(handle.index as usize);
+        if slot.revision==18446744073709551615{return native_u32_error(7,0);}
+        let mut buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+        let result:NativeU32Result=native_utf8_buffer_append(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},data,length);
+        if result.status==0 && length!=0{slot.length=buffer.length;slot.revision=slot.revision+1;}return result;
+    }
+}
+pub fn native_pool_text_replace(handle:NativePoolHandle,start:usize,end:usize,data:*const u8,length:usize)->NativeU32Result{
+    if !native_pool_current(handle) || !native_pool_source(handle.pool,data,length){return native_u32_error(7,start);}
+    unsafe{
+        let mut slot:*mut NativePoolSlot=handle.pool.slots+(handle.index as usize);
+        if slot.revision==18446744073709551615{return native_u32_error(7,start);}
+        let mut buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+        let result:NativeU32Result=native_utf8_buffer_replace(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},start,end,data,length);
+        if result.status==0 && (start!=end || length!=0){slot.length=buffer.length;slot.revision=slot.revision+1;}return result;
+    }
+}
+pub fn native_pool_text_truncate(handle:NativePoolHandle,length:usize)->NativeU32Result{
+    if !native_pool_current(handle){return native_u32_error(7,length);}
+    unsafe{
+        let mut slot:*mut NativePoolSlot=handle.pool.slots+(handle.index as usize);
+        if slot.revision==18446744073709551615{return native_u32_error(7,length);}
+        let mut buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+        let result:NativeU32Result=native_utf8_buffer_truncate(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},length);
+        if result.status==0 && length!=slot.length{slot.length=length;slot.revision=slot.revision+1;}return result;
+    }
+}
+pub fn native_pool_text_view(handle:NativePoolHandle)->NativePoolView{
+    if native_pool_text_check(handle).status!=0{return native_pool_view(native_pool_invalid(),0,0);}
+    return native_pool_view(handle,0,native_pool_length(handle));
+}
+pub fn native_pool_text_scalar_offset(handle:NativePoolHandle,index:usize)->NativeU32Result{
+    let checked:NativeU32Result=native_pool_text_check(handle);if checked.status!=0{return checked;}
+    if index>(checked.value as usize){return native_u32_error(7,index);}
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);let mut offset:usize=0;let mut i:usize=0;
+    while i<index{let scalar:NativeUtf8Scalar=native_utf8_scalar(buffer.data,buffer.length,offset);
+        offset=scalar.next;i=i+1;}return native_u32_ok(offset as u32);
+}
+pub fn native_pool_text_scalar_at(handle:NativePoolHandle,index:usize)->NativeU32Result{
+    let offset:u32=native_pool_text_scalar_offset(handle,index)?;
+    let buffer:NativeUtf8Buffer=native_pool_text_buffer(handle);
+    if (offset as usize)==buffer.length{return native_u32_error(7,index);}
+    return native_u32_ok(native_utf8_scalar(buffer.data,buffer.length,offset as usize).scalar);
+}
+pub fn native_pool_text_slice_scalars(handle:NativePoolHandle,start:usize,count:usize)->NativePoolView{
+    let first:NativeU32Result=native_pool_text_scalar_offset(handle,start);
+    if first.status!=0 || count>18446744073709551615-start{return native_pool_view(native_pool_invalid(),0,0);}
+    let last:NativeU32Result=native_pool_text_scalar_offset(handle,start+count);
+    if last.status!=0{return native_pool_view(native_pool_invalid(),0,0);}
+    return native_pool_view(handle,first.value as usize,(last.value-first.value) as usize);
+}
+pub fn native_pool_text_replace_scalars(handle:NativePoolHandle,start:usize,count:usize,data:*const u8,length:usize)->NativeU32Result{
+    let first:u32=native_pool_text_scalar_offset(handle,start)?;
+    if count>18446744073709551615-start{return native_u32_error(7,start);}
+    let last:u32=native_pool_text_scalar_offset(handle,start+count)?;
+    return native_pool_text_replace(handle,first as usize,last as usize,data,length);
+}
+pub fn native_pool_text_append_u32(handle:NativePoolHandle,value:u32)->NativeU32Result{
+    let mut digits:[u8;10]=0;let data:*mut u8=unsafe{digits as *mut u8};
+    let length:u32=native_format_u32(value,data,10)?;
+    return native_pool_text_append(handle,data,length as usize);
+}

@@ -6,6 +6,9 @@
 
 **A systems-language preview with explicit ownership and safety boundaries.**
 
+[Active native roadmap](docs/sotlas_sovereignty_roadmap.md) ·
+[Reusable native storage](docs/native_pool.md)
+
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)

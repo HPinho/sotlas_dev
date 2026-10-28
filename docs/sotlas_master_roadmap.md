@@ -2,6 +2,10 @@
 
 > Documento consolidado da arquitetura-base da linguagem Sotlas e da extensão Sotlas Domains.
 
+For current implementation priorities, use the shorter
+[active native roadmap](sotlas_sovereignty_roadmap.md). This document remains
+the architecture specification; it is not the delivery queue.
+
 ## Estatuto desta especificação
 
 Este documento preserva integralmente as ideias, exemplos, regras, nuances técnicas e roadmaps das duas especificações de origem. Apenas os títulos-raiz foram unificados e a matéria foi organizada em duas partes complementares. Conceitos que se aproximam, mas acrescentam condições, exemplos ou consequências diferentes, foram mantidos; somente a duplicação editorial do título de documento foi removida.

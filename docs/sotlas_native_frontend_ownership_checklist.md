@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Detailed inventory and checkpoint reference. Use the shorter
+[active plan](sotlas_sovereignty_roadmap.md) for current priorities;
+[implementation history](sotlas_sovereignty_history.md) preserves past deliveries.
+The reusable allocator/text delivery is documented in [native pools](native_pool.md).
+
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
 ## SV8.102 - pointer projections, snapshots and CI repair (2026-10-27)

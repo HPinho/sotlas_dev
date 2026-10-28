@@ -1,0 +1,26 @@
+module native_pool_text;
+import sotlas::runtime::pool::*;
+import sotlas::runtime::pool_text::*;
+
+pub fn main_entry()->u32{
+    let mut storage:[u8;128]=0;
+    let mut metadata:[u64;16]=0;
+    let words:*mut u64=unsafe{metadata as *mut u64};
+    let mut pool:NativePool=native_pool_empty();
+    let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
+    if !native_pool_open_words(p,unsafe{storage as *mut u8},128,words,16,4,32){return 1;}
+    let title:NativePoolHandle=native_pool_text_create(p,"Sotlas",6);
+    let copy:NativePoolHandle=native_pool_clone(title);
+    let old:NativePoolView=native_pool_text_view(title);
+    if !native_pool_release(title,true){return 2;}
+    let reused:NativePoolHandle=native_pool_text_create(p,"reused",6);
+    if reused.index!=title.index || native_pool_current(title)
+        || native_pool_view_current(old) || !native_pool_current(copy){return 3;}
+    if native_pool_text_append(copy," ready",6).status!=0{return 4;}
+    let mut output:[u8;12]=0;
+    if !native_pool_read(native_pool_text_view(copy),unsafe{output as *mut u8},12)
+        || output[0]!=83 || output[6]!=32 || output[11]!=121{return 5;}
+    if !native_pool_release(copy,true) || !native_pool_release(reused,true)
+        || !native_pool_close(p){return 6;}
+    return 42;
+}
