@@ -7,6 +7,35 @@ The reusable allocator/text delivery is documented in [native pools](native_pool
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+## SV8.103 — persistent Unicode text composition and checked fields (2026-10-28)
+
+Starting green baseline: `d02fe88b`,
+[CI success](https://github.com/HPinho/sotlas_dev/actions/runs/40690756562),
+19/19 jobs across Linux, Windows and Intel macOS.
+
+- [x] Extend the reusable Sotlas pool text profile with scalar append,
+  insert, remove, pop and reset/recovery without a host allocator.
+- [x] Add self and cross-slot text composition, scalar-range append/replace,
+  and independent scalar-range cloning with explicit allocation identity.
+- [x] Add checked UTF-8 split-once returning revision-bound views; parse strict
+  decimal fields from those views without unsafe, untracked pointer escapes.
+- [x] Extend the native application to parse a persistent key/value record,
+  reuse slots, exercise Unicode edits, reject stale views and release all owners.
+- [x] Add source-to-machine regression cases for stale handles, clone
+  exhaustion, revision saturation, byte/UTF-8 boundaries and failure atomicity.
+- [ ] Certify this candidate through its own full CI matrix and native fixed
+  point before adopting it as the new baseline.
+- [ ] General borrow checking, language-level ARC/drop, resource-bearing
+  aggregates, OS heap and complete frontend parity remain open.
+
+[SV8.103 contract](native_pool_text_composition.md). This is executable native
+runtime functionality; it does not claim that hosted Stage 1 or CI stopped
+using Python, nor that the C11 interoperability backend is removed.
+
+**Next package:** connect a bounded resource ownership/escape and cleanup
+contract to compiler source acceptance, negative gates and original-source
+native Stage 2/3 fixed points. No partial feature receives `SUPPORTED`.
+
 ## SV8.102 - pointer projections, snapshots and CI repair (2026-10-27)
 
 Starting point: main c3e08c4 (SV8.101 candidate), with the reproduced

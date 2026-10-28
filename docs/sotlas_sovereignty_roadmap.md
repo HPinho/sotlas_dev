@@ -7,11 +7,14 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Last inspected green baseline: `905c3c3c449268e30b15bf6f26c32ab46dc7366a`,
-[CI #1317](https://github.com/HPinho/sotlas_dev/actions/runs/40654740906).
-The current delivery adds reusable allocation slots and persistent UTF-8 text
-in Sotlas. See [the allocation contract](native_pool.md) for tests and limits.
-It is a candidate until its own CI passes.
+Last inspected green baseline: `d02fe88bf9c6513561dab623a04fadb3da7b1cd2`,
+[green CI](https://github.com/HPinho/sotlas_dev/actions/runs/40690756562)
+(19/19 jobs across Linux, Windows and Intel macOS).
+The reusable allocation and persistent text block now has CI confirmation.
+SV8.103 extends this with Unicode editing, revision-bound field parsing,
+cross-slot composition and independent range copying, including a full native
+application gate. This new block remains a candidate until its own CI passes.
+See [persistent text composition](native_pool_text_composition.md).
 
 ## Remaining work, grouped by outcome
 

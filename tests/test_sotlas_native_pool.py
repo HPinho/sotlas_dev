@@ -229,5 +229,177 @@ if native_pool_text_replace_scalars(a,0,1,"€",3).status!=0 || native_pool_leng
 || native_pool_text_scalar_at(a,0).value!=8364 || native_pool_text_scalar_at(a,1).value!=128512{return 2;}return 42;''')
 
 
+
+    def test_scalar_insert_remove_and_pop_persisted_text(self):
+        self.program('pool_text_scalar_edit', '''let a:NativePoolHandle=native_pool_text_create(p,"AC",2);
+if native_pool_text_insert_scalar(a,1,8364).status!=0
+|| native_pool_text_replace_scalars(a,2,1,"B",1).status!=0
+|| native_pool_text_check(a).value!=3{return 1;}
+let removed:NativeU32Result=native_pool_text_remove_scalar(a,1);
+if removed.status!=0 || removed.value!=8364 || native_pool_length(a)!=2{return 2;}
+native_pool_text_append_scalar(a,128512);
+let popped:NativeU32Result=native_pool_text_pop_scalar(a);
+if popped.status!=0 || popped.value!=128512 || native_pool_text_check(a).value!=2
+|| native_pool_text_scalar_at(a,1).value!=66{return 3;}return 42;''')
+
+    def test_unicode_scalar_widths_and_insert_at_end(self):
+        self.program('pool_text_scalar_width', '''let a:NativePoolHandle=native_pool_text_create(p,"¢😀",6);
+if native_pool_text_insert_scalar(a,1,8364).status!=0 || native_pool_length(a)!=9
+|| native_pool_text_scalar_offset(a,2).value!=5{return 1;}
+if native_pool_text_insert_scalar(a,3,90).status!=0 || native_pool_text_check(a).value!=4
+|| native_pool_text_scalar_at(a,3).value!=90{return 2;}
+if native_pool_text_remove_scalar(a,0).value!=162 || native_pool_text_scalar_at(a,0).value!=8364{return 3;}
+return 42;''')
+
+    def test_self_append_and_self_scalar_ranges(self):
+        self.program('pool_text_self_compose', '''let a:NativePoolHandle=native_pool_text_create(p,"abc",3);
+let v:NativePoolView=native_pool_text_view(a);
+if native_pool_text_append_from(a,a).status!=0 || native_pool_length(a)!=6
+|| native_pool_view_current(v){return 1;}
+if native_pool_text_append_scalars(a,a,1,3).status!=0 || native_pool_length(a)!=9{return 2;}
+let mut out:[u8;9]=0;
+if !native_pool_read(native_pool_text_view(a),unsafe{out as *mut u8},9)
+|| out[0]!=97 || out[3]!=97 || out[6]!=98 || out[8]!=97{return 3;}
+return 42;''')
+
+    def test_cross_slot_append_replace_and_source_views(self):
+        self.program('pool_text_cross_slot', '''let a:NativePoolHandle=native_pool_text_create(p,"a=42",4);
+let b:NativePoolHandle=native_pool_text_create(p,"€x",4);
+let v:NativePoolView=native_pool_text_view(b);
+if native_pool_text_append_scalars(a,b,0,1).status!=0
+|| native_pool_text_replace_from(a,2,2,b,1,1).status!=0
+|| native_pool_text_check(a).value!=4 || native_pool_length(a)!=6
+|| !native_pool_view_current(v) || native_pool_text_scalar_at(a,3).value!=8364{return 1;}
+return 42;''')
+
+    def test_clone_scalar_range_independent_and_reusable(self):
+        self.program('pool_text_clone_part', '''let a:NativePoolHandle=native_pool_text_create(p,"a€😀z",9);
+let v:NativePoolView=native_pool_text_view(a);
+let b:NativePoolHandle=native_pool_text_clone_scalars(a,1,2);
+if !native_pool_current(b) || b.index==a.index || native_pool_text_check(b).value!=2
+|| !native_pool_view_current(v) || native_pool_length(b)!=7{return 1;}
+native_pool_release(a,true);
+if native_pool_current(a) || native_pool_text_append_scalar(b,90).status!=0
+|| native_pool_text_scalar_at(b,2).value!=90{return 2;}
+let c:NativePoolHandle=native_pool_text_create(p,"new",3);
+if c.index!=a.index || native_pool_current(a) || !native_pool_current(b){return 3;}return 42;''')
+
+    def test_clone_out_of_slots_preserves_source_revision(self):
+        self.program('pool_text_clone_full', '''let a:NativePoolHandle=native_pool_text_create(p,"abc",3);
+let old:NativePoolView=native_pool_text_view(a);
+native_pool_allocate(p,1);native_pool_allocate(p,1);native_pool_allocate(p,1);
+let clone:NativePoolHandle=native_pool_text_clone_scalars(a,0,2);
+if native_pool_current(clone) || !native_pool_view_current(old)
+|| native_pool_length(a)!=3 || native_pool_text_scalar_at(a,2).value!=99{return 1;}
+return 42;''')
+
+    def test_reset_wipes_content_and_invalidates_checked_views(self):
+        self.program('pool_text_reset', '''let a:NativePoolHandle=native_pool_text_create(p,"secret",6);
+let before:NativePoolView=native_pool_text_view(a);
+if native_pool_text_reset(a,true).status!=0 || native_pool_view_current(before)
+|| native_pool_length(a)!=0 || bytes[0]!=0 || bytes[5]!=0{return 1;}
+if native_pool_text_pop_scalar(a).status!=7 || native_pool_text_append_u32(a,42).status!=0
+|| native_pool_text_scalar_at(a,1).value!=50{return 2;}return 42;''')
+
+    def test_recover_malformed_utf8_with_explicit_reset(self):
+        self.program('pool_text_recover', '''let a:NativePoolHandle=native_pool_text_create(p,"abc",3);
+let corrupt:[u8;1]=[255];native_pool_write(a,0,unsafe{corrupt as *const u8},1);
+if native_pool_text_check(a).status!=8 || native_pool_text_append_from(a,a).status!=8{return 1;}
+if native_pool_text_reset(a,true).status!=0 || native_pool_text_append_scalar(a,8364).status!=0
+|| native_pool_text_check(a).value!=1{return 2;}return 42;''')
+
+    def test_split_views_and_checked_numeric_field(self):
+        self.program('pool_text_split', '''let a:NativePoolHandle=native_pool_text_create(p,"answer=42",9);
+let parts:NativePoolTextSplit=native_pool_text_split_once(a,"=",1);
+if !parts.found || !native_pool_view_current(parts.before)
+|| !native_pool_view_current(parts.after) || parts.before.length!=6
+|| native_pool_text_parse_u32(parts.after).value!=42{return 1;}
+native_pool_text_append(a,"!",1);
+if native_pool_view_current(parts.before) || native_pool_view_current(parts.after)
+|| native_pool_text_parse_u32(parts.after).status!=7{return 2;}return 42;''')
+
+    def test_split_unicode_separator_and_empty_tail(self):
+        self.program('pool_text_split_utf8', '''let a:NativePoolHandle=native_pool_text_create(p,"a€42",6);
+let parts:NativePoolTextSplit=native_pool_text_split_once(a,"€",3);
+if !parts.found || parts.before.length!=1 || parts.after.length!=2
+|| native_pool_text_parse_u32(parts.after).value!=42{return 1;}
+let end:NativePoolTextSplit=native_pool_text_split_once(a,"42",2);
+if !end.found || end.after.length!=0 || !native_pool_view_current(end.after){return 2;}return 42;''')
+
+    def test_split_rejects_empty_malformed_and_metadata_separator(self):
+        self.program('pool_text_split_invalid', '''let a:NativePoolHandle=native_pool_text_create(p,"key=42",6);
+let broken:[u8;2]=[226,130];let old:NativePoolView=native_pool_text_view(a);
+if native_pool_text_split_once(a,"",0).found
+|| native_pool_text_split_once(a,unsafe{broken as *const u8},2).found
+|| native_pool_text_split_once(a,unsafe{metadata_address as *const u8},1).found
+|| native_pool_text_split_once(a,"missing",7).found
+|| !native_pool_view_current(old){return 1;}return 42;''')
+
+    def test_failed_edits_stale_handles_and_revision_saturation(self):
+        self.program('pool_text_composition_guards', '''let a:NativePoolHandle=native_pool_text_create(p,"abcdefghij",10);
+let v:NativePoolView=native_pool_text_view(a);
+if native_pool_text_insert_scalar(a,99,8364).status!=7
+|| native_pool_text_append_scalar(a,55296).status!=8
+|| native_pool_text_append_from(a,a).status!=0{return 1;}
+let after:NativePoolView=native_pool_text_view(a);
+if native_pool_text_append_from(a,a).status!=7
+|| !native_pool_view_current(after) || native_pool_text_replace_from(a,0,1,a,0,1).status!=7
+|| !native_pool_view_current(after){return 2;}
+slots[1]=18446744073709551615;
+if native_pool_text_reset(a,true).status!=7
+|| native_pool_text_remove_scalar(a,0).status!=7
+|| native_pool_text_insert_scalar(a,0,65).status!=7{return 3;}
+slots[1]=after.revision;
+if !native_pool_release(a,true) || native_pool_text_pop_scalar(a).status!=7
+|| native_pool_text_split_once(a,"=",1).found
+|| native_pool_current(native_pool_text_clone_scalars(a,0,1)){return 4;}return 42;''')
+
+    def test_source_invalid_range_and_self_replace_are_atomic(self):
+        self.program('pool_text_source_guards', '''let a:NativePoolHandle=native_pool_text_create(p,"ab€cd",7);
+let v:NativePoolView=native_pool_text_view(a);
+if native_pool_text_append_scalars(a,a,2,99).status!=7
+|| native_pool_text_replace_from(a,1,1,a,0,1).status!=7
+|| native_pool_current(native_pool_text_clone_scalars(a,0,99))
+|| native_pool_text_remove_scalar(a,5).status!=7
+|| !native_pool_view_current(v) || native_pool_length(a)!=7{return 1;}
+return 42;''')
+
+    def test_cross_copy_then_source_release_keeps_destination(self):
+        self.program('pool_text_cross_lifetime', '''let a:NativePoolHandle=native_pool_text_create(p,"ab",2);
+let b:NativePoolHandle=native_pool_text_create(p,"cd",2);
+if native_pool_text_append_from(a,b).status!=0 || native_pool_text_equal_handles(a,b){return 1;}
+native_pool_release(b,true);
+let c:NativePoolHandle=native_pool_text_create(p,"ab",2);
+if !native_pool_current(a) || native_pool_text_equal_handles(a,c)
+|| native_pool_text_scalar_at(a,3).value!=100{return 2;}
+let d:NativePoolHandle=native_pool_text_clone_scalars(a,0,4);
+if !native_pool_text_equal_handles(a,d){return 3;}return 42;''')
+
+
+    def test_numeric_split_reports_overflow_empty_and_bad_digits(self):
+        self.program('pool_text_decimal_contract', '''let a:NativePoolHandle=native_pool_text_create(p,"count=4294967296",16);
+let too_big:NativePoolTextSplit=native_pool_text_split_once(a,"=",1);
+let number:NativeU32Result=native_pool_text_parse_u32(too_big.after);
+if !too_big.found || number.status!=4 || number.error.offset!=9{return 1;}
+let b:NativePoolHandle=native_pool_text_create(p,"bad=-2",6);
+let negative:NativePoolTextSplit=native_pool_text_split_once(b,"=",1);
+let invalid:NativeU32Result=native_pool_text_parse_u32(negative.after);
+if invalid.status!=3 || invalid.error.offset!=0{return 2;}
+let c:NativePoolHandle=native_pool_text_create(p,"empty=",6);
+let empty:NativePoolTextSplit=native_pool_text_split_once(c,"=",1);
+if !empty.found || native_pool_text_parse_u32(empty.after).status!=2{return 3;}return 42;''')
+
+    def test_independent_empty_scalar_copy_and_zero_length_noop(self):
+        self.program('pool_text_empty_clone', '''let a:NativePoolHandle=native_pool_text_create(p,"hello",5);
+let view:NativePoolView=native_pool_text_view(a);
+let b:NativePoolHandle=native_pool_text_clone_scalars(a,5,0);
+if !native_pool_current(b) || native_pool_length(b)!=0 || !native_pool_view_current(view)
+|| native_pool_text_check(b).value!=0{return 1;}
+if native_pool_text_append_scalars(b,a,0,0).status!=0
+|| native_pool_text_append_from(b,b).status!=0 || native_pool_length(b)!=0{return 2;}
+if native_pool_text_append_scalars(b,a,1,3).status!=0
+|| native_pool_text_scalar_at(b,0).value!=101 || native_pool_length(b)!=3{return 3;}
+return 42;''')
+
 if __name__ == '__main__':
     unittest.main()
