@@ -880,6 +880,8 @@ module syscall_probe;
         verify_arena_text(native_stage3, self.directory / "arena text cases")
         from native_numeric_gate import verify_pool_text
         verify_pool_text(native_stage3, self.directory / "pool text cases")
+        from native_numeric_gate import verify_config_map
+        verify_config_map(native_stage3, self.directory / "config map cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"
