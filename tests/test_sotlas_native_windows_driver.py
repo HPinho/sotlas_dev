@@ -289,7 +289,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         original = ROOT / "bootstrap/sotlas/native_driver/darwin.sotlas"
         self.run_tool([str(self.producer), "--compile-obj", str(original), str(obj)])
         self.run_tool([str(self.producer), "--link-macho", str(obj), str(reference), "sotlas_darwin_main"])
-        self.run_tool([str(self.seed), "--build-mac-cc", str(actual), str(root), str(entry)], env=self.environment)
+        # This compiles the whole compiler; use the self-hosting workload budget.
+        self.run_tool([str(self.seed), "--build-mac-cc", str(actual), str(root), str(entry)], env=self.environment, timeout=900)
         self.assertEqual(actual.read_bytes(), reference.read_bytes())
         self.assertEqual(actual.read_bytes()[:4], b"\xcf\xfa\xed\xfe")
 

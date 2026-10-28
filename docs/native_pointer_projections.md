@@ -56,3 +56,20 @@ unequal Stage 2/3 outputs. Validation uses an updated seed and separately checks
 identity of the following two native generations; unequal intermediates are not
 reported as a successful fixed point. Fresh hosted-seed CI reconstruction is also
 checked. This transition requires no C/Python invocation after the seed is obtained.
+
+## CI #1315: full-compiler cross-build timeout (2026-10-28)
+
+[CI #1315](https://github.com/HPinho/sotlas_dev/actions/runs/40596394616)
+failed in four Windows/Linux matrix jobs because the complete Darwin compiler
+cross-build exceeded a 180-second timeout. That operation now has an explicit
+900-second full-compiler budget, consistent with the Windows/macOS self-hosting
+tests. Small-program and hosted-oracle timeouts remain unchanged. Exit status,
+byte-for-byte oracle comparison, Mach-O magic and invalid-option preservation
+assertions remain in place; no tests are skipped or retried automatically.
+
+Local validation completed the exact Windows test with a 129.715-second native
+build step. The Linux native cross-build, using the existing current-source seed
+and the same freshly generated hosted oracle, completed in 127.486 seconds and
+passed binary equality and invalid-option output preservation. Linux hosted
+bootstrap was not rerun locally because its Clang toolchain is unavailable.
+The new GitHub matrix result remains pending.

@@ -341,7 +341,8 @@ module syscall_probe;
         self.run_tool([str(self.producer), "--compile-obj", str(original), str(obj)], timeout=180)
         self.run_tool([str(self.producer), "--link-macho", str(obj), str(reference), "sotlas_darwin_main"])
         environment = {"PATH": str(self.directory / "no-tools")}
-        self.run_tool([str(self.seed), "--build-mac-cc", str(actual), str(root), str(entry)], env=environment, timeout=180)
+        # This compiles the whole compiler; use the self-hosting workload budget.
+        self.run_tool([str(self.seed), "--build-mac-cc", str(actual), str(root), str(entry)], env=environment, timeout=900)
         self.assertEqual(actual.read_bytes(), reference.read_bytes())
         self.assertEqual(actual.read_bytes()[:4], b"\xcf\xfa\xed\xfe")
         self.run_tool([str(self.seed), "--build-mac-cc-extra", str(actual), str(root), str(entry)], expected=1, env=environment)
