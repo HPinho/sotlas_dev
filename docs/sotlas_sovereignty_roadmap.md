@@ -7,15 +7,15 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Last inspected green baseline: `8268ee05f2e042c472c5607aa03b010c5cf3a0a6`,
-[CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644)
-(19/19 jobs across Linux, Windows and Intel macOS).
-The UTF-8 configuration collection now has cross-platform CI confirmation.
-The current compiler delivery adds exact typed addresses for local POD record
-arrays and uses typed pool metadata in executable examples. Native Stage 2/3
-rebuilds pass on Windows and Linux. See [typed record storage](native_record_storage.md)
-for the acceptance rules and remaining pointer/lifetime limits. This delivery
-remains a candidate until its own CI passes.
+Starting green baseline: `a0b1641c9da9778b2e49c3bffc580a570c333e1b`,
+confirmed by the user after the full workflow completed. The earlier inspected
+[CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
+certified the UTF-8 collection baseline across all 19 jobs.
+The current compiler delivery adds exact interior pointers to fields and array
+elements, preserves the parsed `&mut` qualifier and validates mutable storage,
+nominal types, bounds and supported receiver paths. See
+[interior storage addresses](native_projected_addresses.md) for the contract.
+This candidate still requires its own CI certification.
 
 ## Remaining work, grouped by outcome
 

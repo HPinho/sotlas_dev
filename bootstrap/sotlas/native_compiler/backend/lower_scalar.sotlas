@@ -3138,6 +3138,31 @@ impl ScalarLowering {
                 let binding_index: usize = value_node.first_child;
                 if binding_index == 0 || binding_index >= self.node_count { return 0; }
                 let binding: AstNode = unsafe { *(self.nodes + binding_index) };
+                if binding.kind == AstKind::ExprFieldAccess || binding.kind == AstKind::ExprIndex {
+                    let mut place_sema: Sema = Sema::new();
+                    if !place_sema.is_in_unsafe_block(self.nodes,self.node_count,expression_index)
+                        || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer) { return 0; }
+                    let mutable_borrow: bool = value_node.span.length >= 4
+                        && value_node.span.offset <= self.source_len
+                        && value_node.span.length <= self.source_len-value_node.span.offset
+                        && place_sema.source_slice_equals(self.source,self.source_len,
+                            value_node.span.offset+value_node.span.length-3,3,"mut",3);
+                    let writable: bool = !place_sema.readonly_pointer_type(self.nodes,self.node_count,
+                        cast_type_index,self.source,self.source_len);
+                    if (writable && !mutable_borrow)
+                        || !self.projected_place_access(binding_index,writable || mutable_borrow,0) { return 0; }
+                    let record: u32 = self.cfg_struct_id(binding_index,0);
+                    if record != 0 {
+                        if self.pointer_pointee_struct_id(cast_type_index) != record
+                            || !self.array_record_copyable(record,0) { return 0; }
+                    } else {
+                        let element: TargetTypeTag = self.condition_expression_type(binding_index,first_parameter,parameter_count);
+                        if element == TargetTypeTag::Invalid || element == TargetTypeTag::Pointer
+                            || self.pointer_pointee_struct_id(cast_type_index) != 0
+                            || self.pointer_pointee_type_tag(cast_type_index) != element { return 0; }
+                    }
+                    return self.lower_projected_place_address(binding_index,first_parameter,parameter_count);
+                }
                 if binding.kind != AstKind::ExprIdent { return 0; }
                 let slot: usize = self.cfg_find_local(binding.str_offset, binding.str_len);
                 if slot >= self.local_count || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer) { return 0; }
@@ -6765,6 +6790,64 @@ impl ScalarLowering {
             if field != 0 { return self.field_struct_ids[field as usize - 1] as u32; }
         }
         return 0;
+    }
+
+    // Only stable field/index places can expose interior storage. A projection
+    // through a temporary aggregate or pointer-returning call stays fail-closed.
+    pub fn projected_place_access(self: &Self, index: usize, write: bool, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        let mut sem: Sema = Sema::new();
+        let pointer: usize = self.pointer_expression_type_ref(index);
+        if write && pointer != 0 && sem.readonly_pointer_type(self.nodes,self.node_count,pointer,self.source,self.source_len) { return false; }
+        if node.kind == AstKind::UnsafeExpr || node.kind == AstKind::ExprFieldAccess
+            || node.kind == AstKind::ExprIndex || (node.kind == AstKind::ExprUnary && node.int_value == 82) {
+            return self.projected_place_access(node.first_child,write,depth+1);
+        }
+        if node.kind != AstKind::ExprIdent { return false; }
+        let binding: usize = sem.find_visible_binding(self.nodes,self.node_count,index,self.source,self.source_len);
+        if binding == 0 || binding >= self.node_count { return false; }
+        if !write { return true; }
+        let declaration: AstNode = unsafe{*(self.nodes+binding)};
+        return declaration.int_value == 1 || (declaration.kind == AstKind::ParamDecl
+            && sem.binding_is_mutable_borrow(self.nodes,self.node_count,binding,self.source,self.source_len));
+    }
+
+    pub fn lower_projected_place_address(mut self: &mut Self, index: usize,
+        first_parameter: usize, parameter_count: usize) -> u32 {
+        if index == 0 || index >= self.node_count { return 0; }
+        let node: AstNode = unsafe{*(self.nodes+index)};
+        if node.kind == AstKind::ExprIndex {
+            if self.temporary_array_field(index) != 0 { return 0; }
+            let field: u32 = self.indexed_array_field(index);
+            if field != 0 { return self.cfg_field_array_index_address(index,field,first_parameter,parameter_count); }
+            if node.first_child == 0 || node.first_child >= self.node_count { return 0; }
+            let base: AstNode = unsafe{*(self.nodes+node.first_child)};
+            if base.kind != AstKind::ExprIdent { return 0; }
+            let slot: usize = self.cfg_find_local(base.str_offset,base.str_len);
+            if slot < self.local_count && self.local_array_counts[slot] != 0 {
+                return self.cfg_local_array_index_address(index,first_parameter,parameter_count);
+            }
+            let global: isize = self.find_global_bss(base.str_offset,base.str_len);
+            if global >= 0 && unsafe{g_bss_sym_is_array[global as usize]} != 0 {
+                return self.cfg_field_array_index_address(index,0,first_parameter,parameter_count);
+            }
+            return 0;
+        }
+        if node.kind != AstKind::ExprFieldAccess { return 0; }
+        let owner: u32 = self.cfg_record_receiver_id(node.first_child,0);
+        let field: u32 = self.find_field(owner,node.str_offset,node.str_len);
+        if field == 0 || self.field_byte_counts[field as usize-1] != 0 { return 0; }
+        let address: u32 = self.cfg_record_receiver_address(node.first_child,first_parameter,parameter_count,0);
+        let offset: u32 = self.append_value(TargetTypeTag::U64,0,0);
+        if address == 0 || offset == 0 || !self.append_instruction(TargetOpcode::ConstInt,
+            offset,TargetTypeTag::U64,0,0,index) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.field_offsets[field as usize-1] as u64;}
+        let first: u32 = self.operand_count as u32;let result: u32 = self.append_value(TargetTypeTag::Pointer,0,0);
+        if result == 0 || !self.append_operand(address) || !self.append_operand(offset)
+            || !self.append_instruction(TargetOpcode::PtrOffset,result,TargetTypeTag::Pointer,first,2,index) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=1;}
+        return result;
     }
 
     pub fn cfg_struct_address(mut self: &mut Self, expression_index: usize,

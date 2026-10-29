@@ -42,6 +42,10 @@ semantics for arrays whose records resemble device descriptors.
 
 ## Executable examples
 
+The subsequent [interior-address extension](native_projected_addresses.md) covers
+selected fields/elements. It has its own mutability and receiver restrictions;
+the array-to-element-pointer conversion described here remains unchanged.
+
 [Typed record storage](../examples/native_record_storage/main.sotlas) passes a
 descriptor array into a function, writes successive records through typed
 pointers and checks the resulting fields. It then initializes a native reusable

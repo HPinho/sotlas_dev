@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Current compiler candidate: [interior addresses](native_projected_addresses.md)
+add selected field/element pointers with parsed `&mut`, exact types and bounded
+array access. General borrow lifetimes and arbitrary receiver expressions remain open.
+
 Current compiler candidate: [typed local record-array storage](native_record_storage.md)
 supports exact POD element pointers and typed pool metadata. General field
 addresses, non-POD arrays and lifetime/alias analysis remain outside this block.

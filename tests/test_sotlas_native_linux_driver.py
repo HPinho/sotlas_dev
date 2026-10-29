@@ -884,6 +884,8 @@ module syscall_probe;
         verify_config_map(native_stage3, self.directory / "config map cases")
         from native_numeric_gate import verify_record_storage
         verify_record_storage(native_stage3, self.directory / "record storage cases")
+        from native_numeric_gate import verify_projected_storage
+        verify_projected_storage(native_stage3, self.directory / "projected storage cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"
