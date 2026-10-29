@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Current compiler candidate: [typed local record-array storage](native_record_storage.md)
+supports exact POD element pointers and typed pool metadata. General field
+addresses, non-POD arrays and lifetime/alias analysis remain outside this block.
+
 Current runtime candidate: [bounded native text map](native_text_map.md), with
 owned key/value slots, checked-source copying, iteration and explicit cleanup.
 This evidence does not complete generic collections or automatic ownership.

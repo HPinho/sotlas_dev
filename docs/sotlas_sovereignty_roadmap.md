@@ -7,15 +7,15 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Last inspected green baseline: `d02fe88bf9c6513561dab623a04fadb3da7b1cd2`,
-[green CI](https://github.com/HPinho/sotlas_dev/actions/runs/40690756562)
+Last inspected green baseline: `8268ee05f2e042c472c5607aa03b010c5cf3a0a6`,
+[CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644)
 (19/19 jobs across Linux, Windows and Intel macOS).
-The reusable allocation and persistent text block now has CI confirmation.
-The local main also includes SV8.103 persistent text composition. The current
-delivery builds a bounded UTF-8 configuration collection on that storage, with
-owned entries, checked field copying, full-pool updates, iteration and cleanup.
-See [the collection contract](native_text_map.md) and its executable example.
-This new block remains a candidate until its own CI passes.
+The UTF-8 configuration collection now has cross-platform CI confirmation.
+The current compiler delivery adds exact typed addresses for local POD record
+arrays and uses typed pool metadata in executable examples. Native Stage 2/3
+rebuilds pass on Windows and Linux. See [typed record storage](native_record_storage.md)
+for the acceptance rules and remaining pointer/lifetime limits. This delivery
+remains a candidate until its own CI passes.
 
 ## Remaining work, grouped by outcome
 

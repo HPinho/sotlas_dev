@@ -316,6 +316,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_pool_text(stage3, self.directory / "pool text cases")
         from native_numeric_gate import verify_config_map
         verify_config_map(stage3, self.directory / "config map cases")
+        from native_numeric_gate import verify_record_storage
+        verify_record_storage(stage3, self.directory / "record storage cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

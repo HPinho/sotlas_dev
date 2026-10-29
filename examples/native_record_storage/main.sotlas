@@ -1,0 +1,29 @@
+module native_record_storage;
+import sotlas::runtime::pool::*;
+
+struct Descriptor{pub base:u64;pub length:u32;pub flags:u32;}
+
+fn configure(mut table:*mut Descriptor)->u32{
+    unsafe{table.base=4096;table.length=20;table.flags=1;}
+    let mut next:*mut Descriptor=unsafe{table+1};
+    unsafe{next.base=8192;next.length=22;next.flags=2;}
+    return 0;
+}
+
+pub fn main_entry()->u32{
+    let mut descriptors:[Descriptor;2]=[Descriptor{base:0,length:0,flags:0};2];
+    let table:*mut Descriptor=unsafe{descriptors as *mut Descriptor};
+    configure(table);
+    if descriptors[0].base!=4096 || descriptors[1].base!=8192
+        || descriptors[0].flags!=1 || descriptors[1].flags!=2{return 1;}
+
+    let mut storage:[u8;64]=0;
+    let mut metadata:[NativePoolSlot;2]=[NativePoolSlot{generation:0,revision:0,length:0,live:false};2];
+    let slots:*mut NativePoolSlot=unsafe{metadata as *mut NativePoolSlot};
+    let mut pool:NativePool=native_pool_empty();let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
+    if !native_pool_open(p,unsafe{storage as *mut u8},64,slots,2,32){return 2;}
+    let handle:NativePoolHandle=native_pool_allocate(p,2);
+    if !native_pool_write(handle,0,"42",2) || metadata[0].length!=2 || !metadata[0].live{return 3;}
+    if !native_pool_release(handle,true) || metadata[0].live || !native_pool_close(p){return 4;}
+    return descriptors[0].length+descriptors[1].length;
+}
