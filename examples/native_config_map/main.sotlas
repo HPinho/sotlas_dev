@@ -37,9 +37,10 @@ fn configured(map:*mut NativeTextMap)->NativeU32Result{
 
 pub fn main_entry()->u32{
     let mut bytes:[u8;320]=0;let data:*mut u8=unsafe{bytes as *mut u8};
-    let mut metadata:[u64;40]=0;let words:*mut u64=unsafe{metadata as *mut u64};
+    let mut metadata:[NativePoolSlot;10]=[NativePoolSlot{generation:0,revision:0,length:0,live:false};10];
+    let slots:*mut NativePoolSlot=unsafe{metadata as *mut NativePoolSlot};
     let mut pool:NativePool=native_pool_empty();let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
-    if !native_pool_open_words(p,data,320,words,40,10,32){return 1;}
+    if !native_pool_open(p,data,320,slots,10,32){return 1;}
     let mut entries:[u64;28]=0;let table:*mut u64=unsafe{entries as *mut u64};
     let mut map:NativeTextMap=native_text_map_empty();let m:*mut NativeTextMap=unsafe{(&mut map) as *mut NativeTextMap};
     if !native_text_map_open(m,p,table,28,4){return 2;}

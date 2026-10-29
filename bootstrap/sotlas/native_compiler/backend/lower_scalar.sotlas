@@ -3160,6 +3160,20 @@ impl ScalarLowering {
                 if self.structured_cfg && value_node.kind == AstKind::ExprIdent {
                     let slot: usize = self.cfg_find_local(value_node.str_offset, value_node.str_len);
                     if slot < self.local_count && self.local_array_counts[slot] != 0 {
+                        let element_record: u32 = self.local_struct_ids[slot];
+                        if element_record != 0 {
+                            let mut array_sema: Sema = Sema::new();
+                            if (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer)
+                                || self.pointer_pointee_struct_id(cast_type_index) != element_record
+                                || !self.array_record_copyable(element_record,0)
+                                || !array_sema.is_in_unsafe_block(self.nodes,self.node_count,expression_index) { return 0; }
+                            if !array_sema.readonly_pointer_type(self.nodes,self.node_count,cast_type_index,self.source,self.source_len) {
+                                let binding: usize = array_sema.find_visible_binding(self.nodes,self.node_count,value_index,self.source,self.source_len);
+                                if binding == 0 || binding >= self.node_count
+                                    || unsafe{(*(self.nodes+binding)).int_value} != 1 { return 0; }
+                            }
+                            return self.local_value_ids[slot];
+                        }
                         let pointee_tag: u32 = self.pointer_pointee_type_tag(cast_type_index) as u32;
                         if (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::Pointer)
                             || self.pointer_pointee_struct_id(cast_type_index) != 0

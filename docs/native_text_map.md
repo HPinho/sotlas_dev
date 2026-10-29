@@ -10,6 +10,8 @@ This is a concrete runtime collection, not generic language-level `Map<K,V>` or
 automatic ownership inference. [The example](../examples/native_config_map/main.sotlas)
 loads a field from stored text, releases its source, changes configuration,
 iterates the entries and computes 42 before deferred collection cleanup.
+The example now uses [typed native pool metadata](native_record_storage.md).
+Its updated source requires a compiler rebuilt with that frontend capability.
 
 ## Storage and identity
 
