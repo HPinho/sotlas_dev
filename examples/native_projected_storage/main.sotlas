@@ -1,0 +1,30 @@
+module native_projected_storage;
+import sotlas::runtime::pool::*;
+
+struct Counters{pub queued:u32;pub completed:u32;}
+struct State{pub serial:u64;pub counters:Counters;pub samples:[u16;3];}
+
+fn complete(mut counters:*mut Counters)->u32{
+    unsafe{counters.completed=counters.queued;counters.queued=0;}return 0;
+}
+fn sample(mut value:*mut u16)->u32{unsafe{*value=42;}return 0;}
+
+pub fn main_entry()->u32{
+    let mut state:State=State{serial:99,counters:Counters{queued:42,completed:0},samples:[7;3]};
+    complete(unsafe{(&mut state.counters) as *mut Counters});
+    sample(unsafe{(&mut state.samples[1]) as *mut u16});
+    let completed:*const u32=unsafe{(&state.counters.completed) as *const u32};
+    if state.serial!=99 || state.counters.queued!=0 || unsafe{*completed}!=42
+        || state.samples[0]!=7 || state.samples[1]!=42 || state.samples[2]!=7{return 1;}
+
+    let mut storage:[u8;64]=0;
+    let mut metadata:[NativePoolSlot;4]=[NativePoolSlot{generation:77,revision:77,length:0,live:false};4];
+    let slots:*mut NativePoolSlot=unsafe{(&mut metadata[1]) as *mut NativePoolSlot};
+    let mut pool:NativePool=native_pool_empty();let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
+    if !native_pool_open(p,unsafe{storage as *mut u8},64,slots,2,32){return 2;}
+    let handle:NativePoolHandle=native_pool_allocate(p,2);
+    if !native_pool_write(handle,0,"42",2) || !metadata[1].live || metadata[1].length!=2{return 3;}
+    if !native_pool_release(handle,true) || !native_pool_close(p){return 4;}
+    if metadata[0].generation!=77 || metadata[3].generation!=77{return 5;}
+    return state.counters.completed;
+}

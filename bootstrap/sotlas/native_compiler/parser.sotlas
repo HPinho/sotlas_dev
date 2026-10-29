@@ -1999,15 +1999,17 @@ impl Parser {
             || self.match_token(TokenKind::Amp)
             || self.match_token(TokenKind::Star) {
             let op: Token = self.advance();
+            let mut unary_span: Span = op.span;
             if op.kind == TokenKind::Amp && self.match_token(TokenKind::KwMut) {
-                self.advance();
+                let qualifier: Token = self.advance();
+                unary_span.length = qualifier.span.offset + qualifier.span.length - op.span.offset;
             }
             let operand: usize = self.parse_unary_expression();
             if operand == 0 {
                 self.record_unexpected(self.current());
                 return 0;
             }
-            let node: usize = self.alloc_node(AstKind::ExprUnary, op.span);
+            let node: usize = self.alloc_node(AstKind::ExprUnary, unary_span);
             if node == 0 {
                 return 0;
             }
