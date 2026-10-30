@@ -2,8 +2,10 @@
 
 Implemented subset: [constant array dimensions](native_array_dimensions.md)
 support checked literal arithmetic in type lengths and repetition counts, with
-existing storage, internal ABI and POD ownership gates. Named constants, const
-generics and dynamic lengths remain open.
+existing storage, internal ABI and POD ownership gates. Const generics and
+dynamic lengths remain open. [Unsigned module constants](native_named_dimensions.md)
+now resolve named fixed capacities, with scope/shadowing, dependency and range
+checks; general const generics and constant evaluation remain open.
 
 Current compiler candidate: [native layout queries](native_layout_queries.md)
 and [executable packed records](../examples/native_packed_records/README.md).
