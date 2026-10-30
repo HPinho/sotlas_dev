@@ -6402,6 +6402,9 @@ impl ScalarLowering {
                     self.field_type_tags[f_idx] = TargetTypeTag::Aggregate as u32;
                 }
                 if f_alignment == 0 { return self.reject(f_scan); }
+                // Packed records keep each field's full storage but suppress
+                // inter-field and trailing padding on the x86-64 profile.
+                if decl_node.int_value == 1 { f_alignment = 1; }
                 if f_alignment > struct_alignment { struct_alignment = f_alignment; }
                 let layout_limit: u32 = 4294967295;
                 if cur_offset > layout_limit-(f_alignment-1) { return self.reject(f_scan); }

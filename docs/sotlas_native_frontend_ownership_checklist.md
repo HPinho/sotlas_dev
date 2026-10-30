@@ -1,6 +1,9 @@
 # Native frontend and ownership closure
 
 Current compiler candidate: [native layout queries](native_layout_queries.md)
+and [executable packed records](../examples/native_packed_records/README.md).
+Packed x86-64 record layout is implemented; general custom alignment and foreign
+packed-argument ABI parity remain outside this block.
 cover size/stride/alignment, field offsets, constant evaluation and validation
 in dead code. General compile-time execution and frontend parity remain open.
 
