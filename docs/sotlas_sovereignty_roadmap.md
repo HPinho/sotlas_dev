@@ -7,7 +7,7 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `b713137e1060e39c296f8c4a0de3fa894e0d4442`,
+Starting green baseline: `7b2fee4` (packed-record implementation `8233e7c`),
 confirmed by the user after the full workflow completed. The earlier inspected
 [CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
 certified the UTF-8 collection baseline across all 19 jobs.
@@ -19,7 +19,10 @@ CI #1325 failed the existing minimal-kernel test because `@packed` was rejected.
 The follow-up implements native packed-record layout, unaligned scalar access,
 nested records, array stride and by-value copies rather than removing that gate.
 The packed packet example is included in all three native host rebuild gates.
-This follow-up still requires its own CI certification.
+The user confirmed that this follow-up completed with a green workflow.
+The next delivery adds checked literal arithmetic in fixed-array dimensions
+and repetitions across storage, internal calls and POD payloads. See the
+[dimension contract](native_array_dimensions.md). Its CI certification is pending.
 
 ## Remaining work, grouped by outcome
 

@@ -1,0 +1,24 @@
+module examples::native_array_dimensions;
+
+pub struct Frame {
+    pub samples: [u32; 2 * 3];
+    pub flags: [u8; (4 + 4) / 2];
+}
+
+pub enum Message {
+    Empty,
+    Frames([Frame; 8 % 3]),
+}
+
+fn make() -> Message {
+    return Message::Frames([Frame { samples: [7; 12 / 2], flags: [0; 2 + 2] }; 6 / 3]);
+}
+
+pub fn main_entry() -> u32 {
+    let expected: usize = span_of::<[Frame; 1 + 1]>();
+    if expected != 56 || span_of::<Frame>() != 28 { return 1; }
+    return match make() {
+        Message::Empty => 2,
+        Message::Frames(frames) => frames[1].samples[5] * 6,
+    };
+}

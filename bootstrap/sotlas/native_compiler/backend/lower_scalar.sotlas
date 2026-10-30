@@ -1736,8 +1736,7 @@ impl ScalarLowering {
             let length: usize = unsafe{(*(self.nodes+element)).next_sibling};
             if length == 0 || length >= self.node_count { return false; }
             let length_node: AstNode = unsafe{*(self.nodes+length)};
-            if length_node.kind != AstKind::ExprLiteral || length_node.next_sibling != 0
-                || self.parse_integer_value(length_node.str_offset,length_node.str_len) != count as u64 { return false; }
+            if length_node.next_sibling != 0 || self.array_repeat_count(length) != count as u64 { return false; }
         }
         let mut index: usize = 0;
         while index < count {
@@ -1784,8 +1783,7 @@ impl ScalarLowering {
             let length: usize = unsafe{(*(self.nodes+element)).next_sibling};
             if length == 0 || length >= self.node_count { return false; }
             let node: AstNode = unsafe{*(self.nodes+length)};
-            if node.kind != AstKind::ExprLiteral || node.next_sibling != 0
-                || self.parse_integer_value(node.str_offset,node.str_len) != count as u64 { return false; }
+            if node.next_sibling != 0 || self.array_repeat_count(length) != count as u64 { return false; }
         }
         let size: usize = count*stride;
         let mut byte: usize = 0;
@@ -1909,6 +1907,13 @@ impl ScalarLowering {
             }
         }
         return 0;
+    }
+
+    pub fn array_repeat_count(self: &Self, index: usize) -> u64 {
+        let mut value: u64 = 0;
+        if !native_dimension_ast(self.nodes,self.node_count,index,self.source,self.source_len,0,
+            unsafe{(&mut value) as *mut u64}) { return 0; }
+        return value;
     }
 
     pub fn parse_integer_value(
@@ -3945,9 +3950,12 @@ impl ScalarLowering {
                         }
                         if repeat.kind != AstKind::ExprArrayRepeat || repeat.first_child == 0 { return 0; }
                         let repeat_value: AstNode = unsafe { *(self.nodes + repeat.first_child) };
-                        let count_value: u32 = self.lower_integer_literal(repeat_value.next_sibling, TargetTypeTag::U32);
-                        if count_value == 0 || unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits }
-                            != self.field_byte_counts[f_idx] as u64 { return 0; }
+                        if self.array_repeat_count(repeat_value.next_sibling) != self.field_byte_counts[f_idx] as u64 { return 0; }
+                        // Preserve literal IR numbering for existing native seeds.
+                        if unsafe{(*(self.nodes+repeat_value.next_sibling)).kind} == AstKind::ExprLiteral {
+                            let count_value: u32 = self.lower_integer_literal(repeat_value.next_sibling, TargetTypeTag::U32);
+                            if count_value == 0 { return 0; }
+                        }
                         let array_type: TargetTypeTag = self.field_array_types[f_idx] as TargetTypeTag;
                         let stride: u32 = self.scalar_memory_size(array_type);
                         let byte_value: u32 = self.lower_expression(repeat.first_child,
@@ -5883,8 +5891,7 @@ impl ScalarLowering {
             let length_index: usize = unsafe{(*(self.nodes+element)).next_sibling};
             if length_index == 0 || length_index >= self.node_count { return false; }
             let length: AstNode = unsafe{*(self.nodes+length_index)};
-            if length.kind != AstKind::ExprLiteral || length.next_sibling != 0
-                || self.parse_integer_value(length.str_offset,length.str_len) != count as u64 { return false; }
+            if length.next_sibling != 0 || self.array_repeat_count(length_index) != count as u64 { return false; }
             repeated = self.cfg_struct_address(element,first_parameter,parameter_count,0);
             if repeated == 0 { return false; }
         }
@@ -6608,8 +6615,7 @@ impl ScalarLowering {
             let length: usize = unsafe{(*(self.nodes+element)).next_sibling};
             if length == 0 || length >= self.node_count { return false; }
             let literal: AstNode = unsafe{*(self.nodes+length)};
-            if literal.kind != AstKind::ExprLiteral || literal.next_sibling != 0
-                || self.parse_integer_value(literal.str_offset,literal.str_len) != count as u64 { return false; }
+            if literal.next_sibling != 0 || self.array_repeat_count(length) != count as u64 { return false; }
             repeated=self.lower_expression(element,typ,first_parameter,parameter_count);
             if repeated == 0 { return false; }
         }
@@ -7449,8 +7455,7 @@ impl ScalarLowering {
                         let count_node: usize = unsafe { (*(self.nodes + element_node)).next_sibling };
                         if count_node == 0 || count_node >= self.node_count { return self.reject(index); }
                         let length_node: AstNode = unsafe { *(self.nodes + count_node) };
-                        if length_node.kind != AstKind::ExprLiteral || length_node.next_sibling != 0
-                            || self.parse_integer_value(length_node.str_offset, length_node.str_len) != count as u64 { return self.reject(index); }
+                        if length_node.next_sibling != 0 || self.array_repeat_count(count_node) != count as u64 { return self.reject(index); }
                         if record != 0 && self.cfg_struct_id(element_node, 0) != record { return self.reject(element_node); }
                         repeated_value = self.lower_expression(element_node, elem, first_parameter, parameter_count);
                         if repeated_value == 0 { return self.reject(index); }
@@ -10188,7 +10193,13 @@ pub fn lower_scalar_module(
     // here prevents control-flow lowering from hiding an unknown layout.
     let mut query_index: usize = 1;
     while query_index < lowering.node_count {
-        if unsafe{(*(lowering.nodes+query_index)).kind} == AstKind::ExprLayout {
+        let query_node: AstNode = unsafe{*(lowering.nodes+query_index)};
+        if query_node.kind == AstKind::TypeRef && query_node.str_len != 0
+            && query_node.str_offset < lowering.source_len
+            && unsafe{*(lowering.source+query_node.str_offset)} == 91 {
+            if lowering.parse_array_element_count(query_node.str_offset,query_node.str_len) == 0 { return lowering.reject(query_index); }
+        }
+        if query_node.kind == AstKind::ExprLayout {
             let mut query_bits: u64 = 0;
             if !lowering.layout_query_bits(query_index,unsafe{(&mut query_bits) as *mut u64}) { return lowering.reject(query_index); }
         }
@@ -10276,8 +10287,8 @@ pub fn lower_scalar_module(
                             let count_node: usize = unsafe { (*(lowering.nodes + repeated)).next_sibling };
                             if count_node == 0 || count_node >= lowering.node_count { return lowering.reject(struct_scan_index); }
                             let count_expr: AstNode = unsafe { *(lowering.nodes + count_node) };
-                            if count_expr.kind != AstKind::ExprLiteral || count_expr.next_sibling != 0
-                                || lowering.parse_integer_value(count_expr.str_offset, count_expr.str_len) != array_element_count as u64
+                            if count_expr.next_sibling != 0
+                                || lowering.array_repeat_count(count_node) != array_element_count as u64
                                 || array_element_struct != 0 || element_type == TargetTypeTag::Pointer
                                 || !lowering.constant_literal_bits(repeated, element_type, &mut initial_bits) { return lowering.reject(struct_scan_index); }
                         } else if initializer.kind == AstKind::ExprArrayLiteral {

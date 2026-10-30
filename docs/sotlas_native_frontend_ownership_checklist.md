@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [constant array dimensions](native_array_dimensions.md)
+support checked literal arithmetic in type lengths and repetition counts, with
+existing storage, internal ABI and POD ownership gates. Named constants, const
+generics and dynamic lengths remain open.
+
 Current compiler candidate: [native layout queries](native_layout_queries.md)
 and [executable packed records](../examples/native_packed_records/README.md).
 Packed x86-64 record layout is implemented; general custom alignment and foreign
