@@ -2633,7 +2633,8 @@ impl CEmitter {
             return false;
         }
         let decl: AstNode = unsafe { *(self.nodes + struct_index) };
-        if decl.kind != AstKind::StructDecl || decl.str_len == 0 || decl.first_child == 0 {
+        if decl.kind != AstKind::StructDecl || decl.str_len == 0 || decl.first_child == 0
+            || decl.int_value != 0 {
             return false;
         }
 

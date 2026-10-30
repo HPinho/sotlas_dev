@@ -359,6 +359,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_projected_storage(stage3, self.directory / "projected storage cases")
         from native_numeric_gate import verify_layout_queries
         verify_layout_queries(stage3, self.directory / "layout query cases")
+        from native_numeric_gate import verify_packed_records
+        verify_packed_records(stage3, self.directory / "packed record cases")
         from native_window_gate import verify_window
         verify_window(stage3, self.directory / "window cases")
         from native_ui_gate import verify_ui

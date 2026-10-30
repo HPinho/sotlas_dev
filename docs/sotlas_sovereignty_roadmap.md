@@ -15,7 +15,11 @@ The current compiler delivery implements native size, stride, alignment and
 field-offset queries, including constant evaluation and dead-code validation.
 The pool and map now derive memory-check layouts from their declarations.
 See [native layout queries](native_layout_queries.md) for the supported profile.
-This candidate still requires its own CI certification.
+CI #1325 failed the existing minimal-kernel test because `@packed` was rejected.
+The follow-up implements native packed-record layout, unaligned scalar access,
+nested records, array stride and by-value copies rather than removing that gate.
+The packed packet example is included in all three native host rebuild gates.
+This follow-up still requires its own CI certification.
 
 ## Remaining work, grouped by outcome
 

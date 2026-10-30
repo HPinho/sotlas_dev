@@ -130,6 +130,17 @@ int main(int argc, char **argv) {
         fprintf(stderr, "payload enum: size=%zu line=%u col=%u\n", size, line, col);
         return 6;
     }
+    // Native packed support must not silently change the legacy C emitter ABI.
+    static const uint8_t packed_record[] =
+        "module test::packed;\n@packed struct Row { a: u8; b: u64; }\n";
+    size = sotlas_native_compile_diagnostic(
+        packed_record, sizeof(packed_record) - 1,
+        output, sizeof(output) - 1, &line, &col
+    );
+    if (size != 0) {
+        fprintf(stderr, "legacy C emitter accepted an unsupported packed layout\n");
+        return 7;
+    }
     return 0;
 }
 '''

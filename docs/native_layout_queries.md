@@ -35,17 +35,29 @@ rejected. The compiler validates every query after registering aggregate layouts
 including queries in unreachable statements and uncalled functions. An invalid
 type cannot become accepted merely because control flow skips its query.
 
-Native `@packed`, `@aligned` and `@align` requests, including packed/alignment
-arguments to `@repr`, are now explicitly rejected rather than silently discarded
-by the attribute parser. Their requested layouts are not implemented in this
-backend. This does not implement general attribute parity.
+Native x86-64 records accept `@packed`, `@repr(packed)` and `@repr(C,packed)`.
+Attributes may appear before or after `pub`. The parser stores the packed bit on
+the struct declaration; layout registration sets field and record alignment to
+one without shrinking field storage. Queries, field access, array stride and
+native by-value calls use that same layout. Nested records retain their own
+internal padding. The kernel's packed BootFrame has size 36, alignment one and
+its eight-byte tag at offset 28.
+
+Scalar loads/stores use the x86-64 backend's ordinary unaligned memory operations.
+This is not volatile/atomic access, MMIO support, endian conversion or general
+C ABI classification for foreign packed arguments. General borrowed-reference
+alignment and other targets are not certified by this block. `@packed(N)`, custom
+`@aligned`/`@align`, nested layout arguments and packed annotations on non-struct
+declarations remain rejected. Native `@repr` arguments are restricted to C and
+packed. The legacy Sotlas C emitter rejects packed declarations rather than
+silently producing an unpacked record. This is not general attribute parity.
 
 Queries emit integer constants into Target IR and work in native module
 constants, arithmetic, conditions, calls and returns. Constant dependencies can
 refer to records declared later in the module. Constructors and value expressions
 are not evaluated. This does not add arbitrary compile-time execution or permit
 query expressions in array-length type syntax. Generic type instantiation,
-dynamic slices, packed/custom alignment and other targets retain their existing
+dynamic slices, custom alignment and other targets retain their existing
 support gates. This delivery does not extend the legacy Sotlas C emitter path.
 
 ## Runtime integration
@@ -80,7 +92,9 @@ The original-source Stage 3 gates on Linux, Windows and Intel macOS now include
 the imported layout example, host execution and ELF/PE/Mach-O emission.
 
 The starting baseline is `b713137`, reported green by the user. The new delivery
-remains a candidate until its own full CI completes. These are native profile
+failed CI #1324/#1325 because packed declarations were rejected, breaking the
+existing minimal-kernel gate. The follow-up implements their actual layout;
+its full CI is still pending. These are native profile
 capabilities, not full frontend parity or removal of every Python/C requirement.
 
 Local final evidence: 171 layout/storage/address/array/pool/map execution tests
@@ -103,3 +117,35 @@ again encountered the previously recorded local Defender block (`WinError 225`),
 including access to its PE artifact from the Windows-mounted Linux workspace.
 That gate is not counted as passing; its native map unit cases passed. Protection
 was not modified. Actual Intel macOS execution and the new full CI remain pending.
+
+## Packed-record follow-up
+
+[CI #1325](https://github.com/HPinho/sotlas_dev/actions/runs/41026209981)
+reported the same minimal-kernel failure in inspected Ubuntu, Windows and Intel
+macOS logs. The original SV6 object/freestanding-link test remains mandatory.
+The fix restores its accepted packed declaration with real layout semantics.
+
+The [packed packet program](../examples/native_packed_records/main.sotlas)
+checks a 14-byte stride, unaligned fields, an inline byte array, by-value calls,
+independent array elements and neighbor preservation. All native host rebuild
+gates now check, compile, execute and cross-emit this example.
+
+Local native validation passed 181 focused tests on Windows and Linux, including
+31 layout tests with packed scalar, nested, array, query and rejection coverage.
+Both original-source self-builds preserved strict Stage 2/3 binary identity:
+
+- Windows SHA-256: `83938a860e942f31b84b378a73008416ddd8b7c405bd9039bbcb20ee8e51a40b`
+- Linux SHA-256: `e023e605d15f3eae19a665c183ac720d74ebf43f0d766a559d533f9a4b6539bd`
+
+A separate 64-test hosted run passed the layout suite, the original SV6 kernel
+gate, legacy C-emitter rejection, parser/AST, Target IR, sovereignty contracts,
+example manifest and phase-gate checks. Generated phase-matrix consistency also
+passed. Packed object and ELF bytes matched between the two native producers.
+
+The packed example passed host execution on both platforms and all three format
+checks through the Windows producer. The Linux producer completed host execution
+and ELF emission, but reading its cross-emitted PE from the Windows-mounted
+workspace failed with `OSError: [Errno 22]`, the previously recorded local
+security-block pattern. That cross-format check is pending, not a pass. No
+protection settings were changed. Intel macOS execution and full CI certification
+remain pending for this follow-up.

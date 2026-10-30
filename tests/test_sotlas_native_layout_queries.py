@@ -131,11 +131,86 @@ pub fn main_entry()->u32{if NATIVE_POOL_SLOT_SIZE!=32 || NATIVE_POOL_CONTROL_SIZ
 pub fn main_entry()->u32{return span_of(40);}''')
 
     def test_unsupported_layout_annotations_are_not_silently_ignored(self):
-        for index,prefix in enumerate(('@packed','@aligned(16)','pub @packed','pub @aligned(32)',
-                                       '@repr(packed)','@repr(align(16))')):
+        for index,prefix in enumerate(('@aligned(16)','pub @aligned(32)',
+                                       '@packed(2)','@repr(packed(2))','@repr(align(16))')):
             with self.subTest(prefix=prefix):
                 self.compile('layout_attribute_'+str(index),prefix+' struct Row{pub a:u8;pub b:u64;}'
                              'pub fn main_entry()->u32{let n:usize=span_of::<Row>();return 42;}',False)
+
+    def test_packed_record_layout_spellings_and_visibility(self):
+        for index,prefix in enumerate(('@packed','pub @packed','@packed pub',
+                                       '@repr(C) @packed','@repr(packed)','@repr(C,packed)')):
+            with self.subTest(prefix=prefix):
+                self.program('packed_layout_'+str(index),prefix+''' struct Row{pub a:u8;pub b:u64;pub c:u16;}
+pub fn main_entry()->u32{if span_of::<Row>()!=11 || stride_of::<Row>()!=11
+|| align_of::<Row>()!=1 || field_offset!(Row,b)!=1 || field_offset!(Row,c)!=9{return 1;}return 42;}''')
+
+    def test_packed_unaligned_load_store_and_neighbor_preservation(self):
+        self.program('packed_access','''@packed struct Row{pub a:u8;pub b:u64;pub c:u16;}
+pub fn main_entry()->u32{let mut row:Row=Row{a:7,b:123456789,c:19};
+row.b=40;row.c=2;if row.a!=7 || row.b!=40 || row.c!=2{return 1;}
+let mut p:*mut Row=unsafe{(&mut row) as *mut Row};let value:u64=unsafe{p.b};unsafe{p.b=value+2;}
+if row.a!=7 || row.c!=2{return 2;}return row.b as u32;}''')
+
+    def test_packed_nested_records_preserve_inner_layout(self):
+        self.program('packed_nested','''struct Inner{pub a:u8;pub b:u64;}
+@packed struct Outer{pub tag:u8;pub inner:Inner;pub tail:u16;}
+pub fn main_entry()->u32{let mut row:Outer=Outer{tag:9,inner:Inner{a:3,b:40},tail:2};
+row.inner.b=42;if span_of::<Outer>()!=19 || align_of::<Outer>()!=1
+|| field_offset!(Outer,inner)!=1 || field_offset!(Outer,tail)!=17
+|| row.tag!=9 || row.inner.a!=3 || row.tail!=2{return 1;}return row.inner.b as u32;}''')
+
+    def test_packed_record_arrays_copy_calls_and_stride(self):
+        self.program('packed_array_calls','''@packed struct Row{pub a:u8;pub b:u64;}
+fn change(mut row:Row)->Row{row.b=row.b+2;return row;}
+pub fn main_entry()->u32{let mut rows:[Row;2]=[Row{a:5,b:40};2];rows[1]=change(rows[0]);
+let first:*mut Row=unsafe{(&mut rows[0]) as *mut Row};let second:*mut Row=unsafe{(&mut rows[1]) as *mut Row};
+let a:usize=unsafe{first as usize};let b:usize=unsafe{second as usize};
+if b-a!=9 || span_of::<[Row;2]>()!=18 || rows[0].b!=40 || rows[1].a!=5{return 1;}
+return rows[1].b as u32;}''')
+
+    def test_kernel_boot_frame_packed_layout(self):
+        self.program('packed_boot_frame','''@repr(C) @packed pub struct BootFrame{
+pub framebuffer:*mut u32;pub framebuffer_size:usize;pub width:u32;pub height:u32;pub pitch:u32;pub tag:[u8;8];}
+pub fn main_entry()->u32{if span_of::<BootFrame>()!=36 || align_of::<BootFrame>()!=1
+|| field_offset!(BootFrame,framebuffer)!=0 || field_offset!(BootFrame,framebuffer_size)!=8
+|| field_offset!(BootFrame,width)!=16 || field_offset!(BootFrame,height)!=20
+|| field_offset!(BootFrame,pitch)!=24 || field_offset!(BootFrame,tag)!=28{return 1;}return 42;}''')
+
+    def test_natural_outer_record_uses_packed_child_alignment(self):
+        self.program('packed_child','''@packed struct Child{pub a:u8;pub b:u64;}
+struct Outer{pub tag:u8;pub child:Child;pub tail:u32;}
+pub fn main_entry()->u32{let row:Outer=Outer{tag:3,child:Child{a:7,b:42},tail:9};
+if span_of::<Outer>()!=16 || align_of::<Outer>()!=4 || field_offset!(Outer,child)!=1
+|| field_offset!(Outer,tail)!=12 || row.child.a!=7 || row.tail!=9{return 1;}return row.child.b as u32;}''')
+
+    def test_packed_float_and_signed_scalar_fields(self):
+        self.program('packed_floats','''@packed struct Row{pub a:u8;pub n:i16;pub x:f64;pub y:f32;pub ok:bool;}
+pub fn main_entry()->u32{let mut row:Row=Row{a:7,n:-3,x:1.5,y:2.0,ok:true};
+row.x=row.x*2.0;row.y=row.y+1.0;if span_of::<Row>()!=16 || field_offset!(Row,x)!=3
+|| field_offset!(Row,y)!=11 || row.n!=-3 || row.x!=3.0 || row.y!=3.0 || !row.ok{return 1;}return 42;}''')
+
+    def test_packed_array_field_uses_child_stride(self):
+        self.program('packed_record_field_array','''@packed struct Child{pub a:u8;pub b:u64;}
+struct Outer{pub tag:u8;pub children:[Child;2];pub tail:u32;}
+pub fn main_entry()->u32{let mut row:Outer=Outer{tag:3,children:[Child{a:7,b:40};2],tail:9};
+row.children[1].b=42;if span_of::<Outer>()!=24 || field_offset!(Outer,children)!=1
+|| field_offset!(Outer,tail)!=20 || row.children[0].b!=40 || row.tag!=3 || row.tail!=9{return 1;}
+return row.children[1].b as u32;}''')
+
+    def test_malformed_packed_representation_is_rejected(self):
+        for index,prefix in enumerate(('@repr(packed packed)','@repr(packed,)',
+                                       '@repr(packed,unknown)','@repr()','@packed(')):
+            with self.subTest(prefix=prefix):
+                self.compile('packed_malformed_'+str(index),prefix+' struct Row{pub a:u8;pub b:u64;}'
+                             'pub fn main_entry()->u32{return 42;}',False)
+
+    def test_packed_attribute_rejects_other_declarations(self):
+        for index,source in enumerate(('enum Flag{A,B}', 'fn unused()->u32{return 1;}',
+                                       'const SIZE:usize=8;', 'impl Row{}')):
+            with self.subTest(source=source):
+                self.compile('packed_wrong_target_'+str(index),'struct Row{pub n:u32;}@packed '+source+
+                             'pub fn main_entry()->u32{return 42;}',False)
 
     def test_invalid_types_fields_and_result_types_fail_closed(self):
         for index,expression in enumerate(('span_of::<Missing>()','align_of::<void>()',

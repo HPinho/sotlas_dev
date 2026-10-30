@@ -888,6 +888,8 @@ module syscall_probe;
         verify_projected_storage(native_stage3, self.directory / "projected storage cases")
         from native_numeric_gate import verify_layout_queries
         verify_layout_queries(native_stage3, self.directory / "layout query cases")
+        from native_numeric_gate import verify_packed_records
+        verify_packed_records(native_stage3, self.directory / "packed record cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"
