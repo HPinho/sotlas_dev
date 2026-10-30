@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Current compiler candidate: [native layout queries](native_layout_queries.md)
+cover size/stride/alignment, field offsets, constant evaluation and validation
+in dead code. General compile-time execution and frontend parity remain open.
+
 Current compiler candidate: [interior addresses](native_projected_addresses.md)
 add selected field/element pointers with parsed `&mut`, exact types and bounded
 array access. General borrow lifetimes and arbitrary receiver expressions remain open.

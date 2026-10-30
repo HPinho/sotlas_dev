@@ -14,6 +14,10 @@ pub struct NativeTextMapCursor{pub map:*const NativeTextMap;pub revision:u64;pub
 pub struct NativeTextMapItem{pub valid:bool;pub done:bool;pub key:NativePoolView;
     pub value:NativePoolView;pub next:NativeTextMapCursor;}
 
+pub const NATIVE_TEXT_MAP_CONTROL_SIZE:usize=span_of::<NativeTextMap>();
+pub const NATIVE_TEXT_MAP_CONTROL_ALIGN:usize=align_of::<NativeTextMap>();
+pub const NATIVE_TEXT_MAP_ENTRY_SIZE:usize=7*stride_of::<u64>();
+
 pub fn native_text_map_empty()->NativeTextMap{
     return NativeTextMap{pool:null,epoch:0,entries:null,capacity:0,count:0,revision:1,live:false};
 }
@@ -21,23 +25,24 @@ pub fn native_text_map_layout(map:*const NativeTextMap,pool:*const NativePool,
     entries:*mut u64,capacity:u32)->bool{
     if !native_pool_shape(pool) || capacity==0 || capacity>256{return false;}
     let control:usize=unsafe{map as usize};let table:usize=unsafe{entries as usize};
-    let size:usize=(capacity as usize)*56;
-    if !native_pool_range(control,48) || control%8!=0 || !native_pool_range(table,size)
-        || table%8!=0 || native_pool_overlap(control,48,table,size){return false;}
+    let size:usize=(capacity as usize)*NATIVE_TEXT_MAP_ENTRY_SIZE;
+    if !native_pool_range(control,NATIVE_TEXT_MAP_CONTROL_SIZE) || control%NATIVE_TEXT_MAP_CONTROL_ALIGN!=0 || !native_pool_range(table,size)
+        || table%align_of::<u64>()!=0 || native_pool_overlap(control,NATIVE_TEXT_MAP_CONTROL_SIZE,table,size){return false;}
     unsafe{
         let owner:usize=pool as usize;let metadata:usize=pool.slots as usize;
-        let bytes:usize=pool.data as usize;let metadata_size:usize=(pool.count as usize)*32;
-        return !native_pool_overlap(control,48,owner,56) && !native_pool_overlap(table,size,owner,56)
-            && !native_pool_overlap(control,48,metadata,metadata_size)
+        let bytes:usize=pool.data as usize;let metadata_size:usize=(pool.count as usize)*NATIVE_POOL_SLOT_SIZE;
+        return !native_pool_overlap(control,NATIVE_TEXT_MAP_CONTROL_SIZE,owner,NATIVE_POOL_CONTROL_SIZE)
+            && !native_pool_overlap(table,size,owner,NATIVE_POOL_CONTROL_SIZE)
+            && !native_pool_overlap(control,NATIVE_TEXT_MAP_CONTROL_SIZE,metadata,metadata_size)
             && !native_pool_overlap(table,size,metadata,metadata_size)
-            && !native_pool_overlap(control,48,bytes,pool.capacity)
+            && !native_pool_overlap(control,NATIVE_TEXT_MAP_CONTROL_SIZE,bytes,pool.capacity)
             && !native_pool_overlap(table,size,bytes,pool.capacity);
     }
 }
 pub fn native_text_map_open(mut map:*mut NativeTextMap,pool:*mut NativePool,
     mut entries:*mut u64,word_capacity:usize,capacity:u32)->bool{
     if word_capacity>2305843009213693951 || (capacity as usize)*7>word_capacity
-        || !native_pool_range(unsafe{entries as usize},word_capacity*8)
+        || !native_pool_range(unsafe{entries as usize},word_capacity*stride_of::<u64>())
         || !native_text_map_layout(map,pool,entries,capacity){return false;}
     unsafe{
         if map.live || map.revision==0 || map.revision==18446744073709551615{return false;}
@@ -91,8 +96,8 @@ pub fn native_text_map_shape(map:*const NativeTextMap)->bool{
 pub fn native_text_map_source(map:*const NativeTextMap,data:*const u8,length:usize)->bool{
     if !native_text_map_shape(map){return false;}
     unsafe{return native_pool_source(map.pool,data,length)
-        && !native_pool_overlap(data as usize,length,map as usize,48)
-        && !native_pool_overlap(data as usize,length,map.entries as usize,(map.capacity as usize)*56);}
+        && !native_pool_overlap(data as usize,length,map as usize,NATIVE_TEXT_MAP_CONTROL_SIZE)
+        && !native_pool_overlap(data as usize,length,map.entries as usize,(map.capacity as usize)*NATIVE_TEXT_MAP_ENTRY_SIZE);}
 }
 pub fn native_text_map_utf8(data:*const u8,length:usize)->bool{
     if !native_pool_range(unsafe{data as usize},length){return false;}

@@ -320,6 +320,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_record_storage(stage3, self.directory / "record storage cases")
         from native_numeric_gate import verify_projected_storage
         verify_projected_storage(stage3, self.directory / "projected storage cases")
+        from native_numeric_gate import verify_layout_queries
+        verify_layout_queries(stage3, self.directory / "layout query cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

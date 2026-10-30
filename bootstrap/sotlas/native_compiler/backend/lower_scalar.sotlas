@@ -708,7 +708,7 @@ impl ScalarLowering {
     pub fn constant_shape_valid(self: &Self, index: usize, depth: usize) -> bool {
         if index == 0 || index >= self.node_count || depth >= 64 { return false; }
         let node: AstNode = unsafe { *(self.nodes + index) };
-        if node.kind == AstKind::ExprLiteral || node.kind == AstKind::ExprPath { return true; }
+        if node.kind == AstKind::ExprLiteral || node.kind == AstKind::ExprPath || node.kind == AstKind::ExprLayout { return true; }
         if node.kind == AstKind::ExprIdent {
             let mut sem: Sema = Sema::new();
             return self.find_module_const(node.str_offset, node.str_len) >= 0
@@ -2737,6 +2737,62 @@ impl ScalarLowering {
         return unsafe{(*(self.nodes+parent)).str_offset};
     }
 
+    // Values come from the exact registered layout used by native memory/ABI
+    // lowering. A zero field offset is success, not an unknown-layout sentinel.
+    pub fn layout_query_bits(self: &Self, index: usize, mut bits: *mut u64) -> bool {
+        if index == 0 || index >= self.node_count || bits == null { return false; }
+        let query: AstNode = unsafe{*(self.nodes+index)};
+        if query.kind != AstKind::ExprLayout || query.int_value < 1 || query.int_value > 4
+            || query.first_child == 0 || query.first_child >= self.node_count { return false; }
+        let typ: usize = query.first_child;let mut declared: AstNode = unsafe{*(self.nodes+typ)};
+        if declared.kind != AstKind::TypeRef || declared.int_value != 0 || declared.next_sibling != 0
+            || declared.str_len == 0 || declared.str_offset >= self.source_len
+            || declared.str_len > self.source_len-declared.str_offset { return false; }
+        let sem: Sema = Sema::new();
+        if sem.source_slice_equals(self.source,self.source_len,declared.str_offset,declared.str_len,"Self",4) {
+            let owner: usize = sem.enclosing_impl(self.nodes,self.node_count,index);
+            if owner == 0 || owner >= self.node_count { return false; }declared=unsafe{*(self.nodes+owner)};
+        }
+        let mut record: u32 = self.find_struct(declared.str_offset,declared.str_len);
+        let enumeration: u32 = self.find_enum(declared.str_offset,declared.str_len);
+        if query.int_value == 4 {
+            if record == 0 || enumeration != 0 { return false; }
+            let field: u32 = self.find_field(record,query.str_offset,query.str_len);
+            if field == 0 { return false; }unsafe{*bits=self.field_offsets[field as usize-1] as u64;}return true;
+        }
+        let mut size: u64 = 0;let mut alignment: u64 = 0;
+        if unsafe{*(self.source+declared.str_offset)} == 91 {
+            let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
+            let element: TargetTypeTag = self.parse_array_element_type(declared.str_offset,declared.str_len);
+            record=self.parse_array_element_struct(declared.str_offset,declared.str_len);
+            if count == 0 || count > 4096 { return false; }
+            if record != 0 {
+                if !self.array_record_copyable(record,0) { return false; }
+                size=self.struct_sizes[record as usize-1] as u64;alignment=self.struct_alignments[record as usize-1] as u64;
+            } else {
+                if element == TargetTypeTag::Invalid || element == TargetTypeTag::Pointer || element == TargetTypeTag::Void { return false; }
+                size=self.scalar_memory_size(element) as u64;alignment=size;
+            }
+            let maximum: u64 = 18446744073709551615;
+            if size == 0 || (count as u64)>maximum/size { return false; }size=size*(count as u64);
+        } else if record != 0 {
+            size=self.struct_sizes[record as usize-1] as u64;alignment=self.struct_alignments[record as usize-1] as u64;
+        } else if enumeration != 0 {
+            record=self.enum_record_ids[enumeration as usize-1];
+            if record == 0 { size=4;alignment=4; }
+            else {size=self.struct_sizes[record as usize-1] as u64;alignment=self.struct_alignments[record as usize-1] as u64;}
+        } else {
+            let tag: TargetTypeTag = self.type_tag_for(typ);
+            if tag == TargetTypeTag::Invalid || tag == TargetTypeTag::Void || tag == TargetTypeTag::Aggregate { return false; }
+            if tag == TargetTypeTag::Pointer && self.pointer_pointee_struct_id(typ) == 0
+                && self.pointer_pointee_type_tag(typ) == TargetTypeTag::Invalid { return false; }
+            size=self.scalar_memory_size(tag) as u64;alignment=size;
+        }
+        if size == 0 || alignment == 0 { return false; }
+        if query.int_value == 3 { unsafe{*bits=alignment;} } else { unsafe{*bits=size;} }
+        return true;
+    }
+
     pub fn lower_expression(
         mut self: &mut Self,
         expression_index: usize,
@@ -2749,6 +2805,14 @@ impl ScalarLowering {
             return TARGET_VALUE_NONE;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprLayout {
+            if type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::U64 { return 0; }
+            let mut bits: u64 = 0;
+            if !self.layout_query_bits(expression_index,unsafe{(&mut bits) as *mut u64}) { return 0; }
+            let result: u32 = self.append_value(TargetTypeTag::U64,0,0);
+            if result == 0 || !self.append_instruction(TargetOpcode::ConstInt,result,TargetTypeTag::U64,0,0,expression_index) { return 0; }
+            unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=bits;}return result;
+        }
         if self.constant_evaluation && type_tag == TargetTypeTag::Bool {
             if expression.kind == AstKind::ExprBinary && expression.int_value >= 86 && expression.int_value <= 91 {
                 return self.lower_condition_expression(expression_index, first_parameter, parameter_count);
@@ -4424,6 +4488,7 @@ impl ScalarLowering {
             return TargetTypeTag::Invalid;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprLayout { return TargetTypeTag::U64; }
         if self.payload_record(expression_index) != 0 { return TargetTypeTag::Pointer; }
         if expression.kind == AstKind::TryExpr {
             let mut sem: Sema = Sema::new();
@@ -4586,6 +4651,7 @@ impl ScalarLowering {
             return false;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
+        if expression.kind == AstKind::ExprLayout { return true; }
         if expression.kind == AstKind::ExprIdent
             || expression.kind == AstKind::ExprLiteral
             || expression.kind == AstKind::ExprPath {
@@ -10115,6 +10181,16 @@ pub fn lower_scalar_module(
     }
 
     if !lowering.register_aggregate_layouts(module_index) { return false; }
+    // Type queries must be valid even in dead or uncalled code. Checking them
+    // here prevents control-flow lowering from hiding an unknown layout.
+    let mut query_index: usize = 1;
+    while query_index < lowering.node_count {
+        if unsafe{(*(lowering.nodes+query_index)).kind} == AstKind::ExprLayout {
+            let mut query_bits: u64 = 0;
+            if !lowering.layout_query_bits(query_index,unsafe{(&mut query_bits) as *mut u64}) { return lowering.reject(query_index); }
+        }
+        query_index=query_index+1;
+    }
     let mut struct_scan_index: usize = module_node.first_child;
     if !lowering.register_array_subjects() { return false; }
     if !lowering.register_array_patterns() { return false; }

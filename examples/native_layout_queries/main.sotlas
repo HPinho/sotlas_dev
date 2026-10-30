@@ -1,0 +1,32 @@
+module native_layout_queries;
+import sotlas::runtime::pool::*;
+
+struct Descriptor{pub flags:u8;pub address:u64;pub count:u32;}
+const DESCRIPTOR_SIZE:usize=span_of::<Descriptor>();
+const DESCRIPTOR_STRIDE:usize=stride_of::<Descriptor>();
+const DESCRIPTOR_ALIGN:usize=align_of::<Descriptor>();
+const ADDRESS_OFFSET:usize=field_offset!(Descriptor,address);
+
+pub fn main_entry()->u32{
+    let mut descriptors:[Descriptor;2]=[Descriptor{flags:1,address:4096,count:2};2];
+    let base:*mut Descriptor=unsafe{(&mut descriptors[0]) as *mut Descriptor};
+    let next:*mut Descriptor=unsafe{(&mut descriptors[1]) as *mut Descriptor};
+    let address:*mut u64=unsafe{(&mut descriptors[0].address) as *mut u64};
+    let first:usize=unsafe{base as usize};let second:usize=unsafe{next as usize};
+    let field:usize=unsafe{address as usize};
+    if second-first!=DESCRIPTOR_STRIDE || field-first!=ADDRESS_OFFSET
+        || first%DESCRIPTOR_ALIGN!=0 || DESCRIPTOR_SIZE!=24
+        || span_of::<[Descriptor;2]>()!=DESCRIPTOR_SIZE*2{return 1;}
+
+    let mut storage:[u8;64]=0;
+    let mut metadata:[NativePoolSlot;2]=[NativePoolSlot{generation:0,revision:0,length:0,live:false};2];
+    let slots:*mut NativePoolSlot=unsafe{metadata as *mut NativePoolSlot};
+    let mut pool:NativePool=native_pool_empty();let p:*mut NativePool=unsafe{(&mut pool) as *mut NativePool};
+    if NATIVE_POOL_SLOT_SIZE!=span_of::<NativePoolSlot>() || NATIVE_POOL_CONTROL_SIZE!=span_of::<NativePool>()
+        || NATIVE_POOL_SLOT_WORDS*span_of::<u64>()!=NATIVE_POOL_SLOT_SIZE{return 2;}
+    if !native_pool_open(p,unsafe{storage as *mut u8},64,slots,2,32){return 3;}
+    let value:NativePoolHandle=native_pool_allocate(p,2);
+    if !native_pool_write(value,0,"42",2) || metadata[0].length!=2{return 4;}
+    if !native_pool_release(value,true) || !native_pool_close(p){return 5;}
+    return 42;
+}

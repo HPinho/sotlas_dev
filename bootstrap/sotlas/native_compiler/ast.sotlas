@@ -55,7 +55,8 @@ pub enum AstKind {
     PatternOr = 50,
     PatternRecord = 51,
     PatternField = 52,
-    PatternArray = 53
+    PatternArray = 53,
+    ExprLayout = 54
 }
 
 pub struct AstNode {
