@@ -7,14 +7,14 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `a0b1641c9da9778b2e49c3bffc580a570c333e1b`,
+Starting green baseline: `b713137e1060e39c296f8c4a0de3fa894e0d4442`,
 confirmed by the user after the full workflow completed. The earlier inspected
 [CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
 certified the UTF-8 collection baseline across all 19 jobs.
-The current compiler delivery adds exact interior pointers to fields and array
-elements, preserves the parsed `&mut` qualifier and validates mutable storage,
-nominal types, bounds and supported receiver paths. See
-[interior storage addresses](native_projected_addresses.md) for the contract.
+The current compiler delivery implements native size, stride, alignment and
+field-offset queries, including constant evaluation and dead-code validation.
+The pool and map now derive memory-check layouts from their declarations.
+See [native layout queries](native_layout_queries.md) for the supported profile.
 This candidate still requires its own CI certification.
 
 ## Remaining work, grouped by outcome

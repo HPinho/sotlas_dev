@@ -262,6 +262,7 @@ impl Parser {
                         || kind == TokenKind::CloseBrace || kind == TokenKind::Equal) {
                     break;
                 }
+                if context == 6 && kind == TokenKind::Gt { break; }
             }
 
             if kind == TokenKind::Lt {
@@ -939,12 +940,16 @@ impl Parser {
     pub fn parse_declaration(mut self: &mut Self) -> usize {
         while self.match_token(TokenKind::At) {
             self.advance();
+            if self.token_word(self.current(),"packed",6) || self.token_word(self.current(),"aligned",7)
+                || self.token_word(self.current(),"align",5) { self.reject_current();return 0; }
             if !self.is_at_end() && !self.match_token(TokenKind::OpenParen) && !self.match_token(TokenKind::At) && !self.match_token(TokenKind::SemiColon) {
                 self.advance();
             }
             if self.match_token(TokenKind::OpenParen) {
                 self.advance();
                 while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                    if self.token_word(self.current(),"packed",6) || self.token_word(self.current(),"aligned",7)
+                        || self.token_word(self.current(),"align",5) { self.reject_current();return 0; }
                     self.advance();
                 }
                 if self.match_token(TokenKind::CloseParen) {
@@ -957,12 +962,16 @@ impl Parser {
             self.advance();
             while self.match_token(TokenKind::At) {
                 self.advance();
+                if self.token_word(self.current(),"packed",6) || self.token_word(self.current(),"aligned",7)
+                    || self.token_word(self.current(),"align",5) { self.reject_current();return 0; }
                 if !self.is_at_end() && !self.match_token(TokenKind::OpenParen) && !self.match_token(TokenKind::At) && !self.match_token(TokenKind::SemiColon) {
                     self.advance();
                 }
                 if self.match_token(TokenKind::OpenParen) {
                     self.advance();
                     while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+                        if self.token_word(self.current(),"packed",6) || self.token_word(self.current(),"aligned",7)
+                            || self.token_word(self.current(),"align",5) { self.reject_current();return 0; }
                         self.advance();
                     }
                     if self.match_token(TokenKind::CloseParen) {
@@ -1336,6 +1345,20 @@ impl Parser {
 
     pub fn parse_primary_expression(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
+        if tok.kind == TokenKind::Ident {
+            let mut layout: i64 = 0;
+            if self.token_word(tok,"span_of",7) { layout=1; }
+            else if self.token_word(tok,"stride_of",9) { layout=2; }
+            else if self.token_word(tok,"align_of",8) { layout=3; }
+            else if self.token_word(tok,"field_offset",12) { layout=4; }
+            if layout != 0 && self.cursor+1 < self.token_count {
+                let next: TokenKind = unsafe{(*(self.tokens+self.cursor+1)).kind};
+                if (layout == 4 && next == TokenKind::Bang)
+                    || (layout != 4 && (next == TokenKind::Lt || next == TokenKind::DColon)) {
+                    return self.parse_layout_query(layout);
+                }
+            }
+        }
         if tok.kind == TokenKind::KwMatch { return self.parse_match(true); }
         if tok.kind != TokenKind::IntLit && tok.kind != TokenKind::FloatLit
             && tok.kind != TokenKind::StrLit && tok.kind != TokenKind::CharLit
@@ -2024,6 +2047,29 @@ impl Parser {
             return node;
         }
         return self.parse_postfix_expression();
+    }
+
+    // A layout query carries a type child, never an evaluated value argument.
+    pub fn parse_layout_query(mut self: &mut Self, operation: i64) -> usize {
+        let name: Token = self.advance();
+        let query: usize = self.alloc_node(AstKind::ExprLayout,name.span);
+        if query == 0 { return 0; }
+        unsafe{(*(self.nodes+query)).int_value=operation;}
+        let mut typ: usize = 0;
+        if operation == 4 {
+            self.expect(TokenKind::Bang);self.expect(TokenKind::OpenParen);
+            typ=self.parse_type_ref(2);
+            self.expect(TokenKind::Comma);
+            let field: Token = self.expect(TokenKind::Ident);
+            if self.error_count != 0 || !self.set_node_text(query,field) { return 0; }
+        } else {
+            if self.match_token(TokenKind::DColon) { self.advance(); }
+            self.expect(TokenKind::Lt);typ=self.parse_type_ref(6);
+            self.expect(TokenKind::Gt);self.expect(TokenKind::OpenParen);
+        }
+        self.expect(TokenKind::CloseParen);
+        if self.error_count != 0 || typ == 0 || !self.append_child(query,typ) { return 0; }
+        return query;
     }
 
     pub fn parse_postfix_expression(mut self: &mut Self) -> usize {

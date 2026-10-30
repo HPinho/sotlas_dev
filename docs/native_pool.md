@@ -1,5 +1,9 @@
 # Reusable native storage and persistent text
 
+The runtime now derives slot/control sizes and alignment through
+[native layout queries](native_layout_queries.md). These sources require a
+compiler rebuilt with query support; the documented current x86-64 sizes remain.
+
 `runtime/native/pool.sotlas` allocates fixed-size blocks from caller-owned byte
 storage and slot metadata. Unlike arena rewind, releasing one allocation does
 not invalidate unrelated allocations. `pool_text.sotlas` adds strict UTF-8

@@ -1,5 +1,9 @@
 # Native UTF-8 configuration map
 
+Control size/alignment and entry byte width now use
+[native layout queries](native_layout_queries.md). The seven-word entry schema
+is unchanged; the compiler supplies the actual struct and u64 layout values.
+
 `runtime/native/text_map.sotlas` provides a bounded collection of UTF-8 keys and
 values using the reusable native pool. Keys and values are copied into separate
 owned slots. It supports lookup, replacement, deletion, numeric conversion,

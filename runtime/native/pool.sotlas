@@ -9,6 +9,12 @@ pub struct NativePool{pub data:*mut u8;pub capacity:usize;pub slots:*mut NativeP
 pub struct NativePoolHandle{pub pool:*mut NativePool;pub epoch:u64;pub generation:u64;pub index:u32;}
 pub struct NativePoolView{pub handle:NativePoolHandle;pub revision:u64;pub offset:usize;pub length:usize;pub valid:bool;}
 
+pub const NATIVE_POOL_SLOT_SIZE:usize=span_of::<NativePoolSlot>();
+pub const NATIVE_POOL_SLOT_ALIGN:usize=align_of::<NativePoolSlot>();
+pub const NATIVE_POOL_CONTROL_SIZE:usize=span_of::<NativePool>();
+pub const NATIVE_POOL_CONTROL_ALIGN:usize=align_of::<NativePool>();
+pub const NATIVE_POOL_SLOT_WORDS:usize=NATIVE_POOL_SLOT_SIZE/stride_of::<u64>();
+
 pub fn native_pool_slot_empty()->NativePoolSlot{
     return NativePoolSlot{generation:1,revision:1,length:0,live:false};
 }
@@ -29,13 +35,13 @@ pub fn native_pool_overlap(a:usize,n:usize,b:usize,m:usize)->bool{
 pub fn native_pool_layout(pool:*const NativePool,data:*mut u8,capacity:usize,
     slots:*mut NativePoolSlot,count:u32,block_size:usize)->bool{
     let control:usize=unsafe{pool as usize};let bytes:usize=unsafe{data as usize};
-    let metadata:usize=unsafe{slots as usize};let size:usize=(count as usize)*32;
+    let metadata:usize=unsafe{slots as usize};let size:usize=(count as usize)*NATIVE_POOL_SLOT_SIZE;
     if count==0 || count>4096 || block_size==0 || block_size>4294967295
-        || !native_pool_range(control,56) || control%8!=0
-        || !native_pool_range(bytes,capacity) || !native_pool_range(metadata,size) || metadata%8!=0{return false;}
+        || !native_pool_range(control,NATIVE_POOL_CONTROL_SIZE) || control%NATIVE_POOL_CONTROL_ALIGN!=0
+        || !native_pool_range(bytes,capacity) || !native_pool_range(metadata,size) || metadata%NATIVE_POOL_SLOT_ALIGN!=0{return false;}
     if (count as usize)*block_size>capacity{return false;}
-    return !native_pool_overlap(control,56,bytes,capacity)
-        && !native_pool_overlap(control,56,metadata,size)
+    return !native_pool_overlap(control,NATIVE_POOL_CONTROL_SIZE,bytes,capacity)
+        && !native_pool_overlap(control,NATIVE_POOL_CONTROL_SIZE,metadata,size)
         && !native_pool_overlap(bytes,capacity,metadata,size);
 }
 pub fn native_pool_open(mut pool:*mut NativePool,data:*mut u8,capacity:usize,
@@ -52,14 +58,14 @@ pub fn native_pool_shape(pool:*const NativePool)->bool{
     if pool==null{return false;}
     unsafe{return pool.live && pool.epoch!=0 && native_pool_layout(pool,pool.data,pool.capacity,pool.slots,pool.count,pool.block_size);}
 }
-// Scalar backing avoids requiring a general record-array address conversion in
-// the native frontend. Four aligned u64 words are reserved for each slot.
+// Optional scalar backing. Required word count comes from the target layout;
+// callers with record storage can pass typed NativePoolSlot arrays directly.
 pub fn native_pool_open_words(pool:*mut NativePool,data:*mut u8,capacity:usize,
     words:*mut u64,word_capacity:usize,count:u32,block_size:usize)->bool{
     if count==0 || count>4096 || word_capacity>2305843009213693951
-        || (count as usize)*4>word_capacity{return false;}
+        || (count as usize)*NATIVE_POOL_SLOT_WORDS>word_capacity{return false;}
     let address:usize=unsafe{words as usize};
-    if !native_pool_range(address,word_capacity*8){return false;}
+    if !native_pool_range(address,word_capacity*stride_of::<u64>()){return false;}
     return native_pool_open(pool,data,capacity,unsafe{address as *mut NativePoolSlot},count,block_size);
 }
 pub fn native_pool_current(handle:NativePoolHandle)->bool{
@@ -105,8 +111,8 @@ pub fn native_pool_release(handle:NativePoolHandle,wipe:bool)->bool{
 pub fn native_pool_source(pool:*const NativePool,data:*const u8,length:usize)->bool{
     if !native_pool_shape(pool){return false;}
     let address:usize=unsafe{data as usize};if !native_pool_range(address,length){return false;}
-    unsafe{return !native_pool_overlap(address,length,pool as usize,56)
-        && !native_pool_overlap(address,length,pool.slots as usize,(pool.count as usize)*32);}
+    unsafe{return !native_pool_overlap(address,length,pool as usize,NATIVE_POOL_CONTROL_SIZE)
+        && !native_pool_overlap(address,length,pool.slots as usize,(pool.count as usize)*NATIVE_POOL_SLOT_SIZE);}
 }
 pub fn native_pool_write(handle:NativePoolHandle,offset:usize,data:*const u8,length:usize)->bool{
     if !native_pool_current(handle) || !native_pool_source(handle.pool,data,length){return false;}
