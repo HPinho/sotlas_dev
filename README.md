@@ -19,6 +19,8 @@
 
 [Packed native records](examples/native_packed_records/README.md)
 
+[Constant native array dimensions](examples/native_array_dimensions/README.md)
+
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)

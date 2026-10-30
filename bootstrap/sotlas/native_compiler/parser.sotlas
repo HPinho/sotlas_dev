@@ -1451,13 +1451,7 @@ impl Parser {
                 return 0;
             }
             self.advance();
-            let count_tok: Token = self.current();
-            if count_tok.kind != TokenKind::IntLit {
-                self.reject_current();
-                return 0;
-            }
-            self.advance();
-            let count_node: usize = self.alloc_text_node(AstKind::ExprLiteral, count_tok);
+            let count_node: usize = self.parse_expression();
             if count_node == 0 || !self.match_token(TokenKind::CloseBracket) {
                 return 0;
             }
