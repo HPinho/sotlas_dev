@@ -54,6 +54,11 @@ pub fn native_dimension_space(ch: u8) -> bool {
 }
 
 pub fn native_dimension_slice(bytes: *const u8, length: usize, depth: usize, output: *mut u64) -> bool {
+    return native_dimension_slice_context(bytes,length,depth,output,null,0,bytes,length,0);
+}
+
+pub fn native_dimension_slice_context(bytes: *const u8, length: usize, depth: usize, output: *mut u64,
+    nodes: *const AstNode, count: usize, source: *const u8, source_len: usize, scope: usize) -> bool {
     if bytes == null || output == null || length == 0 || length > 4096 || depth >= 64 { return false; }
     let mut start: usize = 0;let mut end: usize = length;
     while start < end && native_dimension_space(unsafe{*(bytes+start)}) { start=start+1; }
@@ -79,20 +84,56 @@ pub fn native_dimension_slice(bytes: *const u8, length: usize, depth: usize, out
     if level != 0 { return false; }
     if split != end {
         let mut left: u64 = 0;let mut right: u64 = 0;
-        if !native_dimension_slice(unsafe{bytes+start},split-start,depth+1,unsafe{(&mut left) as *mut u64})
-            || !native_dimension_slice(unsafe{bytes+split+1},end-split-1,depth+1,unsafe{(&mut right) as *mut u64}) { return false; }
+        if !native_dimension_slice_context(unsafe{bytes+start},split-start,depth+1,unsafe{(&mut left) as *mut u64},nodes,count,source,source_len,scope)
+            || !native_dimension_slice_context(unsafe{bytes+split+1},end-split-1,depth+1,unsafe{(&mut right) as *mut u64},nodes,count,source,source_len,scope) { return false; }
         return native_dimension_operation(op,left,right,output);
     }
     if unsafe{*(bytes+start)} == 40 && unsafe{*(bytes+end-1)} == 41 {
-        return native_dimension_slice(unsafe{bytes+start+1},end-start-2,depth+1,output);
+        return native_dimension_slice_context(unsafe{bytes+start+1},end-start-2,depth+1,output,nodes,count,source,source_len,scope);
     }
-    return native_unsigned_slice(unsafe{bytes+start},end-start,output);
+    if native_unsigned_slice(unsafe{bytes+start},end-start,output) { return true; }
+    if nodes == null || source == null || scope == 0 || scope >= count { return false; }
+    let address: usize = unsafe{bytes as usize};let base: usize = unsafe{source as usize};
+    if address < base || address-base > source_len || end > source_len-(address-base) { return false; }
+    let mut name: AstNode = unsafe{*(nodes+scope)};
+    name.str_offset=address-base+start;name.str_len=end-start;
+    let sem: Sema = Sema::new();
+    let binding: usize = sem.find_visible_binding_name(nodes,count,scope,name,source,source_len);
+    return native_dimension_constant(nodes,count,binding,source,source_len,depth+1,output);
+}
+
+pub fn native_dimension_constant(nodes: *const AstNode, count: usize, index: usize,
+    source: *const u8, length: usize, depth: usize, output: *mut u64) -> bool {
+    if nodes == null || source == null || index == 0 || index >= count || depth >= 64 || output == null { return false; }
+    let node: AstNode = unsafe{*(nodes+index)};
+    let sem: Sema = Sema::new();
+    if node.kind != AstKind::LetStmt || node.parent == 0 || node.parent >= count
+        || unsafe{(*(nodes+node.parent)).kind} != AstKind::Module || node.span.length != 5
+        || !sem.source_slice_equals(source,length,node.span.offset,5,"const",5)
+        || node.first_child == 0 || node.first_child >= count { return false; }
+    let typ: AstNode = unsafe{*(nodes+node.first_child)};
+    if typ.kind != AstKind::TypeRef || typ.int_value != 0 || typ.next_sibling == 0 || typ.next_sibling >= count { return false; }
+    let mut limit: u64 = 0;
+    if sem.source_slice_equals(source,length,typ.str_offset,typ.str_len,"u8",2) { limit=255; }
+    if sem.source_slice_equals(source,length,typ.str_offset,typ.str_len,"u16",3) { limit=65535; }
+    if sem.source_slice_equals(source,length,typ.str_offset,typ.str_len,"u32",3) { limit=4294967295; }
+    if sem.source_slice_equals(source,length,typ.str_offset,typ.str_len,"u64",3)
+        || sem.source_slice_equals(source,length,typ.str_offset,typ.str_len,"usize",5) { limit=18446744073709551615; }
+    if limit == 0 { return false; }
+    let mut value: u64 = 0;
+    if !native_dimension_ast(nodes,count,typ.next_sibling,source,length,depth+1,unsafe{(&mut value) as *mut u64}) || value > limit { return false; }
+    unsafe{*output=value;}return true;
 }
 
 pub fn native_dimension_ast(nodes: *const AstNode, count: usize, index: usize,
     source: *const u8, length: usize, depth: usize, output: *mut u64) -> bool {
     if nodes == null || source == null || output == null || index == 0 || index >= count || depth >= 64 { return false; }
     let node: AstNode = unsafe{*(nodes+index)};
+    if node.kind == AstKind::ExprIdent {
+        let sem: Sema = Sema::new();
+        let binding: usize = sem.find_visible_binding(nodes,count,index,source,length);
+        return native_dimension_constant(nodes,count,binding,source,length,depth+1,output);
+    }
     if node.kind == AstKind::ExprLiteral {
         if node.str_offset > length || node.str_len > length-node.str_offset { return false; }
         return native_unsigned_slice(unsafe{source+node.str_offset},node.str_len,output);
@@ -125,6 +166,30 @@ pub fn native_fixed_array_count(bytes: *const u8, length: usize) -> usize {
     let mut count: u64=0;
     if !native_dimension_slice(unsafe{bytes+first},end-first,0,unsafe{(&mut count) as *mut u64}) { return 0; }
     return count as usize;
+}
+
+pub fn native_array_count_context(nodes: *const AstNode, count: usize, source: *const u8,
+    source_len: usize, offset: usize, length: usize) -> usize {
+    if nodes == null || source == null || offset > source_len || length > source_len-offset { return 0; }
+    let bytes: *const u8 = unsafe{source+offset};
+    // Literal shapes keep the seed's fast path and do not scan the AST.
+    let literal: usize = native_fixed_array_count(bytes,length);
+    if literal != 0 { return literal; }
+    if length < 5 || unsafe{*bytes} != 91 || unsafe{*(bytes+length-1)} != 93 { return 0; }
+    let mut begin: usize = 1;
+    while begin < length && unsafe{*(bytes+begin)} != 59 { begin=begin+1; }
+    if begin == length { return 0; }begin=begin+1;
+    let mut scope: usize = 1;
+    while scope < count {
+        let node: AstNode = unsafe{*(nodes+scope)};
+        if node.kind == AstKind::TypeRef && node.str_offset == offset && node.str_len == length { break; }
+        scope=scope+1;
+    }
+    if scope == count { return 0; }
+    let mut value: u64 = 0;
+    if !native_dimension_slice_context(unsafe{bytes+begin},length-begin-1,0,unsafe{(&mut value) as *mut u64},
+        nodes,count,source,source_len,scope) { return 0; }
+    return value as usize;
 }
 
 pub const MAX_SYMBOLS: usize = 4096;
@@ -299,7 +364,7 @@ impl Sema {
     // Fixed scalar arrays contain no aliases or resource handles. Keep this
     // field-only contract aligned with the native record layout's 256 limit.
     pub fn ownership_pod_array(self: &Self, node: AstNode,
-        source: *const u8, source_len: usize) -> bool {
+        source: *const u8, source_len: usize, nodes: *const AstNode, node_count: usize) -> bool {
         if source == null || node.str_offset > source_len
             || node.str_len > source_len - node.str_offset || node.str_len < 5 { return false; }
         let end: usize = node.str_offset + node.str_len;
@@ -327,7 +392,7 @@ impl Sema {
             || self.source_slice_equals(source,source_len,start,length,"f32",3)
             || self.source_slice_equals(source,source_len,start,length,"f64",3);
         if !scalar { return false; }
-        let count: usize=native_fixed_array_count(unsafe{source+node.str_offset},node.str_len);
+        let count: usize=native_array_count_context(nodes,node_count,source,source_len,node.str_offset,node.str_len);
         return count != 0 && count <= 256;
     }
 
@@ -337,12 +402,12 @@ impl Sema {
         node_count: usize, typ: usize, source: *const u8, source_len: usize, depth: usize) -> bool {
         if typ == 0 || typ >= node_count || depth >= 32 || source == null { return false; }
         let node: AstNode = unsafe{*(nodes+typ)};
-        if self.ownership_pod_array(node,source,source_len) { return false; }
+        if self.ownership_pod_array(node,source,source_len,nodes,node_count) { return false; }
         if (node.int_value != 0 && node.int_value != 1 && node.int_value != 4 && node.int_value != 6) || node.str_len < 5 || node.str_offset > source_len
             || node.str_len > source_len-node.str_offset || unsafe{*(source+node.str_offset)} != 91 {
             return false;
         }
-        let count: usize = native_fixed_array_count(unsafe{source+node.str_offset},node.str_len);
+        let count: usize = native_array_count_context(nodes,node_count,source,source_len,node.str_offset,node.str_len);
         if count == 0 || count > 256 { return false; }
         let end: usize = node.str_offset+node.str_len;
         let mut start: usize = node.str_offset+1;
@@ -371,7 +436,7 @@ impl Sema {
         if typ == 0 || typ >= node_count || depth >= 32 { return false; }
         let node: AstNode = unsafe { *(nodes + typ) };
         if (node.int_value == 0 || node.int_value == 1 || node.int_value == 4 || node.int_value == 6)
-            && self.ownership_pod_array(node,source,source_len) { return true; }
+            && self.ownership_pod_array(node,source,source_len,nodes,node_count) { return true; }
         if self.ownership_record_array(nodes,node_count,typ,source,source_len,depth+1) { return true; }
         if self.fixed_integer_type_tag(nodes, node_count, typ, source, source_len) != 0
             || self.source_slice_equals(source, source_len, node.str_offset, node.str_len, "bool", 4)
@@ -406,7 +471,7 @@ impl Sema {
                     let member: AstNode = unsafe { *(nodes + field) };
                     if member.first_child == 0 || member.first_child >= node_count
                         || unsafe { (*(nodes + member.first_child)).int_value } != 0
-                        || (!self.ownership_pod_array(unsafe { *(nodes + member.first_child) }, source, source_len)
+                        || (!self.ownership_pod_array(unsafe { *(nodes + member.first_child) }, source, source_len,nodes,node_count)
                             && !self.ownership_pod_type(nodes, node_count, member.first_child, source, source_len, depth + 1)) { return false; }
                     field = member.next_sibling;
                 }
@@ -708,7 +773,7 @@ impl Sema {
                 if assignment_target.kind == AstKind::ExprIdent || assignment_target.kind == AstKind::ExprFieldAccess {
                     array_type=self.infer_expression_type_ref(nodes,node_count,target_index,source,source_len);
                 }
-                if array_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+array_type)},source,source_len)
+                if array_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+array_type)},source,source_len,nodes,node_count)
                     || self.ownership_record_array(nodes,node_count,array_type,source,source_len,0)) {
                     if !self.array_value_fits(nodes,node_count,array_type,assignment_target.next_sibling,
                         source,source_len,0) { return self.reject_node(node); }
@@ -2741,7 +2806,7 @@ impl Sema {
                 break;
             }
         }
-        let type_count: usize=native_fixed_array_count(unsafe{source+typ.str_offset},typ.str_len);
+        let type_count: usize=native_array_count_context(nodes,node_count,source,source_len,typ.str_offset,typ.str_len);
         let mut repeat_count: u64=0;
         if !native_dimension_ast(nodes,node_count,count_index,source,source_len,0,
             unsafe{(&mut repeat_count) as *mut u64}) { return false; }
@@ -2871,7 +2936,7 @@ impl Sema {
             && init.first_child < node_count {
             let target_type: usize = self.infer_expression_type_ref(nodes,node_count,
                 init.first_child,source,source_len);
-            if target_type == 0 || (!self.ownership_pod_array(unsafe{*(nodes+target_type)},source,source_len)
+            if target_type == 0 || (!self.ownership_pod_array(unsafe{*(nodes+target_type)},source,source_len,nodes,node_count)
                 && !self.ownership_record_array(nodes,node_count,target_type,source,source_len,0))
                 || !self.fixed_array_type_matches_repeat(nodes,node_count,target_type,repeat_index,
                     source,source_len,false) { return self.reject_node(repeat); }
@@ -3017,7 +3082,7 @@ impl Sema {
                 || ((value.kind == AstKind::ExprMatch || value.kind == AstKind::ExprConditional || value.kind == AstKind::ExprCall || value.kind == AstKind::TryExpr)
                     && unsafe{(*(nodes+type_index)).str_len} != 0
                     && unsafe{*(source+(*(nodes+type_index)).str_offset)} == 91) {
-                if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len)
+                if !self.ownership_pod_array(unsafe { *(nodes + type_index) }, source, source_len,nodes,node_count)
                     && !self.ownership_record_array(nodes,node_count,type_index,source,source_len,0) {
                     return self.reject_node(value);
                 }
@@ -3807,7 +3872,7 @@ impl Sema {
             if tail == 0 { return self.block_returns_value(nodes,count,index); }
             return self.array_value_fits(nodes,count,typ,tail,source,length,depth+1);
         }
-        let size: usize = native_fixed_array_count(unsafe{source+expected.str_offset},expected.str_len);
+        let size: usize = native_array_count_context(nodes,count,source,length,expected.str_offset,expected.str_len);
         if value.kind == AstKind::ExprArrayLiteral || value.kind == AstKind::ExprArrayRepeat {
             if expected.first_child == 0 || expected.first_child >= count { return false; }
             let element: AstNode = unsafe{*(nodes+expected.first_child)};
@@ -3833,7 +3898,7 @@ impl Sema {
         let actual: usize = self.infer_expression_type_ref(nodes,count,index,source,length);
         if actual == 0 || actual >= count { return false; }
         let found: AstNode = unsafe{*(nodes+actual)};
-        if native_fixed_array_count(unsafe{source+found.str_offset},found.str_len) != size { return false; }
+        if native_array_count_context(nodes,count,source,length,found.str_offset,found.str_len) != size { return false; }
         // indexed_element_matches compares the declared element with a TypeRef,
         // preserving nominal names while ignoring array spelling whitespace.
         if expected.first_child != 0 { return self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)}); }
@@ -3897,7 +3962,7 @@ impl Sema {
                 );
                 // Check shape and nominal elements before lowering, including
                 // dead calls. The native ABI creates an independent value copy.
-                if expected_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+expected_type)},source,source_len)
+                if expected_type != 0 && (self.ownership_pod_array(unsafe{*(nodes+expected_type)},source,source_len,nodes,node_count)
                     || self.ownership_record_array(nodes,node_count,expected_type,source,source_len,0)) {
                     if !self.array_value_fits(nodes,node_count,expected_type,argument_index,source,source_len,0) { return self.reject_node(argument); }
                     parameter_index=parameter.next_sibling;argument_index=argument.next_sibling;continue;
@@ -4028,7 +4093,7 @@ impl Sema {
             return true;
         }
         let expected_result: AstNode = unsafe { *(nodes + expected_type) };
-        if self.ownership_pod_array(expected_result,source,source_len)
+        if self.ownership_pod_array(expected_result,source,source_len,nodes,node_count)
             || self.ownership_record_array(nodes,node_count,expected_type,source,source_len,0) {
             if expression_index == 0 { return self.reject_node(return_node); }
             if !self.array_value_fits(nodes,node_count,expected_type,expression_index,source,source_len,0) { return self.reject_node(unsafe{*(nodes+expression_index)}); }
@@ -4350,6 +4415,12 @@ impl Sema {
             return 0;
         }
         let expression: AstNode = unsafe { *(nodes + expression_index) };
+        return self.find_visible_binding_name(nodes,node_count,expression_index,expression,source,source_len);
+    }
+
+    pub fn find_visible_binding_name(self: &Self, nodes: *const AstNode, node_count: usize,
+        expression_index: usize, expression: AstNode, source: *const u8, source_len: usize) -> usize {
+        if nodes == null || expression_index == 0 || expression_index >= node_count { return 0; }
         let mut parent_index: usize = expression.parent;
         let mut child_on_path: usize = expression_index;
         let mut traversed: usize = 0;
@@ -4800,7 +4871,7 @@ impl NativeOwnershipCheck {
         if node.kind == AstKind::ExprIndex {
             let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,node.first_child,self.source,self.source_len);
             return typ != 0 && typ < self.node_count
-                && sem.ownership_pod_array(unsafe { *(self.nodes + typ) },self.source,self.source_len);
+                && sem.ownership_pod_array(unsafe { *(self.nodes + typ) },self.source,self.source_len,self.nodes,self.node_count);
         }
         if node.kind == AstKind::ExprFieldAccess {
             let typ: usize = sem.find_struct_field_for_access(self.nodes,self.node_count,index,self.source,self.source_len);
@@ -5529,7 +5600,7 @@ impl NativeOwnershipCheck {
                     let sem: Sema = Sema::new();
                     let typ: usize = sem.binding_type_ref(self.nodes,self.node_count,self.bindings[owner]);
                     if typ != 0 && self.states[owner] != 2
-                        && (sem.ownership_pod_array(unsafe{*(self.nodes+typ)},self.source,self.source_len)
+                        && (sem.ownership_pod_array(unsafe{*(self.nodes+typ)},self.source,self.source_len,self.nodes,self.node_count)
                             || sem.ownership_record_array(self.nodes,self.node_count,typ,self.source,self.source_len,0)) {
                         self.error_node=index;return 0;
                     }

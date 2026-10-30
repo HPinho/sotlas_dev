@@ -31,8 +31,8 @@ fn make() -> [u32; 2 * 3] {
   is limited to 64. Invalid dimensions are rejected even in unreachable or
   uncalled code. Diagnostics retain the original source node.
 
-Names (including module constants), function calls, layout queries inside a
-dimension, casts, signed/unary expressions, shifts, bitwise operators, floating
+Unsigned module names now have a [native resolution contract](native_named_dimensions.md).
+Other names, function calls, layout queries inside a dimension, casts, signed/unary expressions, shifts, bitwise operators, floating
 point and dynamic lengths are not part of this contract. Comments inside raw
 type-dimension text are not evaluated. This is not generic constant evaluation,
 const generics, nested arrays or full canonical frontend parity. The optional

@@ -1,0 +1,37 @@
+module examples::native_named_dimensions;
+import sotlas::runtime::pool::*;
+
+const SAMPLE_COUNT: usize = HALF_SAMPLES * 2;
+const HALF_SAMPLES: usize = 3;
+const FRAME_COUNT: usize = 2;
+const SLOT_COUNT: usize = 4;
+const SLOT_BYTES: usize = 16;
+
+pub struct Frame { pub samples: [u32; SAMPLE_COUNT]; }
+pub enum Message { Empty, Frames([Frame; FRAME_COUNT]) }
+
+fn produce() -> Message {
+    return Message::Frames([Frame { samples: [7; HALF_SAMPLES + HALF_SAMPLES] }; FRAME_COUNT]);
+}
+
+pub fn main_entry() -> u32 {
+    if span_of::<[Frame; FRAME_COUNT]>() != 48 { return 1; }
+    let mut storage: [u8; SLOT_COUNT * SLOT_BYTES] = 0;
+    let mut metadata: [NativePoolSlot; SLOT_COUNT] = [NativePoolSlot {
+        generation: 0, revision: 0, length: 0, live: false
+    }; SLOT_COUNT];
+    let slots: *mut NativePoolSlot = unsafe { metadata as *mut NativePoolSlot };
+    let mut pool: NativePool = native_pool_empty();
+    let p: *mut NativePool = unsafe { (&mut pool) as *mut NativePool };
+    if !native_pool_open(p, unsafe { storage as *mut u8 }, SLOT_COUNT * SLOT_BYTES,
+        slots, SLOT_COUNT as u32, SLOT_BYTES) { return 2; }
+    let handle: NativePoolHandle = native_pool_allocate(p, 2);
+    let wrote: bool = native_pool_write(handle, 0, "42", 2);
+    let released: bool = native_pool_release(handle, true);
+    let closed: bool = native_pool_close(p);
+    if !wrote || !released || !closed { return 3; }
+    return match produce() {
+        Message::Empty => 4,
+        Message::Frames(frames) => frames[1].samples[5] * 6,
+    };
+}

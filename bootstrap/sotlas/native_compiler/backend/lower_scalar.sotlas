@@ -609,7 +609,7 @@ impl ScalarLowering {
             || type_len > self.source_len - type_offset {
             return 0;
         }
-        return native_fixed_array_count(unsafe{self.source+type_offset},type_len);
+        return native_array_count_context(self.nodes,self.node_count,self.source,self.source_len,type_offset,type_len);
     }
 
     pub fn parse_array_type_size(self: &Self, type_offset: usize, type_len: usize) -> usize {

@@ -7,7 +7,7 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `7b2fee4` (packed-record implementation `8233e7c`),
+Starting green baseline: `a09afc3` (constant dimensions `c12cd9a`),
 confirmed by the user after the full workflow completed. The earlier inspected
 [CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
 certified the UTF-8 collection baseline across all 19 jobs.
@@ -22,7 +22,11 @@ The packed packet example is included in all three native host rebuild gates.
 The user confirmed that this follow-up completed with a green workflow.
 The next delivery adds checked literal arithmetic in fixed-array dimensions
 and repetitions across storage, internal calls and POD payloads. See the
-[dimension contract](native_array_dimensions.md). Its CI certification is pending.
+[dimension contract](native_array_dimensions.md). The user confirmed green CI
+after the public-snippet inventory repair. The current candidate resolves
+unsigned module constants in array shapes and repetitions, sharing lexical
+binding checks across storage, internal ABI, payloads and deferred POD borrows.
+See [named dimensions](native_named_dimensions.md); its CI certification is pending.
 
 ## Remaining work, grouped by outcome
 
