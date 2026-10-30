@@ -294,6 +294,13 @@
       "verification": "tests/test_sotlas_native_composed_values.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-constant-array-dimensions",
+      "document": "docs/native_array_dimensions.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_array_dimensions/main.sotlas",
+      "verification": "tests/test_sotlas_native_array_dimensions.py; tests/native_numeric_gate.py::verify_array_dimensions; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-result-propagation",
       "document": "docs/native_result_propagation.md",
       "status": "EXPERIMENTAL",
