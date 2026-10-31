@@ -1,0 +1,49 @@
+module examples::native_payload_tags;
+import sotlas::runtime::binary::*;
+
+pub enum Packet { Ping = 1, Data([u8; 4]) = 32, Close = 255 }
+pub struct DecodeError { pub kind: u32; pub offset: usize; }
+pub enum Decoded { Err(DecodeError) = 224, Ok(Packet) = 160 }
+
+fn decode(data: *const u8, length: usize) -> Decoded {
+    let mut tag: u64 = 0;
+    if !native_binary_load_le(data, length, 0, 1, unsafe { (&mut tag) as *mut u64 }) {
+        return Decoded::Err(DecodeError { kind: 1, offset: 0 });
+    }
+    if tag == 1 { return Decoded::Ok(Packet::Ping); }
+    if tag == 255 { return Decoded::Ok(Packet::Close); }
+    if tag != 32 { return Decoded::Err(DecodeError { kind: 2, offset: 0 }); }
+    let mut word: u64 = 0;
+    if !native_binary_load_le(data, length, 1, 4, unsafe { (&mut word) as *mut u64 }) {
+        return Decoded::Err(DecodeError { kind: 1, offset: 1 });
+    }
+    return Decoded::Ok(Packet::Data([
+        word as u8, (word >> 8) as u8, (word >> 16) as u8, (word >> 24) as u8
+    ]));
+}
+
+fn receive(data: *const u8, length: usize) -> Decoded {
+    let packet: Packet = decode(data, length)?;
+    return Decoded::Ok(packet);
+}
+
+pub fn main_entry() -> u32 {
+    let bytes: [u8; 5] = [32, 20, 22, 0, 0];
+    let data: *const u8 = unsafe { bytes as *const u8 };
+    let answer: u32 = match receive(data, 5) {
+        Decoded::Ok(Packet::Data(values)) => values[0] as u32 + values[1] as u32,
+        Decoded::Ok(Packet::Ping) => 1,
+        Decoded::Ok(Packet::Close) => 2,
+        Decoded::Err(error) => 3,
+    };
+    let truncated: bool = match receive(data, 3) {
+        Decoded::Ok(packet) => false,
+        Decoded::Err(error) => error.kind == 1 && error.offset == 1,
+    };
+    let unknown: bool = match receive("x", 1) {
+        Decoded::Ok(packet) => false,
+        Decoded::Err(error) => error.kind == 2,
+    };
+    if !truncated || !unknown { return 4; }
+    return answer;
+}

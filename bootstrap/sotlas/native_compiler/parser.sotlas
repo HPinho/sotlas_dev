@@ -1214,11 +1214,19 @@ impl Parser {
                         }
                         if !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
                         self.advance();
-                    } else if self.match_token(TokenKind::Equal) {
+                    }
+                    if self.match_token(TokenKind::Equal) {
                         self.advance();let value_tok:Token=self.current();
                         if value_tok.kind != TokenKind::IntLit { self.reject_current();return 0; }
                         self.advance();let value_node:usize=self.alloc_text_node(AstKind::ExprLiteral,value_tok);
-                        if value_node == 0 || !self.append_child(variant_node,value_node) { return 0; }
+                        if value_node == 0 { return 0; }
+                        if unsafe{(*(self.nodes+variant_node)).first_child} != 0 {
+                            // Keep the payload child list typed. The literal has
+                            // its original span and a declaration parent, while
+                            // int_value records its explicit discriminant node.
+                            unsafe{(*(self.nodes+variant_node)).int_value=value_node as i64;
+                                (*(self.nodes+value_node)).parent=variant_node;}
+                        } else if !self.append_child(variant_node,value_node) { return 0; }
                     } else if !self.match_token(TokenKind::Comma) && !self.match_token(TokenKind::CloseBrace) {
                         self.reject_current();return 0;
                     }

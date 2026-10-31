@@ -7,8 +7,9 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `4e3ac8e` (named dimensions `5eb06c6`),
-confirmed by the user after the full workflow completed. The earlier inspected
+Starting green baseline: `ef592eb`, certified by
+[CI #1333](https://github.com/HPinho/sotlas_dev/actions/runs/41204846606)
+with all 19 jobs successful. The earlier inspected
 [CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
 certified the UTF-8 collection baseline across all 19 jobs.
 The current compiler delivery implements native size, stride, alignment and
@@ -30,7 +31,10 @@ See [named dimensions](native_named_dimensions.md). The user confirmed green CI
 after repairing the obsolete source-sliced Sema fixture. The current candidate
 adds native propagation for concrete tagged Ok/Err enums, preserving payloads,
 early-return cleanup and the existing status/value result contract. See
-[tagged results](native_tagged_results.md); its CI certification is pending.
+[tagged results](native_tagged_results.md), certified by the baseline above.
+The new candidate carries explicit u32 tags on payload variants through native
+construction, match, static data and `?`. See [payload tags](native_payload_tags.md);
+its CI certification is pending.
 
 ## Remaining work, grouped by outcome
 

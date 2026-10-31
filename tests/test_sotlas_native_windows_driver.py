@@ -367,6 +367,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_named_dimensions(stage3, self.directory / "named dimension cases")
         from native_numeric_gate import verify_tagged_results
         verify_tagged_results(stage3, self.directory / "tagged result cases")
+        from native_numeric_gate import verify_payload_tags
+        verify_payload_tags(stage3, self.directory / "payload tag cases")
         from native_window_gate import verify_window
         verify_window(stage3, self.directory / "window cases")
         from native_ui_gate import verify_ui
