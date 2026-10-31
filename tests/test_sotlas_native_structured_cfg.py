@@ -478,10 +478,9 @@ pub fn main_entry() -> u32 {
 
     def test_real_sema_name_comparison_executes_natively(self):
         source = (ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas").read_text(encoding="utf-8")
-        # Keep the production declarations and method bodies through the first
-        # comparison loop; the remaining module is a separate native milestone.
-        prefix = source.split("    pub fn reject_node(", 1)[0] + "}\n"
-        self.assert_native_result("real_sema_names", prefix + """
+        # Compile the complete production module: its dimension helpers share
+        # binding resolution with later methods and cannot be sliced away.
+        self.assert_native_result("real_sema_names", source + """
 pub fn main_entry() -> u32 {
     let mut byte: u8 = 42;
     let pointer: *const u8 = unsafe { (&byte) as *const u8 };
