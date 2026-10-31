@@ -7,7 +7,7 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `a09afc3` (constant dimensions `c12cd9a`),
+Starting green baseline: `4e3ac8e` (named dimensions `5eb06c6`),
 confirmed by the user after the full workflow completed. The earlier inspected
 [CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
 certified the UTF-8 collection baseline across all 19 jobs.
@@ -26,7 +26,11 @@ and repetitions across storage, internal calls and POD payloads. See the
 after the public-snippet inventory repair. The current candidate resolves
 unsigned module constants in array shapes and repetitions, sharing lexical
 binding checks across storage, internal ABI, payloads and deferred POD borrows.
-See [named dimensions](native_named_dimensions.md); its CI certification is pending.
+See [named dimensions](native_named_dimensions.md). The user confirmed green CI
+after repairing the obsolete source-sliced Sema fixture. The current candidate
+adds native propagation for concrete tagged Ok/Err enums, preserving payloads,
+early-return cleanup and the existing status/value result contract. See
+[tagged results](native_tagged_results.md); its CI certification is pending.
 
 ## Remaining work, grouped by outcome
 

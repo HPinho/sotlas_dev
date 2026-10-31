@@ -1,0 +1,38 @@
+module examples::native_tagged_results;
+import sotlas::runtime::results::*;
+
+pub enum Outcome { Ok(u32), Err(NativeNumericError) }
+static mut cleanups: u32 = 0;
+
+fn parse(bytes: *const u8, length: usize) -> Outcome {
+    let result: NativeU32Result = native_parse_u32(bytes, length);
+    if result.status != 0 { return Outcome::Err(result.error); }
+    return Outcome::Ok(result.value);
+}
+
+fn calculate(left: *const u8, left_length: usize,
+    right: *const u8, right_length: usize) -> Outcome {
+    defer { unsafe { cleanups = cleanups + 1; } }
+    let a: u32 = parse(left, left_length)?;
+    let b: u32 = parse(right, right_length)?;
+    let total: NativeU32Result = native_u32_add(a, b);
+    if total.status != 0 { return Outcome::Err(total.error); }
+    return Outcome::Ok(total.value);
+}
+
+pub fn main_entry() -> u32 {
+    let answer: u32 = match calculate("20", 2, "22", 2) {
+        Outcome::Ok(value) => value,
+        Outcome::Err(error) => 0,
+    };
+    let invalid: bool = match calculate("2x", 2, "22", 2) {
+        Outcome::Ok(value) => false,
+        Outcome::Err(error) => error.kind == 3 && error.offset == 1,
+    };
+    let overflow: bool = match calculate("4294967295", 10, "1", 1) {
+        Outcome::Ok(value) => false,
+        Outcome::Err(error) => error.kind == 4,
+    };
+    if !invalid || !overflow || unsafe { cleanups } != 3 { return 1; }
+    return answer;
+}
