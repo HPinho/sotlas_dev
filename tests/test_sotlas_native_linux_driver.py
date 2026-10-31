@@ -896,6 +896,8 @@ module syscall_probe;
         verify_named_dimensions(native_stage3, self.directory / "named dimension cases")
         from native_numeric_gate import verify_tagged_results
         verify_tagged_results(native_stage3, self.directory / "tagged result cases")
+        from native_numeric_gate import verify_payload_tags
+        verify_payload_tags(native_stage3, self.directory / "payload tag cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

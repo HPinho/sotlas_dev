@@ -5,6 +5,9 @@ with exactly two variants named `Ok` and `Err`, each carrying one typed payload.
 Variant order does not determine success; the compiler compares the registered
 tag of `Ok`.
 
+[Explicit payload tags](native_payload_tags.md) can now select that discriminant
+without changing the propagation or cleanup contract.
+
 ```sotlas
 enum Outcome { Ok(u32), Err(Error) }
 struct Error { pub code: u32; pub offset: usize; }

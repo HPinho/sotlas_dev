@@ -63,6 +63,8 @@ pub struct AstNode {
     pub kind: AstKind;
     pub span: Span;
     pub int_value: i64;
+    // EnumVariant: zero means implicit/legacy tag. For a payload variant,
+    // a positive value identifies its explicit integer-literal tag node.
     pub str_offset: usize;
     pub str_len: usize;
     pub first_child: usize;

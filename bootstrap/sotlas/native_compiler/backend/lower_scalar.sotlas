@@ -6478,7 +6478,17 @@ impl ScalarLowering {
                 self.variant_name_offsets[v_idx] = v_node.str_offset;
                 self.variant_name_lens[v_idx] = v_node.str_len;
                 let mut v_val:u64=next_discriminant;
-                if v_node.first_child != 0 && v_node.first_child < self.node_count
+                if v_node.int_value != 0 {
+                    if v_node.int_value < 0 || v_node.int_value as usize >= self.node_count
+                        || v_node.first_child == 0 || v_node.first_child >= self.node_count
+                        || unsafe{(*(self.nodes+v_node.first_child)).kind} != AstKind::TypeRef { return self.reject(v_scan); }
+                    let literal: usize = v_node.int_value as usize;
+                    let tag_node: AstNode = unsafe{*(self.nodes+literal)};
+                    let mut literal_sem: Sema = Sema::new();
+                    if tag_node.parent != v_scan || tag_node.next_sibling != 0
+                        || !literal_sem.integer_literal_bits(self.nodes,self.node_count,literal,
+                            self.source,self.source_len,unsafe{(&mut v_val) as *mut u64}) { return self.reject(v_scan); }
+                } else if v_node.first_child != 0 && v_node.first_child < self.node_count
                     && unsafe{(*(self.nodes+v_node.first_child)).kind} != AstKind::TypeRef {
                     let mut literal_sem:Sema=Sema::new();
                     if !literal_sem.integer_literal_bits(self.nodes,self.node_count,v_node.first_child,

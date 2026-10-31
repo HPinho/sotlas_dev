@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Implemented subset: [explicit payload enum tags](native_payload_tags.md) carry
+declared u32 discriminants through storage, match, static tables and tagged `?`.
+Foreign aggregate ABI, custom backing widths and resource payloads remain open.
+
 Implemented subset: [tagged result propagation](native_tagged_results.md)
 adds `?` for concrete POD `Ok(T)`/`Err(E)` enums with nominal return checks,
 payload snapshots and lexical cleanup. Generic Result instantiation, automatic
