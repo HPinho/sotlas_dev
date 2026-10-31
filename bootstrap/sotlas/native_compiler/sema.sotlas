@@ -1681,8 +1681,8 @@ impl Sema {
         return self.infer_expression_type_ref(nodes,count,index,source,length);
     }
 
-    // Concrete native results use the status/value record contract. Zero
-    // succeeds; a failure returns the same nominal POD record to the caller.
+    // Concrete native results use status/value records or two tagged variants.
+    // A failure returns the same nominal POD result before lexical cleanup.
     pub fn native_try_named_record(self: &Self, nodes: *const AstNode, count: usize,
         typ: usize, context: usize, source: *const u8, length: usize) -> usize {
         if typ == 0 || typ >= count { return 0; }
@@ -1698,15 +1698,42 @@ impl Sema {
         let mut declaration: usize = unsafe{(*(nodes+module_index)).first_child};
         while declaration != 0 && declaration < count {
             let candidate: AstNode = unsafe{*(nodes+declaration)};
-            if candidate.kind == AstKind::StructDecl && self.same_source_text(source,length,name,candidate) { return declaration; }
+            if (candidate.kind == AstKind::StructDecl || candidate.kind == AstKind::EnumDecl)
+                && self.same_source_text(source,length,name,candidate) { return declaration; }
             declaration=candidate.next_sibling;
         }
         return 0;
     }
 
+    // Both variants must contain exactly one plain typed payload. The existing
+    // POD checker subsequently validates the entire nested payload graph.
+    pub fn native_try_variant(self: &Self, nodes: *const AstNode, count: usize,
+        record: usize, success: bool, source: *const u8, length: usize) -> usize {
+        if nodes == null || record == 0 || record >= count || unsafe{(*(nodes+record)).kind} != AstKind::EnumDecl { return 0; }
+        let mut variant: usize = unsafe{(*(nodes+record)).first_child};
+        let mut good: usize = 0;let mut bad: usize = 0;let mut total: usize = 0;
+        while variant != 0 && variant < count && total < 3 {
+            let member: AstNode = unsafe{*(nodes+variant)};
+            let payload: usize = member.first_child;
+            if member.kind != AstKind::EnumVariant || payload == 0 || payload >= count { return 0; }
+            let typ: AstNode = unsafe{*(nodes+payload)};
+            if typ.kind != AstKind::TypeRef || typ.int_value != 0 || typ.next_sibling != 0 { return 0; }
+            if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Ok",2) { good=variant; }
+            else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Err",3) { bad=variant; }
+            else { return 0; }
+            total=total+1;variant=member.next_sibling;
+        }
+        if variant != 0 || total != 2 || good == 0 || bad == 0 { return 0; }
+        if success { return good; }return bad;
+    }
+
     pub fn native_try_field(self: &Self, nodes: *const AstNode, count: usize,
         record: usize, value: bool, source: *const u8, length: usize) -> usize {
         if record == 0 || record >= count { return 0; }
+        if unsafe{(*(nodes+record)).kind} == AstKind::EnumDecl {
+            let variant: usize = self.native_try_variant(nodes,count,record,value,source,length);
+            if variant == 0 { return 0; }return unsafe{(*(nodes+variant)).first_child};
+        }
         let mut field: usize = unsafe{(*(nodes+record)).first_child};
         while field != 0 && field < count {
             let member: AstNode = unsafe{*(nodes+field)};
@@ -1780,6 +1807,10 @@ impl Sema {
         }
         let record: usize = self.native_try_named_record(nodes,count,typ,context,source,length);
         if record == 0 || !self.ownership_pod_type(nodes,count,record,source,length,0) { return 0; }
+        if unsafe{(*(nodes+record)).kind} == AstKind::EnumDecl {
+            if self.native_try_variant(nodes,count,record,true,source,length) == 0 { return 0; }
+            return record;
+        }
         let status: usize = self.native_try_field(nodes,count,record,false,source,length);
         let value: usize = self.native_try_field(nodes,count,record,true,source,length);
         if status == 0 || status >= count || value == 0 || value >= count { return 0; }
@@ -3632,6 +3663,10 @@ impl Sema {
             let record: usize = self.native_try_record(nodes,node_count,expression.first_child,source,source_len);
             return self.native_try_field(nodes,node_count,record,true,source,source_len);
         }
+        if expression.kind == AstKind::ExprConditional {
+            // Result alternatives already prove one identical nominal POD type.
+            return self.native_try_record(nodes,node_count,expression_index,source,source_len);
+        }
         if expression.kind == AstKind::ExprPath {
             let variant: usize = self.enum_variant_path(nodes,node_count,expression_index,source,source_len);
             if variant != 0 {
@@ -3682,7 +3717,8 @@ impl Sema {
                 if declaration.kind == AstKind::LetStmt && declaration.first_child != 0
                     && declaration.first_child < node_count && (unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprMatch
                         || unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprCall
-                        || unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprPath) {
+                        || unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprPath
+                        || unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprConditional) {
                     return self.infer_expression_type_ref(nodes,node_count,declaration.first_child,source,source_len);
                 }
             }

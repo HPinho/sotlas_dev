@@ -328,6 +328,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_array_dimensions(stage3, self.directory / "array dimension cases")
         from native_numeric_gate import verify_named_dimensions
         verify_named_dimensions(stage3, self.directory / "named dimension cases")
+        from native_numeric_gate import verify_tagged_results
+        verify_tagged_results(stage3, self.directory / "tagged result cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

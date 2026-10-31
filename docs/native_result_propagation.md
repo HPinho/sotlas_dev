@@ -1,5 +1,9 @@
 # Native results and checked numeric operations
 
+Concrete [tagged Ok/Err enums](native_tagged_results.md) now have a separate
+native `?` contract using the same snapshot/cleanup path. The status/value
+record contract below remains available and unchanged.
+
 SV8.97 adds postfix `?` to the native structured-CFG profile. The operand is a
 concrete, pointer-free POD record with fields named `status` and `value`. Status
 must be `u32` or a scalar enum; zero means success. Other fields carry error

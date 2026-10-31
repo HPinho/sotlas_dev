@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [tagged result propagation](native_tagged_results.md)
+adds `?` for concrete POD `Ok(T)`/`Err(E)` enums with nominal return checks,
+payload snapshots and lexical cleanup. Generic Result instantiation, automatic
+error conversion and resource-bearing result payloads remain open.
+
 Implemented subset: [constant array dimensions](native_array_dimensions.md)
 support checked literal arithmetic in type lengths and repetition counts, with
 existing storage, internal ABI and POD ownership gates. Const generics and

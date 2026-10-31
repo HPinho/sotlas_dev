@@ -2694,11 +2694,30 @@ impl ScalarLowering {
         if !sem.check_native_try(self.nodes,self.node_count,index,self.source,self.source_len) { return 0; }
         let record: u32 = self.cfg_struct_id(node.first_child,0);
         if record == 0 || record != self.return_struct_id || !self.array_record_copyable(record,0) { return 0; }
-        let status_id: u32 = self.find_field(record,self.try_field_name_offset(index,false),6);
-        let value_id: u32 = self.find_field(record,self.try_field_name_offset(index,true),5);
-        if status_id == 0 || value_id == 0 { return 0; }
-        let status_field: usize = status_id as usize-1;let field: usize = value_id as usize-1;
-        if self.field_type_tags[status_field] != TargetTypeTag::U32 as u32 { return 0; }
+        let declaration: usize = sem.native_try_record(self.nodes,self.node_count,node.first_child,self.source,self.source_len);
+        if declaration == 0 { return 0; }
+        let result_node: AstNode = unsafe{*(self.nodes+declaration)};
+        let mut status_offset: u64 = 0;let mut success_bits: u64 = 0;let mut field: usize = 0;
+        if result_node.kind == AstKind::EnumDecl {
+            let variant_node: usize = sem.native_try_variant(self.nodes,self.node_count,declaration,true,self.source,self.source_len);
+            if variant_node == 0 { return 0; }
+            let good_variant: AstNode = unsafe{*(self.nodes+variant_node)};
+            let enumeration: u32 = self.find_enum(result_node.str_offset,result_node.str_len);
+            if enumeration == 0 || self.enum_record_ids[enumeration as usize-1] != record { return 0; }
+            let mut variant: usize = self.enum_variant_starts[enumeration as usize-1] as usize;
+            let end: usize = variant+self.enum_variant_counts[enumeration as usize-1] as usize;
+            while variant < end && !self.source_name_equals(self.variant_name_offsets[variant],self.variant_name_lens[variant],
+                good_variant.str_offset,good_variant.str_len) { variant=variant+1; }
+            if variant == end || self.variant_field_counts[variant] != 1 { return 0; }
+            field=self.variant_field_starts[variant] as usize;success_bits=self.variant_values[variant];
+        } else {
+            let status_id: u32 = self.find_field(record,self.try_field_name_offset(index,false),6);
+            let value_id: u32 = self.find_field(record,self.try_field_name_offset(index,true),5);
+            if status_id == 0 || value_id == 0 { return 0; }
+            let status_field: usize = status_id as usize-1;field=value_id as usize-1;
+            if self.field_type_tags[status_field] != TargetTypeTag::U32 as u32 { return 0; }
+            status_offset=self.field_offsets[status_field] as u64;
+        }
         let mut typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
         if self.field_byte_counts[field] != 0 || self.field_struct_ids[field] != 0 { typ=TargetTypeTag::Pointer; }
         if expected != TargetTypeTag::Invalid && expected != typ { return 0; }
@@ -2709,9 +2728,10 @@ impl ScalarLowering {
         let first: u32 = self.operand_count as u32;
         if status == 0 || !self.append_operand(snapshot) || !self.append_instruction(TargetOpcode::Load,status,
             TargetTypeTag::U32,first,1,index) { return 0; }
-        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.field_offsets[status_field] as u64;}
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=status_offset;}
         let zero: u32 = self.append_value(TargetTypeTag::U32,0,0);
         if zero == 0 || !self.append_instruction(TargetOpcode::ConstInt,zero,TargetTypeTag::U32,0,0,index) { return 0; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=success_bits;}
         let operands: u32 = self.operand_count as u32;let success: u32 = self.append_value(TargetTypeTag::Bool,0,0);
         if success == 0 || !self.append_operand(status) || !self.append_operand(zero)
             || !self.append_instruction(TargetOpcode::Compare,success,TargetTypeTag::Bool,operands,2,index) { return 0; }
