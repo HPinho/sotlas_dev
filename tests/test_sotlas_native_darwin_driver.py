@@ -336,6 +336,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_array_iteration(stage3, self.directory / "array iteration cases")
         from native_numeric_gate import verify_optional
         verify_optional(stage3, self.directory / "optional value cases")
+        from native_numeric_gate import verify_pattern_control
+        verify_pattern_control(stage3, self.directory / "pattern control cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

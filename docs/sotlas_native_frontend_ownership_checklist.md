@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [pattern control](native_pattern_control.md) supports scoped
+statement `if let`/`while let`, match payload snapshots and structured cleanup.
+The checked split cursor connects those decisions to native field iteration.
+Expression-valued conditions, general iterators and resource payloads remain open.
+
 Implemented subset: [optional values](native_optional.md) supports concrete
 POD Some/None propagation and checked index lookup that distinguishes absence
 from invalid input. Generic Option and resource-bearing optional values remain open.

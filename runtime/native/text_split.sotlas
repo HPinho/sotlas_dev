@@ -1,0 +1,48 @@
+module sotlas::runtime::text_split;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::optional::*;
+
+// Offsets only: neither the cursor nor a returned field owns borrowed storage.
+pub struct NativeByteRange { pub start: usize; pub length: usize; }
+pub enum NativeRangeOption { None, Some(NativeByteRange) }
+pub struct NativeSplitCursor { pub offset: usize; pub finished: bool; }
+pub struct NativeSplitResult {
+    pub status: u32;
+    pub value: NativeRangeOption;
+    pub next: NativeSplitCursor;
+    pub error: NativeNumericError;
+}
+
+pub fn native_split_open() -> NativeSplitCursor {
+    return NativeSplitCursor { offset: 0, finished: false };
+}
+
+// Each success advances past a nonempty delimiter, or marks the final field.
+// Empty fields, including one after a trailing delimiter, are preserved.
+// Errors preserve the input cursor; callers must inspect status, not just None.
+pub fn native_split_next(source: NativeByteSlice, delimiter: NativeByteSlice,
+    cursor: NativeSplitCursor) -> NativeSplitResult {
+    let mut result: NativeSplitResult = NativeSplitResult {
+        status: 0, value: NativeRangeOption::None, next: cursor,
+        error: NativeNumericError { kind: 0, offset: 0 }
+    };
+    if !native_text_valid(source) || !native_text_valid(delimiter)
+        || delimiter.length == 0 || cursor.offset > source.length {
+        result.status=7;result.error=NativeNumericError { kind: 7, offset: cursor.offset };
+        return result;
+    }
+    if cursor.finished { return result; }
+    let found: NativeIndexResult = native_text_find_option_from(source,delimiter,cursor.offset);
+    if found.status != 0 {
+        result.status=found.status;result.error=found.error;return result;
+    }
+    if let NativeIndexOption::Some(end) = found.value {
+        result.value=NativeRangeOption::Some(NativeByteRange { start: cursor.offset, length: end-cursor.offset });
+        result.next=NativeSplitCursor { offset: end+delimiter.length, finished: false };
+    } else {
+        result.value=NativeRangeOption::Some(NativeByteRange { start: cursor.offset, length: source.length-cursor.offset });
+        result.next=NativeSplitCursor { offset: source.length, finished: true };
+    }
+    return result;
+}
