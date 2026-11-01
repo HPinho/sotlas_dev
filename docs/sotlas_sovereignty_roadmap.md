@@ -7,8 +7,8 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `d809657`, certified by
-[CI #1334](https://github.com/HPinho/sotlas_dev/actions/runs/41235145506)
+Starting green baseline: `1470f51`, certified by
+[CI #1336](https://github.com/HPinho/sotlas_dev/actions/runs/41291069664)
 with all 19 jobs successful. Its native profile includes
 [layout queries and packed records](native_layout_queries.md), checked
 [literal dimensions](native_array_dimensions.md),
@@ -16,10 +16,12 @@ with all 19 jobs successful. Its native profile includes
 [tagged result propagation](native_tagged_results.md) and
 [explicit payload tags](native_payload_tags.md).
 
-The new candidate implements by-value fixed-array
+The baseline also implements by-value fixed-array
 iteration with one source snapshot, typed item inference and the existing
-structured cleanup paths. See [array iteration](native_array_iteration.md);
-its CI certification is pending.
+structured cleanup paths. See [array iteration](native_array_iteration.md).
+The current candidate adds concrete POD Some/None propagation and native checked
+optional lookup, sharing existing cleanup and text-search implementations. See
+[optional values](native_optional.md); its CI certification is pending.
 
 ## Remaining work, grouped by outcome
 

@@ -1,0 +1,37 @@
+module examples::native_optional;
+import sotlas::runtime::optional::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+
+static mut cleanups: u32 = 0;
+
+fn value_start(found: NativeIndexOption) -> NativeIndexOption {
+    defer { unsafe { cleanups = cleanups + 1; } }
+    let delimiter: usize = found?;
+    return native_index_add(native_index_some(delimiter), 1);
+}
+
+pub fn main_entry() -> u32 {
+    let line: NativeByteSlice = native_text_open("answer=42", 9);
+    let separator: NativeByteSlice = native_text_open("=", 1);
+    let found: NativeIndexResult = native_text_find_option(line, separator);
+    let missing: NativeIndexResult = native_text_find_option(native_text_open("answer42", 8), separator);
+    let invalid: NativeIndexResult = native_text_find_option(native_text_invalid(), separator);
+    if found.status != 0 || missing.status != 0 || invalid.status != 7 { return 1; }
+
+    let position: NativeIndexOption = value_start(found.value);
+    let absent: NativeIndexOption = value_start(missing.value);
+    let start: usize = match position {
+        NativeIndexOption::Some(index) => index,
+        NativeIndexOption::None => 0,
+    };
+    let not_found: bool = match absent {
+        NativeIndexOption::Some(index) => false,
+        NativeIndexOption::None => true,
+    };
+    if start != 7 || !not_found || unsafe { cleanups } != 2 { return 2; }
+    let tail: NativeByteSlice = native_text_sub(line, start, line.length-start);
+    let number: NativeU32Result = native_parse_u32(tail.data, tail.length);
+    if number.status != 0 { return 3; }
+    return number.value;
+}

@@ -1,5 +1,9 @@
 # Native tagged result propagation
 
+Concrete [Some/None options](native_optional.md) now share this nominal snapshot
+and cleanup path. Their unit absence variant has its own closed schema; Ok/Err
+validation remains unchanged.
+
 The Sotlas-written native compiler accepts postfix `?` on concrete POD enums
 with exactly two variants named `Ok` and `Err`, each carrying one typed payload.
 Variant order does not determine success; the compiler compares the registered

@@ -1715,25 +1715,39 @@ impl Sema {
         return 0;
     }
 
-    // Both variants must contain exactly one plain typed payload. The existing
-    // POD checker subsequently validates the entire nested payload graph.
+    // Closed result schemas: Ok(T)/Err(E), or Some(T)/None. The existing
+    // POD checker validates the complete payload graph after this shape check.
     pub fn native_try_variant(self: &Self, nodes: *const AstNode, count: usize,
         record: usize, success: bool, source: *const u8, length: usize) -> usize {
         if nodes == null || record == 0 || record >= count || unsafe{(*(nodes+record)).kind} != AstKind::EnumDecl { return 0; }
         let mut variant: usize = unsafe{(*(nodes+record)).first_child};
         let mut good: usize = 0;let mut bad: usize = 0;let mut total: usize = 0;
+        let mut good_kind: u32 = 0;let mut bad_kind: u32 = 0;
         while variant != 0 && variant < count && total < 3 {
             let member: AstNode = unsafe{*(nodes+variant)};
             let payload: usize = member.first_child;
-            if member.kind != AstKind::EnumVariant || payload == 0 || payload >= count { return 0; }
-            let typ: AstNode = unsafe{*(nodes+payload)};
-            if typ.kind != AstKind::TypeRef || typ.int_value != 0 || typ.next_sibling != 0 { return 0; }
-            if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Ok",2) { good=variant; }
-            else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Err",3) { bad=variant; }
+            if member.kind != AstKind::EnumVariant { return 0; }
+            let absent: bool = self.source_slice_equals(source,length,member.str_offset,member.str_len,"None",4);
+            if absent {
+                // An explicit unit discriminant is not a payload field.
+                if payload != 0 {
+                    if payload >= count { return 0; }
+                    let tag: AstNode = unsafe{*(nodes+payload)};
+                    if tag.kind != AstKind::ExprLiteral || tag.next_sibling != 0 { return 0; }
+                }
+            } else {
+                if payload == 0 || payload >= count { return 0; }
+                let typ: AstNode = unsafe{*(nodes+payload)};
+                if typ.kind != AstKind::TypeRef || typ.int_value != 0 || typ.next_sibling != 0 { return 0; }
+            }
+            if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Ok",2) { good=variant;good_kind=1; }
+            else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Err",3) { bad=variant;bad_kind=1; }
+            else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Some",4) { good=variant;good_kind=2; }
+            else if absent { bad=variant;bad_kind=2; }
             else { return 0; }
             total=total+1;variant=member.next_sibling;
         }
-        if variant != 0 || total != 2 || good == 0 || bad == 0 { return 0; }
+        if variant != 0 || total != 2 || good == 0 || bad == 0 || good_kind != bad_kind { return 0; }
         if success { return good; }return bad;
     }
 
@@ -1742,7 +1756,10 @@ impl Sema {
         if record == 0 || record >= count { return 0; }
         if unsafe{(*(nodes+record)).kind} == AstKind::EnumDecl {
             let variant: usize = self.native_try_variant(nodes,count,record,value,source,length);
-            if variant == 0 { return 0; }return unsafe{(*(nodes+variant)).first_child};
+            if variant == 0 { return 0; }
+            let payload: usize = unsafe{(*(nodes+variant)).first_child};
+            if payload == 0 || payload >= count || unsafe{(*(nodes+payload)).kind} != AstKind::TypeRef { return 0; }
+            return payload;
         }
         let mut field: usize = unsafe{(*(nodes+record)).first_child};
         while field != 0 && field < count {
@@ -1808,7 +1825,7 @@ impl Sema {
         }
         if node.kind != AstKind::ExprIdent && node.kind != AstKind::ExprCall
             && node.kind != AstKind::ExprFieldAccess && node.kind != AstKind::ExprIndex
-            && node.kind != AstKind::ExprStructLiteral { return 0; }
+            && node.kind != AstKind::ExprStructLiteral && node.kind != AstKind::ExprPath { return 0; }
         let typ: usize = self.infer_expression_type_ref(nodes,count,index,source,length);
         let mut context: usize = index;
         if node.kind == AstKind::ExprCall {
