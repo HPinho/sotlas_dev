@@ -19,9 +19,15 @@ with all 19 jobs successful. Its native profile includes
 The baseline also implements by-value fixed-array
 iteration with one source snapshot, typed item inference and the existing
 structured cleanup paths. See [array iteration](native_array_iteration.md).
-The current candidate adds concrete POD Some/None propagation and native checked
+The subsequent commit `7779439` adds concrete POD Some/None propagation and native checked
 optional lookup, sharing existing cleanup and text-search implementations. See
-[optional values](native_optional.md); its CI certification is pending.
+[optional values](native_optional.md). Its workflow was reported green by the
+maintainer before this package; no new workflow consultation was performed.
+
+The current candidate connects statement `if let`/`while let` to native match
+decisions and structured cleanup, with a checked byte-range split cursor and
+an executable field-parsing application. See [pattern control](native_pattern_control.md).
+Its own full platform CI certification remains pending.
 
 ## Remaining work, grouped by outcome
 

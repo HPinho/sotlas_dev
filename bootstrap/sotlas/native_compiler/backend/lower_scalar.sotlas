@@ -7111,7 +7111,21 @@ impl ScalarLowering {
                 is_local_array = first.kind == AstKind::TypeRef && first.str_len != 0
                     && unsafe { *(self.source + first.str_offset) } == 91;
             }
-            let is_aggregate_call: bool = node.kind == AstKind::ExprCall && self.cfg_struct_id(i, 0) != 0;
+            let mut is_aggregate_call: bool = node.kind == AstKind::ExprCall && self.cfg_struct_id(i, 0) != 0;
+            // Scalar-returning calls can still require aggregate argument
+            // snapshots. Select the same structured ABI path as record returns,
+            // even when the caller is only one arithmetic return expression.
+            if node.kind == AstKind::ExprCall && !is_aggregate_call {
+                let called: usize = self.cfg_call_declaration(i,0);
+                if called != 0 {
+                    let parameters: u32 = self.function_parameter_count_from_ast(called);
+                    let mut ordinal: u32 = 0;
+                    while ordinal < parameters && ordinal < 24 {
+                        if self.function_parameter_struct_from_ast(called,ordinal) != 0 { is_aggregate_call=true;break; }
+                        ordinal=ordinal+1;
+                    }
+                }
+            }
             let scalar_call: bool = node.kind == AstKind::ExprCall;
             let needs_lazy_condition: bool = node.kind == AstKind::ExprConditional
                 || (node.kind == AstKind::ExprBinary && (node.int_value == 110 || node.int_value == 111));

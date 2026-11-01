@@ -1,0 +1,39 @@
+module examples::native_pattern_control;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::optional::*;
+import sotlas::runtime::text_split::*;
+
+static mut cleanups: u32 = 0;
+
+// Errors propagate before a new loop iteration starts. The result's next
+// cursor and field range are snapshots, so no borrowed payload escapes.
+fn advance(source: NativeByteSlice, delimiter: NativeByteSlice,
+    cursor: NativeSplitCursor) -> NativeSplitResult {
+    let result: NativeSplitResult=native_split_next(source,delimiter,cursor);
+    let field: NativeRangeOption=result?;
+    return NativeSplitResult { status: 0, value: field, next: result.next, error: result.error };
+}
+
+pub fn main_entry() -> u32 {
+    let source: NativeByteSlice=native_text_open("10::12::::20::",14);
+    let delimiter: NativeByteSlice=native_text_open("::",2);
+    let mut step: NativeSplitResult=advance(source,delimiter,native_split_open());
+    let mut sum: u32=0;
+    let mut fields: u32=0;
+    while let NativeRangeOption::Some(range)=step.value {
+        if step.status!=0 { return 1; }
+        defer { unsafe { cleanups=cleanups+1; } }
+        fields=fields+1;
+        let current: NativeByteSlice=native_text_sub(source,range.start,range.length);
+        step=advance(source,delimiter,step.next);
+        if range.length==0 { continue; }
+        let parsed: NativeU32Result=native_parse_u32(current.data,current.length);
+        if parsed.status!=0 { return 2; }
+        sum=sum+parsed.value;
+    }
+    if step.status!=0 || fields!=5 || unsafe{cleanups}!=5 { return 3; }
+    let invalid: NativeSplitResult=advance(source,native_text_open("",0),native_split_open());
+    if invalid.status!=7 { return 4; }
+    return sum;
+}
