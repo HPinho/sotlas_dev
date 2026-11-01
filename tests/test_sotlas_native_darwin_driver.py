@@ -332,6 +332,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_tagged_results(stage3, self.directory / "tagged result cases")
         from native_numeric_gate import verify_payload_tags
         verify_payload_tags(stage3, self.directory / "payload tag cases")
+        from native_numeric_gate import verify_array_iteration
+        verify_array_iteration(stage3, self.directory / "array iteration cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

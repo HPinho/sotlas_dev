@@ -322,6 +322,13 @@
       "verification": "tests/test_sotlas_native_payload_tags.py; tests/native_numeric_gate.py::verify_payload_tags; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-fixed-array-iteration",
+      "document": "docs/native_array_iteration.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_array_iteration/main.sotlas",
+      "verification": "tests/test_sotlas_native_array_iteration.py; tests/native_numeric_gate.py::verify_array_iteration; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-result-propagation",
       "document": "docs/native_result_propagation.md",
       "status": "EXPERIMENTAL",

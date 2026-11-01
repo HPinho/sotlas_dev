@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [fixed-array iteration](native_array_iteration.md) supports
+plain POD snapshots, scalar/record/enum item copies, nested loops, structured
+jumps, `defer` and `?` array sources. Dynamic iterators and owned/resource
+iteration remain open.
+
 Implemented subset: [explicit payload enum tags](native_payload_tags.md) carry
 declared u32 discriminants through storage, match, static tables and tagged `?`.
 Foreign aggregate ABI, custom backing widths and resource payloads remain open.

@@ -2854,6 +2854,16 @@ impl ScalarLowering {
                 return result;
             }
         }
+        if expression.kind == AstKind::ExprArrayLength && !self.constant_evaluation {
+            let typ: usize = self.array_subject_type(expression.first_child);
+            if typ == 0 || (type_tag != TargetTypeTag::Invalid && type_tag != TargetTypeTag::U32) { return 0; }
+            let declared: AstNode = unsafe{*(self.nodes+typ)};
+            let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
+            if declared.int_value != 0 || count == 0 || count > 4096 { return 0; }
+            let value: u32 = self.append_value(TargetTypeTag::U32,0,0);
+            if value == 0 || !self.append_instruction(TargetOpcode::ConstInt,value,TargetTypeTag::U32,0,0,expression_index) { return 0; }
+            unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=count as u64;}return value;
+        }
         if expression.kind == AstKind::TryExpr && !self.constant_evaluation {
             return self.lower_try_value(expression_index,type_tag,first_parameter,parameter_count);
         }
@@ -4517,6 +4527,7 @@ impl ScalarLowering {
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
         if expression.kind == AstKind::ExprLayout { return TargetTypeTag::U64; }
+        if expression.kind == AstKind::ExprArrayLength { return TargetTypeTag::U32; }
         if self.payload_record(expression_index) != 0 { return TargetTypeTag::Pointer; }
         if expression.kind == AstKind::TryExpr {
             let mut sem: Sema = Sema::new();
@@ -7437,7 +7448,8 @@ impl ScalarLowering {
             if value_index == 0 || value_index >= self.node_count { return self.reject(index); }
             let value_node: AstNode = unsafe { *(self.nodes + value_index) };
             let mut struct_id: u32 = 0;
-            if type_index == 0 && (value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::TryExpr) { type_index=self.array_subject_type(value_index); }
+            if type_index == 0 && (value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::TryExpr
+                || stmt.int_value == 3) { type_index=self.array_subject_type(value_index); }
             if type_index != 0 {
                 let declared: AstNode = unsafe { *(self.nodes + type_index) };
                 struct_id = self.find_struct(declared.str_offset, declared.str_len);
@@ -8308,6 +8320,7 @@ impl ScalarLowering {
                 contexts[0]=self.array_subject_type(node.first_child);
             }
             if node.kind == AstKind::TryExpr { contexts[0]=self.array_subject_type(index); }
+            if node.kind == AstKind::ExprArrayLength { contexts[0]=self.array_subject_type(node.first_child); }
             if node.kind == AstKind::AssignStmt && node.first_child != 0 {
                 let target_node: AstNode = unsafe{*(self.nodes+node.first_child)};
                 if target_node.kind == AstKind::ExprIdent || target_node.kind == AstKind::ExprFieldAccess {
