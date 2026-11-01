@@ -1,0 +1,46 @@
+module sotlas::runtime::optional;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+
+// Concrete index values carry no borrowed storage or sentinel indices.
+pub enum NativeIndexOption { None, Some(usize) }
+pub struct NativeIndexResult {
+    pub status: u32;
+    pub value: NativeIndexOption;
+    pub error: NativeNumericError;
+}
+
+pub fn native_index_some(value: usize) -> NativeIndexOption { return NativeIndexOption::Some(value); }
+pub fn native_index_none() -> NativeIndexOption { return NativeIndexOption::None; }
+pub fn native_index_or(value: NativeIndexOption, fallback: usize) -> usize {
+    return match value { NativeIndexOption::Some(index) => index, NativeIndexOption::None => fallback };
+}
+pub fn native_index_add(value: NativeIndexOption, delta: usize) -> NativeIndexOption {
+    let base: usize = value?;
+    if delta > 18446744073709551615-base { return NativeIndexOption::None; }
+    return NativeIndexOption::Some(base+delta);
+}
+
+pub fn native_index_result(value: NativeIndexOption) -> NativeIndexResult {
+    return NativeIndexResult { status: 0, value: value, error: NativeNumericError { kind: 0, offset: 0 } };
+}
+pub fn native_index_error(offset: usize) -> NativeIndexResult {
+    return NativeIndexResult { status: 7, value: NativeIndexOption::None,
+        error: NativeNumericError { kind: 7, offset: offset } };
+}
+
+// Invalid slice shape/range is an error; a valid search with no match is None.
+// Readable storage and lifetime remain caller preconditions of borrowed slices.
+pub fn native_text_find_option_from(value: NativeByteSlice, needle: NativeByteSlice, start: usize) -> NativeIndexResult {
+    if !native_text_valid(value) || !native_text_valid(needle) || start > value.length { return native_index_error(start); }
+    let tail: NativeByteSlice = native_text_sub(value,start,value.length-start);
+    let mut relative: usize = 0;
+    if !native_text_find(tail,needle,unsafe{(&mut relative) as *mut usize}) {
+        return native_index_result(NativeIndexOption::None);
+    }
+    // A valid result is within the original slice, so this addition fits.
+    return native_index_result(NativeIndexOption::Some(start+relative));
+}
+pub fn native_text_find_option(value: NativeByteSlice, needle: NativeByteSlice) -> NativeIndexResult {
+    return native_text_find_option_from(value,needle,0);
+}

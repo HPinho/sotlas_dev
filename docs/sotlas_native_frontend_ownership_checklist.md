@@ -1,5 +1,9 @@
 # Native frontend and ownership closure
 
+Implemented subset: [optional values](native_optional.md) supports concrete
+POD Some/None propagation and checked index lookup that distinguishes absence
+from invalid input. Generic Option and resource-bearing optional values remain open.
+
 Implemented subset: [fixed-array iteration](native_array_iteration.md) supports
 plain POD snapshots, scalar/record/enum item copies, nested loops, structured
 jumps, `defer` and `?` array sources. Dynamic iterators and owned/resource
