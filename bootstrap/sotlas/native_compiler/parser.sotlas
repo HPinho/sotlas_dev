@@ -598,7 +598,12 @@ impl Parser {
         }
         let name:Token=self.expect(TokenKind::Ident);let separator:Token=self.expect(TokenKind::KwIn);
         if self.error_count != 0 { return 0; }
-        let start:usize=self.parse_expression();self.expect(TokenKind::DotDot);
+        let start:usize=self.parse_expression();
+        if start == 0 || self.error_count != 0 { return 0; }
+        if !self.match_token(TokenKind::DotDot) {
+            return self.array_for_statement(keyword,name,separator,start,mutable);
+        }
+        self.expect(TokenKind::DotDot);
         let finish:usize=self.parse_expression();
         if start == 0 || finish == 0 || self.error_count != 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
         let user_body:usize=self.parse_block();if user_body == 0 { return 0; }
@@ -626,6 +631,46 @@ impl Parser {
             || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)
             || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
             || !self.append_child(outer,cursor) || !self.append_child(outer,limit) || !self.append_child(outer,repeating) { return 0; }
+        return outer;
+    }
+
+    pub fn array_for_statement(mut self: &mut Self, keyword: Token, name: Token,
+        separator: Token, source: usize, mutable: bool) -> usize {
+        if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+        let user_body: usize = self.parse_block();
+        if user_body == 0 { return 0; }
+        self.array_signature_types=true;
+        let outer: usize = self.alloc_node(AstKind::Block,keyword.span);
+        let snapshot: usize = self.alloc_text_node(AstKind::LetStmt,separator);
+        let cursor: usize = self.alloc_text_node(AstKind::LetStmt,keyword);
+        let repeating: usize = self.alloc_node(AstKind::WhileStmt,keyword.span);
+        let body: usize = self.alloc_node(AstKind::Block,keyword.span);
+        let binding: usize = self.alloc_text_node(AstKind::LetStmt,name);
+        let increment: usize = self.alloc_node(AstKind::AssignStmt,keyword.span);
+        let length: usize = self.alloc_node(AstKind::ExprArrayLength,keyword.span);
+        let element: usize = self.alloc_node(AstKind::ExprIndex,name.span);
+        if outer == 0 || snapshot == 0 || cursor == 0 || repeating == 0 || body == 0
+            || binding == 0 || increment == 0 || length == 0 || element == 0 { return 0; }
+        // Reserved source spellings make hidden bindings hygienic. Marker 3
+        // validates the plain POD snapshot; the indexed element marker enables
+        // bounded inference only for this generated binding.
+        unsafe{(*(self.nodes+snapshot)).int_value=3;(*(self.nodes+cursor)).int_value=1;
+            (*(self.nodes+repeating)).int_value=1;(*(self.nodes+element)).int_value=1;
+            if mutable { (*(self.nodes+binding)).int_value=1; }}
+        let zero: usize = self.generated_integer(keyword.span,0);
+        if !self.append_child(snapshot,source) || !self.append_child(cursor,zero)
+            || !self.append_child(length,self.name_expression(separator))
+            || !self.append_child(element,self.name_expression(separator))
+            || !self.append_child(element,self.name_expression(keyword)) { return 0; }
+        let mut compare: Token = keyword;compare.kind=TokenKind::Lt;
+        let condition: usize = self.make_binary(self.name_expression(keyword),compare,length);
+        let mut plus: Token = keyword;plus.kind=TokenKind::Plus;
+        let next: usize = self.make_binary(self.name_expression(keyword),plus,self.generated_integer(keyword.span,1));
+        if condition == 0 || next == 0 || !self.append_child(binding,element)
+            || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
+            || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)
+            || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
+            || !self.append_child(outer,snapshot) || !self.append_child(outer,cursor) || !self.append_child(outer,repeating) { return 0; }
         return outer;
     }
 

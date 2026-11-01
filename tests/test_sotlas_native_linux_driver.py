@@ -898,6 +898,8 @@ module syscall_probe;
         verify_tagged_results(native_stage3, self.directory / "tagged result cases")
         from native_numeric_gate import verify_payload_tags
         verify_payload_tags(native_stage3, self.directory / "payload tag cases")
+        from native_numeric_gate import verify_array_iteration
+        verify_array_iteration(native_stage3, self.directory / "array iteration cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

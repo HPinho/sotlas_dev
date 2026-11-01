@@ -1,0 +1,53 @@
+module examples::native_array_iteration;
+import sotlas::runtime::results::*;
+
+const BATCH_SIZE: usize = 3;
+pub struct Reading { pub value: u32; pub enabled: bool; }
+pub enum Batch { Ok([Reading; BATCH_SIZE]) = 16, Err(NativeNumericError) = 32 }
+static mut visited: u32 = 0;
+static mut completed: u32 = 0;
+
+fn observe() -> void { unsafe { visited = visited + 1; } return; }
+
+fn load(valid: bool) -> Batch {
+    if !valid { return Batch::Err(NativeNumericError { kind: 3, offset: 1 }); }
+    return Batch::Ok([
+        Reading { value: 20, enabled: true },
+        Reading { value: 99, enabled: false },
+        Reading { value: 22, enabled: true }
+    ]);
+}
+
+fn validate(valid: bool) -> Batch {
+    defer { unsafe { completed = completed + 1; } }
+    let input: Batch = load(valid);
+    for reading in input? {
+        defer observe();
+        if !reading.enabled { continue; }
+        if reading.value > 100 {
+            return Batch::Err(NativeNumericError { kind: 7, offset: 0 });
+        }
+    }
+    return input;
+}
+
+pub fn main_entry() -> u32 {
+    let mut total: u32 = 0;
+    match validate(true) {
+        Batch::Ok(readings) => {
+            for mut reading in readings {
+                if !reading.enabled { continue; }
+                total = total + reading.value;
+                reading.value = 0;
+            }
+            if readings[0].value != 20 { return 1; }
+        },
+        Batch::Err(error) => { return 2; },
+    }
+    let failed: bool = match validate(false) {
+        Batch::Ok(readings) => false,
+        Batch::Err(error) => error.kind == 3 && error.offset == 1,
+    };
+    if !failed || unsafe { visited } != 3 || unsafe { completed } != 2 { return 3; }
+    return total;
+}

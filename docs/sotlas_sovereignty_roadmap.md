@@ -7,33 +7,18 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `ef592eb`, certified by
-[CI #1333](https://github.com/HPinho/sotlas_dev/actions/runs/41204846606)
-with all 19 jobs successful. The earlier inspected
-[CI #1321](https://github.com/HPinho/sotlas_dev/actions/runs/40840985644) also
-certified the UTF-8 collection baseline across all 19 jobs.
-The current compiler delivery implements native size, stride, alignment and
-field-offset queries, including constant evaluation and dead-code validation.
-The pool and map now derive memory-check layouts from their declarations.
-See [native layout queries](native_layout_queries.md) for the supported profile.
-CI #1325 failed the existing minimal-kernel test because `@packed` was rejected.
-The follow-up implements native packed-record layout, unaligned scalar access,
-nested records, array stride and by-value copies rather than removing that gate.
-The packed packet example is included in all three native host rebuild gates.
-The user confirmed that this follow-up completed with a green workflow.
-The next delivery adds checked literal arithmetic in fixed-array dimensions
-and repetitions across storage, internal calls and POD payloads. See the
-[dimension contract](native_array_dimensions.md). The user confirmed green CI
-after the public-snippet inventory repair. The current candidate resolves
-unsigned module constants in array shapes and repetitions, sharing lexical
-binding checks across storage, internal ABI, payloads and deferred POD borrows.
-See [named dimensions](native_named_dimensions.md). The user confirmed green CI
-after repairing the obsolete source-sliced Sema fixture. The current candidate
-adds native propagation for concrete tagged Ok/Err enums, preserving payloads,
-early-return cleanup and the existing status/value result contract. See
-[tagged results](native_tagged_results.md), certified by the baseline above.
-The new candidate carries explicit u32 tags on payload variants through native
-construction, match, static data and `?`. See [payload tags](native_payload_tags.md);
+Starting green baseline: `d809657`, certified by
+[CI #1334](https://github.com/HPinho/sotlas_dev/actions/runs/41235145506)
+with all 19 jobs successful. Its native profile includes
+[layout queries and packed records](native_layout_queries.md), checked
+[literal dimensions](native_array_dimensions.md),
+[named capacities](native_named_dimensions.md),
+[tagged result propagation](native_tagged_results.md) and
+[explicit payload tags](native_payload_tags.md).
+
+The new candidate implements by-value fixed-array
+iteration with one source snapshot, typed item inference and the existing
+structured cleanup paths. See [array iteration](native_array_iteration.md);
 its CI certification is pending.
 
 ## Remaining work, grouped by outcome

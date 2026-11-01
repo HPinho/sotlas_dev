@@ -670,6 +670,16 @@ impl Sema {
         let mut node_index: usize = 1;
         while node_index < node_count {
             let node: AstNode = unsafe { *(nodes + node_index) };
+            if node.kind == AstKind::ExprArrayLength {
+                let typ: usize = self.infer_expression_type_ref(nodes,node_count,node.first_child,source,source_len);
+                if typ == 0 || typ >= node_count { return self.reject_node(node); }
+                let array: AstNode = unsafe{*(nodes+typ)};
+                let elements: usize = native_array_count_context(nodes,node_count,source,source_len,array.str_offset,array.str_len);
+                if array.kind != AstKind::TypeRef || array.int_value != 0 || elements == 0 || elements > 256
+                    || array.first_child == 0 || array.first_child >= node_count
+                    || unsafe{(*(nodes+array.first_child)).int_value} != 0
+                    || !self.ownership_pod_type(nodes,node_count,array.first_child,source,source_len,0) { return self.reject_node(node); }
+            }
             if node.kind == AstKind::ExprUnary && node.int_value == 82
                 && !self.is_in_unsafe_block(nodes, node_count, node_index)
                 && !self.expression_is_borrow_deref(
@@ -3714,6 +3724,12 @@ impl Sema {
             if declared != 0 { return declared; }
             if binding != 0 && binding < node_count {
                 let declaration: AstNode = unsafe{*(nodes+binding)};
+                if declaration.kind == AstKind::LetStmt && declaration.first_child != 0 && declaration.first_child < node_count {
+                    let initializer: AstNode = unsafe{*(nodes+declaration.first_child)};
+                    if declaration.int_value == 3 || (initializer.kind == AstKind::ExprIndex && initializer.int_value == 1) {
+                        return self.infer_expression_type_ref(nodes,node_count,declaration.first_child,source,source_len);
+                    }
+                }
                 if declaration.kind == AstKind::LetStmt && declaration.first_child != 0
                     && declaration.first_child < node_count && (unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprMatch
                         || unsafe{(*(nodes+declaration.first_child)).kind} == AstKind::ExprCall
