@@ -1,0 +1,31 @@
+module examples::native_aggregate_constants;
+
+enum Policy { Disabled=97, Scale(u32)=11 }
+struct Profile { pub id: u32; pub weights: [u32;2]; pub policy: Policy; }
+
+const COUNT: usize=3;
+const PROFILES: [Profile;COUNT]=[
+    Profile { id: 1, weights: [10,10], policy: Policy::Scale(1) },
+    Profile { id: 2, weights: [10,12], policy: Policy::Scale(1) },
+    Profile { id: 3, weights: [40,40], policy: Policy::Disabled }
+];
+const DEFAULT: Profile=Profile { id: 0, weights: [21,21], policy: Policy::Scale(1) };
+
+// This fixed configuration bounds every score and the total to u32.
+fn score(profile: Profile) -> u32 {
+    return if let Policy::Scale(factor)=profile.policy {
+        (profile.weights[0]+profile.weights[1])*factor
+    } else {
+        0
+    };
+}
+
+pub fn main_entry() -> u32 {
+    let mut local: [Profile;COUNT]=PROFILES;
+    local[0].weights[0]=0;
+    if PROFILES[0].weights[0]!=10 || local[0].weights[0]!=0 { return 1; }
+    if score(DEFAULT)!=42 { return 2; }
+    let mut total: u32=0;
+    for profile in PROFILES { total=total+score(profile); }
+    return total;
+}

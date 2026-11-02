@@ -343,6 +343,13 @@
       "verification": "tests/test_sotlas_native_pattern_control.py; tests/test_sotlas_native_text_split.py; tests/native_numeric_gate.py::verify_pattern_control; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-aggregate-constants",
+      "document": "docs/native_aggregate_constants.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_aggregate_constants/main.sotlas",
+      "verification": "tests/test_sotlas_native_aggregate_constants.py; tests/native_numeric_gate.py::verify_aggregate_constants; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-pattern-values",
       "document": "docs/native_pattern_values.md",
       "status": "EXPERIMENTAL",

@@ -342,6 +342,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_error_composition(stage3, self.directory / "error composition cases")
         from native_numeric_gate import verify_pattern_values
         verify_pattern_values(stage3, self.directory / "pattern value cases")
+        from native_numeric_gate import verify_aggregate_constants
+        verify_aggregate_constants(stage3, self.directory / "aggregate constant cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

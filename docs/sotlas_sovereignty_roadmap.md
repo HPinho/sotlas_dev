@@ -7,7 +7,7 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Current green baseline: `ae38087`, reported by the maintainer before this
+Current green baseline: `5773587`, reported by the maintainer before this
 package. The last directly inspected workflow was
 [CI #1336](https://github.com/HPinho/sotlas_dev/actions/runs/41291069664)
 for `1470f51`, with all 19 jobs successful. Later green results were provided
@@ -23,13 +23,14 @@ The native profile includes
 It also provides [fixed-array iteration](native_array_iteration.md),
 [concrete optional values](native_optional.md), statement
 [pattern control and field iteration](native_pattern_control.md), and
-[Result error composition](native_error_composition.md). These share existing
+[Result error composition](native_error_composition.md) and
+[if-let values](native_pattern_values.md). These share existing
 snapshot, cleanup and native ABI paths.
 
-The current candidate adds value-producing if-let decisions with scoped blocks,
-aggregate results, propagation and existing match ownership checks. The readings
-example preserves parse errors while applying explicit defaults. See
-[if-let values](native_pattern_values.md). Its full platform CI remains pending.
+The current candidate adds immutable aggregate constants, independent POD
+copies and readonly receiver protection, using the native data serializer and
+object/link pipeline. See [aggregate constants](native_aggregate_constants.md).
+Its full platform CI remains pending.
 
 ## Remaining work, grouped by outcome
 
