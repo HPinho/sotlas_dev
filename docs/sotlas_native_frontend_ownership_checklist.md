@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [if-let expressions](native_pattern_values.md) produce
+scalar/aggregate values, with scoped value blocks, propagation, snapshots and
+the existing match ownership analysis. General inference, resource payload
+subjects and full borrow/ARC semantics remain open.
+
 Implemented subset: [native Result error composition](native_error_composition.md)
 propagates an identical POD error payload between concrete Ok/Err success types,
 remaps destination tags/layouts and preserves cleanup. Generic error conversion,
@@ -8,7 +13,7 @@ resource payloads and conversion between result/optional schemas remain open.
 Implemented subset: [pattern control](native_pattern_control.md) supports scoped
 statement `if let`/`while let`, match payload snapshots and structured cleanup.
 The checked split cursor connects those decisions to native field iteration.
-Expression-valued conditions, general iterators and resource payloads remain open.
+General iterators and resource payloads remain open; if-let values are linked above.
 
 Implemented subset: [optional values](native_optional.md) supports concrete
 POD Some/None propagation and checked index lookup that distinguishes absence

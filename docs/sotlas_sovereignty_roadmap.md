@@ -7,40 +7,36 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Starting green baseline: `1470f51`, certified by
+Current green baseline: `ae38087`, reported by the maintainer before this
+package. The last directly inspected workflow was
 [CI #1336](https://github.com/HPinho/sotlas_dev/actions/runs/41291069664)
-with all 19 jobs successful. Its native profile includes
+for `1470f51`, with all 19 jobs successful. Later green results were provided
+by the maintainer.
+
+The native profile includes
 [layout queries and packed records](native_layout_queries.md), checked
 [literal dimensions](native_array_dimensions.md),
 [named capacities](native_named_dimensions.md),
 [tagged result propagation](native_tagged_results.md) and
 [explicit payload tags](native_payload_tags.md).
 
-The baseline also implements by-value fixed-array
-iteration with one source snapshot, typed item inference and the existing
-structured cleanup paths. See [array iteration](native_array_iteration.md).
-The subsequent commit `7779439` adds concrete POD Some/None propagation and native checked
-optional lookup, sharing existing cleanup and text-search implementations. See
-[optional values](native_optional.md). Its workflow was reported green by the
-maintainer before this package; no new workflow consultation was performed.
+It also provides [fixed-array iteration](native_array_iteration.md),
+[concrete optional values](native_optional.md), statement
+[pattern control and field iteration](native_pattern_control.md), and
+[Result error composition](native_error_composition.md). These share existing
+snapshot, cleanup and native ABI paths.
 
-Commit `71065bd` connects statement `if let`/`while let` to native match
-decisions and structured cleanup, with a checked byte-range split cursor and
-an executable field-parsing application. See [pattern control](native_pattern_control.md).
-Its workflow was reported green by the maintainer before this package.
-
-The current candidate composes concrete Ok/Err results with different success
-types and an identical nominal error channel. It remaps failure layouts/tags,
-keeps ordinary copies nominal, and connects checked range/pair parsing to an
-array report. See [error composition](native_error_composition.md). Its own full
-platform CI certification remains pending.
+The current candidate adds value-producing if-let decisions with scoped blocks,
+aggregate results, propagation and existing match ownership checks. The readings
+example preserves parse errors while applying explicit defaults. See
+[if-let values](native_pattern_values.md). Its full platform CI remains pending.
 
 ## Remaining work, grouped by outcome
 
 | Block | Available | Required to close the block |
 | --- | --- | --- |
 | Native frontend | Scalar and structured control flow; bounded arrays, records, payload matches, concrete results, raw pointer projections | Contracted generics, strings/slices as language values, module parity, full diagnostics and remaining accepted language forms |
-| Resources and runtime | Explicit arenas, reference headers, growing text, reusable slots and checked views; bounded configuration collection in this candidate | Automatic ARC/drop integration, general lifetime/escape and alias analysis, resource-bearing aggregates and all contracted domain transitions |
+| Resources and runtime | Explicit arenas, reference headers, growing text, reusable slots, checked views and bounded configuration collections | Automatic ARC/drop integration, general lifetime/escape and alias analysis, resource-bearing aggregates and all contracted domain transitions |
 | Machine pipeline | Sotlas Target IR, x86-64 emission, owned object/link paths for ELF/PE/Mach-O | Remaining ABI/resource lowering, promised linking modes, target/debug/unwind coverage and rejection of every unsupported combination |
 | Self-build and delivery | Original-source native rebuilds and strict Stage 2/3 equality within the declared profile | Full compiler parity, native packaging/project tools and clean installation/rebuild certification without Python/C |
 | User-facing preview | Native executable examples, numeric/results/text APIs and separate kernel/GUI experiments | A reproducible installed application path, documented limits and platform gates for each advertised experience |

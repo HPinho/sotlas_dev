@@ -913,7 +913,7 @@ impl Parser {
             return discern_node;
         } else if tok.kind == TokenKind::KwIf {
             self.advance();
-            if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,false); }
+            if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,false,false); }
             let if_node: usize = self.alloc_node(AstKind::IfStmt, tok.span);
             if if_node == 0 {
                 return 0;
@@ -949,7 +949,7 @@ impl Parser {
             return if_node;
         } else if tok.kind == TokenKind::KwWhile {
             self.advance();
-            if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,true); }
+            if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,true,false); }
             let while_node: usize = self.alloc_node(AstKind::WhileStmt, tok.span);
             if while_node == 0 {
                 return 0;
@@ -1451,6 +1451,7 @@ impl Parser {
         }
 
         if tok.kind == TokenKind::KwIf {
+            if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,false,true); }
             let conditional: usize = self.alloc_node(AstKind::ExprConditional, tok.span);
             let condition: usize = self.parse_expression();
             if conditional == 0 || condition == 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
@@ -2030,14 +2031,16 @@ impl Parser {
     // Pattern control shares the complete match decision tree and its scoped
     // payload snapshots. The reserved `let` spelling is an inaccessible fallback
     // binding; no fabricated source text or parallel pattern checker is needed.
-    pub fn parse_pattern_control(mut self: &mut Self, keyword: Token, repeating: bool) -> usize {
+    pub fn parse_pattern_control(mut self: &mut Self, keyword: Token, repeating: bool, expression_mode: bool) -> usize {
         let binding: Token = self.advance();
         let pattern: usize = self.parse_match_pattern(0);
         if pattern == 0 || !self.match_token(TokenKind::Equal) { self.reject_current();return 0; }
         self.advance();
         let subject: usize = self.parse_expression();
         if subject == 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
-        let selected: usize = self.parse_block();
+        let mut selected: usize = 0;
+        if expression_mode { selected=self.parse_match_value_block(); }
+        else { selected=self.parse_block(); }
         let mut fallback: usize = self.alloc_node(AstKind::Block,keyword.span);
         if selected == 0 || fallback == 0 { return 0; }
         if repeating {
@@ -2046,14 +2049,22 @@ impl Parser {
         } else if self.match_token(TokenKind::KwElse) {
             self.advance();
             let mut otherwise: usize = 0;
-            if self.match_token(TokenKind::OpenBrace) { otherwise=self.parse_block(); }
-            else if self.match_token(TokenKind::KwIf) { otherwise=self.parse_statement(); }
+            if self.match_token(TokenKind::OpenBrace) {
+                if expression_mode { otherwise=self.parse_match_value_block(); }
+                else { otherwise=self.parse_block(); }
+            }
+            else if self.match_token(TokenKind::KwIf) {
+                if expression_mode { otherwise=self.parse_expression(); }
+                else { otherwise=self.parse_statement(); }
+            }
             else { self.reject_current();return 0; }
             if otherwise == 0 { return 0; }
-            if unsafe{(*(self.nodes+otherwise)).kind} == AstKind::Block { fallback=otherwise; }
+            if expression_mode || unsafe{(*(self.nodes+otherwise)).kind} == AstKind::Block { fallback=otherwise; }
             else if !self.append_child(fallback,otherwise) { return 0; }
-        }
-        let choice: usize = self.alloc_node(AstKind::MatchStmt,keyword.span);
+        } else if expression_mode { self.reject_current();return 0; }
+        let mut kind: AstKind = AstKind::MatchStmt;
+        if expression_mode { kind=AstKind::ExprMatch; }
+        let choice: usize = self.alloc_node(kind,keyword.span);
         let arm: usize = self.alloc_node(AstKind::MatchArm,keyword.span);
         let other: usize = self.alloc_node(AstKind::MatchArm,keyword.span);
         let capture: usize = self.alloc_text_node(AstKind::ExprIdent,binding);

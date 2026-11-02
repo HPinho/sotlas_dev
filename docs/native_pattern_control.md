@@ -37,8 +37,9 @@ and pointer/resource payload graphs remain rejected. This is not automatic
 resource destruction or general borrow checking.
 
 A bare capture or `_` as the entire condition is rejected; use `let` or `loop`
-for those forms. Expression-valued `if let`, mutable pattern bindings,
-`while let ... else`, pattern guards and chained conditions are not introduced.
+for those forms. [Value-producing if-let](native_pattern_values.md) extends the
+statement contract. Mutable pattern bindings, `while let ... else`, pattern
+guards and chained conditions remain outside this profile.
 Unreachable-code diagnostic parity remains a separate frontend task; this
 package does not claim a new exhaustive semantic pass over unreachable match
 patterns. The optional legacy C11 emitter is outside this native contract.
