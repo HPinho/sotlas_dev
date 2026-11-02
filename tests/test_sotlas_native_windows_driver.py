@@ -375,6 +375,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_optional(stage3, self.directory / "optional value cases")
         from native_numeric_gate import verify_pattern_control
         verify_pattern_control(stage3, self.directory / "pattern control cases")
+        from native_numeric_gate import verify_error_composition
+        verify_error_composition(stage3, self.directory / "error composition cases")
         from native_window_gate import verify_window
         verify_window(stage3, self.directory / "window cases")
         from native_ui_gate import verify_ui

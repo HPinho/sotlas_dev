@@ -2693,7 +2693,8 @@ impl ScalarLowering {
         let node: AstNode = unsafe{*(self.nodes+index)};let mut sem: Sema = Sema::new();
         if !sem.check_native_try(self.nodes,self.node_count,index,self.source,self.source_len) { return 0; }
         let record: u32 = self.cfg_struct_id(node.first_child,0);
-        if record == 0 || record != self.return_struct_id || !self.array_record_copyable(record,0) { return 0; }
+        if record == 0 || !self.array_record_copyable(record,0)
+            || !self.array_record_copyable(self.return_struct_id,0) { return 0; }
         let declaration: usize = sem.native_try_record(self.nodes,self.node_count,node.first_child,self.source,self.source_len);
         if declaration == 0 { return 0; }
         let result_node: AstNode = unsafe{*(self.nodes+declaration)};
@@ -2739,7 +2740,7 @@ impl ScalarLowering {
         let good: u32 = self.cfg_reserve_block();let bad: u32 = self.cfg_reserve_block();
         if !self.cfg_pattern_branch(success,good,bad,index) { return 0; }
         self.cfg_begin(bad);
-        if !self.cfg_copy_fields(self.return_destination,snapshot,record,0,0,index,0)
+        if !self.cfg_try_failure(snapshot,record,index)
             || !self.cfg_emit_defers(0,first_parameter,parameter_count,0)
             || !self.append_instruction(TargetOpcode::Return,0,TargetTypeTag::Void,0,0,index)
             || !self.cfg_finish() { return 0; }
@@ -2748,6 +2749,53 @@ impl ScalarLowering {
         if payload == 0 { return 0; }
         if typ == TargetTypeTag::Pointer { return payload; }
         return self.cfg_payload_load(payload,typ,index);
+    }
+
+    // Locate Err independently of variant order and declared discriminant.
+    pub fn try_error_variant(self: &Self, record: u32) -> usize {
+        let sem: Sema = Sema::new();let mut enumeration: usize = 0;
+        while enumeration < self.enum_count {
+            if self.enum_record_ids[enumeration] == record {
+                let mut variant: usize = self.enum_variant_starts[enumeration] as usize;
+                let end: usize = variant+self.enum_variant_counts[enumeration] as usize;
+                while variant < end {
+                    if self.variant_field_counts[variant] == 1
+                        && sem.source_slice_equals(self.source,self.source_len,self.variant_name_offsets[variant],
+                            self.variant_name_lens[variant],"Err",3) { return variant+1; }
+                    variant=variant+1;
+                }
+            }
+            enumeration=enumeration+1;
+        }
+        return 0;
+    }
+
+    pub fn cfg_try_failure(mut self: &mut Self, snapshot: u32, record: u32, index: usize) -> bool {
+        if record == self.return_struct_id {
+            return self.cfg_copy_fields(self.return_destination,snapshot,record,0,0,index,0);
+        }
+        let original: usize = self.try_error_variant(record);
+        let target_variant: usize = self.try_error_variant(self.return_struct_id);
+        if original == 0 || target_variant == 0 { return false; }
+        let from: usize = self.variant_field_starts[original-1] as usize;
+        let to: usize = self.variant_field_starts[target_variant-1] as usize;
+        if self.field_byte_counts[from] != 0 || self.field_byte_counts[to] != 0
+            || self.field_type_tags[from] != self.field_type_tags[to]
+            || self.field_struct_ids[from] != self.field_struct_ids[to] { return false; }
+        if self.field_struct_ids[from] != 0 {
+            if !self.cfg_copy_fields(self.return_destination,snapshot,self.field_struct_ids[from],
+                self.field_offsets[to],self.field_offsets[from],index,0) { return false; }
+        } else {
+            let typ: TargetTypeTag = self.field_type_tags[from] as TargetTypeTag;
+            let address: u32 = self.payload_address(snapshot,self.field_offsets[from],index);
+            let value: u32 = self.cfg_payload_load(address,typ,index);
+            let destination: u32 = self.payload_address(self.return_destination,self.field_offsets[to],index);
+            if address == 0 || value == 0 || destination == 0 || !self.cfg_store(destination,value,typ,index) { return false; }
+        }
+        let tag: u32 = self.append_value(TargetTypeTag::U32,0,0);
+        if tag == 0 || !self.append_instruction(TargetOpcode::ConstInt,tag,TargetTypeTag::U32,0,0,index) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.variant_values[target_variant-1];}
+        return self.cfg_store(self.return_destination,tag,TargetTypeTag::U32,index);
     }
 
     // Reuse source-backed member names rather than adding hidden AST nodes or
@@ -7606,7 +7654,8 @@ impl ScalarLowering {
             } else {
                 if type_index != 0 { typ = self.type_tag_for(type_index); }
                 let value_struct: u32 = self.cfg_struct_id(value_index, 0);
-                if value_struct != 0 && (value_node.kind == AstKind::ExprStructLiteral
+                if value_struct != 0 && (value_node.kind == AstKind::ExprIdent || value_node.kind == AstKind::ExprFieldAccess
+                    || value_node.kind == AstKind::ExprStructLiteral
                     || value_node.kind == AstKind::ExprCall || value_node.kind == AstKind::ExprPath || value_node.kind == AstKind::ExprConditional
                     || value_node.kind == AstKind::ExprMatch || value_node.kind == AstKind::ExprIndex || value_node.kind == AstKind::TryExpr) {
                     if type_index != 0 && struct_id != value_struct { return self.reject(index); }

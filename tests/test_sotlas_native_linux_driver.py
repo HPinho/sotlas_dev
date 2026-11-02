@@ -904,6 +904,8 @@ module syscall_probe;
         verify_optional(native_stage3, self.directory / "optional value cases")
         from native_numeric_gate import verify_pattern_control
         verify_pattern_control(native_stage3, self.directory / "pattern control cases")
+        from native_numeric_gate import verify_error_composition
+        verify_error_composition(native_stage3, self.directory / "error composition cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

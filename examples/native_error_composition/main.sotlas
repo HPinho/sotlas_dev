@@ -1,0 +1,33 @@
+module examples::native_error_composition;
+import sotlas::runtime::results::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::optional::*;
+import sotlas::runtime::parse::*;
+
+static mut cleanups: u32 = 0;
+enum Report { Err(NativeNumericError)=97, Ok([u32;2])=11 }
+
+fn report(source: NativeByteSlice) -> Report {
+    defer { unsafe { cleanups=cleanups+1; } }
+    let number: u32=native_parse_u32_pair_sum(source,native_text_open("::",2))?;
+    let next: u32=native_u32_tagged(native_u32_add(number,1))?;
+    return Report::Ok([number,next]);
+}
+
+pub fn main_entry() -> u32 {
+    let good: Report=report(native_text_open("20::22",6));
+    let invalid: Report=report(native_text_open("20::x",5));
+    let overflow: Report=report(native_text_open("4294967295::1",13));
+    if unsafe{cleanups}!=3 { return 1; }
+    if let Report::Err(error)=invalid {
+        if error.kind!=3 || error.offset!=4 { return 2; }
+    } else { return 3; }
+    if let Report::Err(error)=overflow {
+        if error.kind!=4 { return 4; }
+    } else { return 5; }
+    if let Report::Ok(values)=good {
+        if values[1]!=43 { return 6; }
+        return values[0];
+    }
+    return 7;
+}

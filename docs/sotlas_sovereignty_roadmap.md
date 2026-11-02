@@ -24,10 +24,16 @@ optional lookup, sharing existing cleanup and text-search implementations. See
 [optional values](native_optional.md). Its workflow was reported green by the
 maintainer before this package; no new workflow consultation was performed.
 
-The current candidate connects statement `if let`/`while let` to native match
+Commit `71065bd` connects statement `if let`/`while let` to native match
 decisions and structured cleanup, with a checked byte-range split cursor and
 an executable field-parsing application. See [pattern control](native_pattern_control.md).
-Its own full platform CI certification remains pending.
+Its workflow was reported green by the maintainer before this package.
+
+The current candidate composes concrete Ok/Err results with different success
+types and an identical nominal error channel. It remaps failure layouts/tags,
+keeps ordinary copies nominal, and connects checked range/pair parsing to an
+array report. See [error composition](native_error_composition.md). Its own full
+platform CI certification remains pending.
 
 ## Remaining work, grouped by outcome
 
