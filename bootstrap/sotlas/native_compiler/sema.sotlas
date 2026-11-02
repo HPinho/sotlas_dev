@@ -1692,7 +1692,8 @@ impl Sema {
     }
 
     // Concrete native results use status/value records or two tagged variants.
-    // A failure returns the same nominal POD result before lexical cleanup.
+    // Failure preserves the nominal result, or remaps an identical tagged error,
+    // before lexical cleanup.
     pub fn native_try_named_record(self: &Self, nodes: *const AstNode, count: usize,
         typ: usize, context: usize, source: *const u8, length: usize) -> usize {
         if typ == 0 || typ >= count { return 0; }
@@ -1861,6 +1862,32 @@ impl Sema {
         return 0;
     }
 
+    // Cross-result propagation changes only the success type. Error payloads
+    // retain their exact declared type; records and optional enums stay nominal.
+    pub fn native_try_error_compatible(self: &Self, nodes: *const AstNode, count: usize,
+        source_record: usize, destination: usize, source: *const u8, length: usize) -> bool {
+        if source_record == 0 || destination == 0 || source_record >= count || destination >= count { return false; }
+        if source_record == destination { return true; }
+        if unsafe{(*(nodes+source_record)).kind} != AstKind::EnumDecl
+            || unsafe{(*(nodes+destination)).kind} != AstKind::EnumDecl { return false; }
+        let original: usize = self.native_try_variant(nodes,count,source_record,false,source,length);
+        let target_variant: usize = self.native_try_variant(nodes,count,destination,false,source,length);
+        if original == 0 || target_variant == 0 { return false; }
+        let left: AstNode = unsafe{*(nodes+original)};let right: AstNode = unsafe{*(nodes+target_variant)};
+        if !self.source_slice_equals(source,length,left.str_offset,left.str_len,"Err",3)
+            || !self.source_slice_equals(source,length,right.str_offset,right.str_len,"Err",3) { return false; }
+        let left_type: usize = self.native_try_field(nodes,count,source_record,false,source,length);
+        let right_type: usize = self.native_try_field(nodes,count,destination,false,source,length);
+        if left_type == 0 || right_type == 0 { return false; }
+        let error: AstNode = unsafe{*(nodes+left_type)};
+        // Inline arrays can be fields of the nominal error record. A direct
+        // array error payload has no standalone field-copy ABI in this profile.
+        return error.str_len != 0 && unsafe{*(source+error.str_offset)} != 91
+            && self.same_source_text(source,length,error,unsafe{*(nodes+right_type)})
+            && self.ownership_pod_type(nodes,count,source_record,source,length,0)
+            && self.ownership_pod_type(nodes,count,destination,source,length,0);
+    }
+
     pub fn check_native_try(mut self: &mut Self, nodes: *const AstNode, count: usize,
         index: usize, source: *const u8, length: usize) -> bool {
         let node: AstNode = unsafe{*(nodes+index)};
@@ -1887,7 +1914,8 @@ impl Sema {
                 let mut child: usize = ancestor.first_child;
                 while child != 0 && child < count {
                     if unsafe{(*(nodes+child)).kind} == AstKind::TypeRef {
-                        if self.native_try_named_record(nodes,count,child,parent,source,length) == record { return true; }
+                        let destination: usize = self.native_try_named_record(nodes,count,child,parent,source,length);
+                        if self.native_try_error_compatible(nodes,count,record,destination,source,length) { return true; }
                         return self.reject_node(node);
                     }
                     child=unsafe{(*(nodes+child)).next_sibling};
@@ -4648,6 +4676,21 @@ impl Sema {
             }
             let current: AstNode = unsafe { *(nodes + current_index) };
             if current.kind == AstKind::LetStmt {
+                // Enforce nominal copies before choosing linear or structured
+                // lowering, including unused locals and unreachable blocks.
+                let declared: usize = self.binding_type_ref(nodes,node_count,current_index);
+                if declared != 0 && declared < node_count {
+                    let value: usize = unsafe{(*(nodes+declared)).next_sibling};
+                    if value != 0 && value < node_count {
+                        let expression: AstNode = unsafe{*(nodes+value)};
+                        if expression.kind == AstKind::ExprIdent || expression.kind == AstKind::ExprFieldAccess {
+                            let actual: usize = self.infer_expression_type_ref(nodes,node_count,value,source,source_len);
+                            let left: usize = self.native_try_named_record(nodes,node_count,declared,current_index,source,source_len);
+                            let right: usize = self.native_try_named_record(nodes,node_count,actual,value,source,source_len);
+                            if left != 0 && right != 0 && left != right { return self.reject_node(current); }
+                        }
+                    }
+                }
                 local_count = local_count + 1;
                 if local_count > MAX_SYMBOLS {
                     self.error_count = self.error_count + 1;

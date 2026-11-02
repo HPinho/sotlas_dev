@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [native Result error composition](native_error_composition.md)
+propagates an identical POD error payload between concrete Ok/Err success types,
+remaps destination tags/layouts and preserves cleanup. Generic error conversion,
+resource payloads and conversion between result/optional schemas remain open.
+
 Implemented subset: [pattern control](native_pattern_control.md) supports scoped
 statement `if let`/`while let`, match payload snapshots and structured cleanup.
 The checked split cursor connects those decisions to native field iteration.

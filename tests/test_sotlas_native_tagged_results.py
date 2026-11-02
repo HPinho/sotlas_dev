@@ -97,10 +97,10 @@ fn work()->Outcome{let mut result:Outcome=Outcome::Ok(42);defer{result=Outcome::
 let n:u32=result?;return Outcome::Ok(n);}
 pub fn main_entry()->u32{let r:Outcome=work();if unsafe{trace}!=9{return 1;}return match r{Outcome::Ok(n)=>n,Outcome::Err(e)=>2};}''')
 
-    def test_nominal_mismatch_and_wrong_return_rejected(self):
+    def test_incompatible_error_and_wrong_return_rejected(self):
         for index,body in enumerate(('fn work()->u32{let n:u32=source()?;return n;}',
                                      'fn work()->Other{let n:u32=source()?;return Other::Ok(n);}')):
-            self.compile('tagged_return_bad_'+str(index),'enum Outcome{Ok(u32),Err(u32)}enum Other{Ok(u32),Err(u32)}'
+            self.compile('tagged_return_bad_'+str(index),'enum Outcome{Ok(u32),Err(u32)}enum Other{Ok(u32),Err(u64)}'
                          'fn source()->Outcome{return Outcome::Ok(42);}'+body+'pub fn main_entry()->u32{return 42;}',False)
 
     def test_invalid_variant_schemas_rejected(self):

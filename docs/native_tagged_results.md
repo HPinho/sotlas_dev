@@ -2,7 +2,8 @@
 
 Concrete [Some/None options](native_optional.md) now share this nominal snapshot
 and cleanup path. Their unit absence variant has its own closed schema; Ok/Err
-validation remains unchanged.
+validation retains its closed two-variant schema. [Error composition](native_error_composition.md)
+extends Ok/Err propagation across success types when the error type is identical.
 
 The Sotlas-written native compiler accepts postfix `?` on concrete POD enums
 with exactly two variants named `Ok` and `Err`, each carrying one typed payload.
@@ -28,8 +29,10 @@ The operand is evaluated once and snapshotted. On `Ok`, the expression yields
 its payload using the existing scalar/aggregate value rules. On `Err`, the
 complete nominal enum is copied to the enclosing function's return destination
 before active lexical defers run in reverse order. Later arguments and operands
-do not execute after this return. The enclosing function must return the same
-unqualified nominal enum. There is no automatic error conversion.
+do not execute after this return. A different unqualified Ok/Err return enum
+is accepted only under the exact shared-error contract described in
+[error composition](native_error_composition.md). Its Err tag and payload layout
+are reconstructed; no error-payload coercion occurs.
 
 Success and error payloads can be supported scalars, pointer-free records,
 nested POD payload enums or bounded inline arrays. Array dimensions retain
@@ -40,7 +43,7 @@ inference is extended only where both alternatives prove one concrete result
 type; this does not establish general expression inference.
 
 Invalid variant names/counts/arities, qualified result bindings, qualified or
-pointer-bearing payloads, incompatible nominal returns and `?` inside `defer`
+pointer-bearing payloads, incompatible error/return schemas and `?` inside `defer`
 are rejected, including invalid uses after an unconditional return. Plain POD
 snapshots do not implement resource moves, automatic ARC/drop or borrowed
 lifetimes. Unsafe fabrication of an invalid enum tag is outside this contract.

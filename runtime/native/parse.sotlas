@@ -1,0 +1,50 @@
+module sotlas::runtime::parse;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::optional::*;
+
+// Concrete result types share one nominal error channel, not one success type.
+pub enum NativeParsedU32 { Ok(u32), Err(NativeNumericError) }
+pub struct NativeU32Pair { pub first: u32; pub second: u32; }
+pub enum NativeParsedPair { Ok(NativeU32Pair), Err(NativeNumericError) }
+
+pub fn native_u32_tagged(result: NativeU32Result) -> NativeParsedU32 {
+    if result.status != 0 { return NativeParsedU32::Err(result.error); }
+    return NativeParsedU32::Ok(result.value);
+}
+
+// Error offsets are relative to the original source, including right fields.
+// Storage remains caller-owned and must be readable for the complete call.
+pub fn native_parse_u32_range(source: NativeByteSlice, start: usize, length: usize) -> NativeParsedU32 {
+    if !native_text_valid(source) || start > source.length || length > source.length-start {
+        return NativeParsedU32::Err(NativeNumericError { kind: 7, offset: start });
+    }
+    let field: NativeByteSlice = native_text_sub(source,start,length);
+    let result: NativeU32Result = native_parse_u32(field.data,field.length);
+    if result.status != 0 {
+        return NativeParsedU32::Err(NativeNumericError { kind: result.error.kind, offset: start+result.error.offset });
+    }
+    return NativeParsedU32::Ok(result.value);
+}
+
+// Split on the first nonempty byte delimiter. Numeric parsing remains strict:
+// no trimming, signs or separators are silently accepted inside either field.
+pub fn native_parse_u32_pair(source: NativeByteSlice, delimiter: NativeByteSlice) -> NativeParsedPair {
+    if !native_text_valid(source) || !native_text_valid(delimiter) || delimiter.length == 0 {
+        return NativeParsedPair::Err(NativeNumericError { kind: 7, offset: 0 });
+    }
+    let found: NativeIndexResult = native_text_find_option(source,delimiter);
+    if found.status != 0 { return NativeParsedPair::Err(found.error); }
+    if let NativeIndexOption::Some(split) = found.value {
+        let right: usize = split+delimiter.length;
+        let first: u32 = native_parse_u32_range(source,0,split)?;
+        let second: u32 = native_parse_u32_range(source,right,source.length-right)?;
+        return NativeParsedPair::Ok(NativeU32Pair { first: first, second: second });
+    }
+    return NativeParsedPair::Err(NativeNumericError { kind: 7, offset: source.length });
+}
+
+pub fn native_parse_u32_pair_sum(source: NativeByteSlice, delimiter: NativeByteSlice) -> NativeParsedU32 {
+    let pair: NativeU32Pair = native_parse_u32_pair(source,delimiter)?;
+    return native_u32_tagged(native_u32_add(pair.first,pair.second));
+}
