@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented subset: [aggregate constants](native_aggregate_constants.md) store
+POD records, payload enums and bounded arrays, with independent local copies,
+readonly receiver checks and native data emission. General constant evaluation,
+aggregate initializer aliases and resource-bearing constant graphs remain open.
+
 Implemented subset: [if-let expressions](native_pattern_values.md) produce
 scalar/aggregate values, with scoped value blocks, propagation, snapshots and
 the existing match ownership analysis. General inference, resource payload
