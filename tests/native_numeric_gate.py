@@ -118,6 +118,10 @@ def verify_error_composition(compiler, output):
     verify_numeric_pipeline(compiler, output, 'native_error_composition', ('results', 'text', 'optional', 'parse'))
 
 
+def verify_pattern_values(compiler, output):
+    verify_numeric_pipeline(compiler, output, 'native_pattern_values', ('results', 'text', 'optional', 'parse'))
+
+
 if __name__ == '__main__':
     choices = {'layout': verify_layout_queries, 'places': verify_projected_storage, 'records': verify_record_storage, 'map': verify_config_map, 'pool': verify_pool_text, 'arena': verify_arena_text, 'buffer': verify_text_buffer, 'text': verify_text_pipeline}
     verify = choices.get(sys.argv[3] if len(sys.argv) > 3 else '', verify_numeric_pipeline)

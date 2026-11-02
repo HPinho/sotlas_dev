@@ -1,0 +1,46 @@
+module examples::native_pattern_values;
+import sotlas::runtime::results::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::optional::*;
+import sotlas::runtime::parse::*;
+
+struct Reading { pub value: u32; pub fallback: bool; pub error: NativeNumericError; }
+static mut cleanups: u32 = 0;
+
+// A default is an explicit application policy. The report retains the parse
+// error instead of silently turning malformed input into a successful parse.
+fn reading(source: NativeByteSlice, fallback: u32) -> Reading {
+    let parsed: NativeParsedU32=native_parse_u32_range(source,0,source.length);
+    let error: NativeNumericError=if let NativeParsedU32::Err(problem)=parsed {
+        problem
+    } else {
+        NativeNumericError { kind: 0, offset: 0 }
+    };
+    return if let NativeParsedU32::Ok(number)=parsed {
+        defer { unsafe { cleanups=cleanups+1; } }
+        Reading { value: number, fallback: false, error: error }
+    } else {
+        defer { unsafe { cleanups=cleanups+1; } }
+        Reading { value: fallback, fallback: true, error: error }
+    };
+}
+
+pub fn main_entry() -> u32 {
+    let rows: [Reading;3]=[
+        reading(native_text_open("20",2),0),
+        reading(native_text_open("22",2),0),
+        reading(native_text_open("bad",3),0)
+    ];
+    let mut total: u32=0;
+    let mut defaults: u32=0;
+    for item in rows {
+        total=if let NativeParsedU32::Ok(next)=native_u32_tagged(native_u32_add(total,item.value)) {
+            next
+        } else {
+            return 1;
+        };
+        defaults=defaults+(if item.fallback { 1 } else { 0 });
+    }
+    if defaults!=1 || unsafe{cleanups}!=3 || rows[2].error.kind!=3 || rows[2].error.offset!=0 { return 2; }
+    return total;
+}
