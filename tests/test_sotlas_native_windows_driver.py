@@ -381,6 +381,8 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_pattern_values(stage3, self.directory / "pattern value cases")
         from native_numeric_gate import verify_aggregate_constants
         verify_aggregate_constants(stage3, self.directory / "aggregate constant cases")
+        from native_numeric_gate import verify_numeric_projection
+        verify_numeric_projection(stage3, self.directory / "numeric projection cases")
         from native_window_gate import verify_window
         verify_window(stage3, self.directory / "window cases")
         from native_ui_gate import verify_ui

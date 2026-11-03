@@ -795,6 +795,8 @@ impl Sema {
                         self.error_col = assignment_target.span.col;
                         return false;
                     }
+                    let pointer: usize = self.pointer_receiver_type_ref(nodes,node_count,assignment_target.first_child,source,source_len);
+                    if self.readonly_pointer_type(nodes,node_count,pointer,source,source_len) { return self.reject_node(assignment_target); }
                     if !self.is_in_unsafe_block(nodes, node_count, target_index)
                         && !self.expression_is_mutable_borrow_deref(
                             nodes, node_count, target_index, source, source_len
@@ -3836,6 +3838,18 @@ impl Sema {
         if expression.kind == AstKind::ExprUnary {
             if expression.int_value == 98 {
                 return 0; // Boolean result inference is not represented yet.
+            }
+            if expression.int_value == 82 {
+                let pointer: usize = self.infer_expression_type_ref(nodes,node_count,expression.first_child,source,source_len);
+                if pointer != 0 && self.is_pointer_type_ref(nodes,node_count,pointer,source,source_len) {
+                    let mut candidate: usize = 1;
+                    while candidate < node_count {
+                        let typ: AstNode = unsafe{*(nodes+candidate)};
+                        if typ.kind == AstKind::TypeRef && typ.int_value == 0
+                            && self.pointer_type_matches_pointee(nodes,node_count,pointer,candidate,source,source_len) { return candidate; }
+                        candidate=candidate+1;
+                    }
+                }
             }
             return self.infer_expression_type_ref(
                 nodes, node_count, expression.first_child, source, source_len

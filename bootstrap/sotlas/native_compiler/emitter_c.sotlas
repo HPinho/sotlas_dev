@@ -801,6 +801,7 @@ impl CEmitter {
         let node: AstNode = unsafe { *(self.nodes + index) };
 
         if node.kind == AstKind::AssignStmt {
+            if node.int_value != 0 { return false; }
             let left: usize = node.first_child;
             if !self.valid_node(left) {
                 return false;

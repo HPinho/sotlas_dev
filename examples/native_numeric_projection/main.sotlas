@@ -1,0 +1,21 @@
+module numeric_projection;
+import sotlas::runtime::tensor_cpu::*;
+
+// A dense projection followed by a residual addition and scale, on the CPU.
+// This is a numerical building block, not a generative model.
+pub fn main_entry()->u32 {
+    let weights:[f32;6]=[1.0,2.0,3.0,1.0,1.0,1.0];
+    let input:[f32;3]=[1.0,2.0,3.0];
+    let residual:[f32;2]=[1.0,0.0];
+    let mut output:[f32;2]=[0.0,0.0];
+    let x:NativeF32View=NativeF32View{data:unsafe{input as *const f32},length:3};
+    let w:NativeF32View=NativeF32View{data:unsafe{weights as *const f32},length:6};
+    let r:NativeF32View=NativeF32View{data:unsafe{residual as *const f32},length:2};
+    let y:NativeF32MutView=NativeF32MutView{data:unsafe{output as *mut f32},length:2};
+    if native_f32_gemv_cpu(y,x,w,2,3)!=0 { return 1; }
+    if native_f32_axpy_cpu(y,r,1.0)!=0 { return 2; }
+    if native_f32_scale_cpu(y,2.0)!=0 { return 3; }
+    let norm:NativeF32Result=native_f32_dot_cpu(x,x);
+    if norm.status!=0 || norm.value!=14.0 || output[0]!=30.0 || output[1]!=12.0 { return 4; }
+    return (output[0]+output[1]) as u32;
+}

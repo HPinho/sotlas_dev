@@ -697,13 +697,7 @@ impl Parser {
             let mut right: usize = self.parse_expression();
             if right == 0 { return 0; }
             if assign_tok.kind != TokenKind::Equal {
-                // Only a name can be safely desugared without evaluating a
-                // side-effecting address twice. General places remain gated.
                 let original: AstNode=unsafe{*(self.nodes+left)};
-                if original.kind != AstKind::ExprIdent { self.reject_current();return 0; }
-                let copied: usize=self.alloc_node(AstKind::ExprIdent,original.span);
-                if copied == 0 { return 0; }
-                unsafe{(*(self.nodes+copied)).str_offset=original.str_offset;(*(self.nodes+copied)).str_len=original.str_len;}
                 let mut operation: Token=assign_tok;
                 if assign_tok.kind == TokenKind::PlusEqual { operation.kind=TokenKind::Plus; }
                 if assign_tok.kind == TokenKind::MinusEqual { operation.kind=TokenKind::Minus; }
@@ -715,7 +709,20 @@ impl Parser {
                 if assign_tok.kind == TokenKind::CaretEqual { operation.kind=TokenKind::Caret; }
                 if assign_tok.kind == TokenKind::ShlEqual { operation.kind=TokenKind::Shl; }
                 if assign_tok.kind == TokenKind::ShrEqual { operation.kind=TokenKind::Shr; }
-                right=self.make_binary(copied,operation,right);if right == 0 { return 0; }
+                if original.kind == AstKind::ExprIdent {
+                    // Preserve the existing name-only normalization and IR.
+                    let copied: usize=self.alloc_node(AstKind::ExprIdent,original.span);
+                    if copied == 0 { return 0; }
+                    unsafe{(*(self.nodes+copied)).str_offset=original.str_offset;(*(self.nodes+copied)).str_len=original.str_len;}
+                    right=self.make_binary(copied,operation,right);if right == 0 { return 0; }
+                } else {
+                    if original.kind != AstKind::ExprFieldAccess && original.kind != AstKind::ExprIndex
+                        && !(original.kind == AstKind::ExprUnary && original.int_value == 82) { self.reject_current();return 0; }
+                    // A place is represented once. Lowering snapshots its
+                    // address and old value before evaluating the RHS.
+                    self.array_signature_types=true;
+                    unsafe{(*(self.nodes+assign_node)).int_value=self.operator_tag(operation.kind);}
+                }
             }
             if !self.append_child(assign_node, left) {
                 return 0;

@@ -2523,6 +2523,20 @@ impl ScalarLowering {
         return TARGET_VALUE_NONE;
     }
 
+    // A compound update reads the old scalar before RHS effects and publishes
+    // only on the RHS success path. The destination is evaluated by the caller.
+    pub fn lower_assignment_value(mut self: &mut Self, statement: usize, address: u32,
+        typ: TargetTypeTag, right: usize, first_parameter: usize, parameter_count: usize) -> u32 {
+        let operator_tag: i64 = unsafe{(*(self.nodes+statement)).int_value};
+        if operator_tag == 0 { return self.lower_expression(right,typ,first_parameter,parameter_count); }
+        if address == 0 || (!target_type_is_integer(typ) && !target_type_is_float(typ)) { return 0; }
+        let old: u32 = self.cfg_payload_load(address,typ,statement);
+        if old == 0 { return 0; }
+        let value: u32 = self.lower_expression(right,typ,first_parameter,parameter_count);
+        if value == 0 { return 0; }
+        return self.lower_arithmetic_values(operator_tag,typ,old,value,statement);
+    }
+
     pub fn lower_pointer_deref_store(
         mut self: &mut Self,
         statement_index: usize,
@@ -2559,7 +2573,10 @@ impl ScalarLowering {
             pointer_type_ref
         );
         let pointee_struct: u32 = self.pointer_pointee_struct_id(pointer_type_ref);
+        let sem: Sema = Sema::new();
+        if sem.readonly_pointer_type(self.nodes,self.node_count,pointer_type_ref,self.source,self.source_len) { return false; }
         if self.structured_cfg && pointee_struct != 0 {
+            if statement.int_value != 0 { return false; }
             if self.cfg_struct_id(right_index, 0) != pointee_struct { return false; }
             let destination: u32 = self.lower_expression(pointer_expression,
                 TargetTypeTag::Pointer, first_parameter, parameter_count);
@@ -2578,9 +2595,8 @@ impl ScalarLowering {
         if pointer_value == TARGET_VALUE_NONE {
             return false;
         }
-        let expr_value: u32 = self.lower_expression(
-            right_index, pointee_type, first_parameter, parameter_count
-        );
+        let expr_value: u32 = self.lower_assignment_value(statement_index,pointer_value,pointee_type,
+            right_index,first_parameter,parameter_count);
         if expr_value == TARGET_VALUE_NONE {
             return false;
         }
@@ -2667,18 +2683,21 @@ impl ScalarLowering {
         let field_slot: usize = (field_id - 1) as usize;
         let field_type: TargetTypeTag = self.field_type_tags[field_slot] as TargetTypeTag;
         if self.structured_cfg && self.field_byte_counts[field_slot] != 0 {
+            if statement.int_value != 0 { return false; }
             return self.lower_array_assignment(statement_index,first_parameter,parameter_count);
         }
         if self.structured_cfg && self.field_struct_ids[field_slot] != 0 {
+            if statement.int_value != 0 { return false; }
             let nested_struct: u32 = self.field_struct_ids[field_slot];
             if self.cfg_struct_id(value_index, 0) != nested_struct { return false; }
             let source_address: u32 = self.cfg_struct_address(value_index, first_parameter, parameter_count, 0);
             return source_address != 0 && self.cfg_copy_fields(base_ptr, source_address,
                 nested_struct, self.field_offsets[field_slot], 0, statement_index, 0);
         }
-        let value: u32 = self.lower_expression(
-            value_index, field_type, first_parameter, parameter_count
-        );
+        let mut read_address: u32 = base_ptr;
+        if statement.int_value != 0 { read_address=self.payload_address(base_ptr,self.field_offsets[field_slot],statement_index); }
+        let value: u32 = self.lower_assignment_value(statement_index,read_address,field_type,
+            value_index,first_parameter,parameter_count);
         if value == TARGET_VALUE_NONE { return false; }
         let first_operand: u32 = self.operand_count as u32;
         if !self.append_operand(base_ptr) || !self.append_operand(value)
@@ -4351,26 +4370,31 @@ impl ScalarLowering {
         if right == TARGET_VALUE_NONE {
             return TARGET_VALUE_NONE;
         }
+        return self.lower_arithmetic_values(expression.int_value,type_tag,left,right,expression_index);
+    }
+
+    pub fn lower_arithmetic_values(mut self: &mut Self, operator_tag: i64, type_tag: TargetTypeTag,
+        left: u32, right: u32, expression_index: usize) -> u32 {
         let mut opcode: TargetOpcode = TargetOpcode::Invalid;
-        if expression.int_value == 80 {
+        if operator_tag == 80 {
             opcode = TargetOpcode::Add;
-        } else if expression.int_value == 81 {
+        } else if operator_tag == 81 {
             opcode = TargetOpcode::Sub;
-        } else if expression.int_value == 82 {
+        } else if operator_tag == 82 {
             opcode = TargetOpcode::Mul;
-        } else if expression.int_value == 83 {
+        } else if operator_tag == 83 {
             opcode = TargetOpcode::Div;
-        } else if expression.int_value == 84 {
+        } else if operator_tag == 84 {
             opcode = TargetOpcode::Mod;
-        } else if expression.int_value == 92 {
+        } else if operator_tag == 92 {
             opcode = TargetOpcode::BitAnd;
-        } else if expression.int_value == 93 {
+        } else if operator_tag == 93 {
             opcode = TargetOpcode::BitOr;
-        } else if expression.int_value == 94 {
+        } else if operator_tag == 94 {
             opcode = TargetOpcode::BitXor;
-        } else if expression.int_value == 96 {
+        } else if operator_tag == 96 {
             opcode = TargetOpcode::ShiftLeft;
-        } else if expression.int_value == 97 {
+        } else if operator_tag == 97 {
             opcode = TargetOpcode::ShiftRight;
         } else {
             return TARGET_VALUE_NONE;
@@ -7172,6 +7196,7 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
+            if node.kind == AstKind::AssignStmt && node.int_value != 0 { return true; }
             if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;
             if node.kind == AstKind::TypeRef {
@@ -7753,6 +7778,12 @@ impl ScalarLowering {
             let left_index: usize = stmt.first_child;
             if left_index == 0 || left_index >= self.node_count { return self.reject(index); }
             let left: AstNode = unsafe { *(self.nodes + left_index) };
+            if stmt.int_value != 0 {
+                let sem: Sema = Sema::new();
+                let typ: usize = sem.infer_expression_type_ref(self.nodes,self.node_count,left_index,self.source,self.source_len);
+                if self.array_subject_type(left_index) != 0 || self.cfg_record_value_id(left_index,0) != 0
+                    || sem.native_try_named_record(self.nodes,self.node_count,typ,left_index,self.source,self.source_len) != 0 { return self.reject(index); }
+            }
             if (left.kind == AstKind::ExprIdent || left.kind == AstKind::ExprFieldAccess)
                 && self.array_subject_type(left_index) != 0 {
                 return self.lower_array_assignment(index,first_parameter,parameter_count);
@@ -7816,7 +7847,7 @@ impl ScalarLowering {
                         left_index, field, first_parameter, parameter_count
                     );
                 }
-                let value: u32 = self.lower_expression(left.next_sibling, typ, first_parameter, parameter_count);
+                let value: u32 = self.lower_assignment_value(index,address,typ,left.next_sibling,first_parameter,parameter_count);
                 return self.cfg_store(address, value, typ, index);
             }
             if left.kind != AstKind::ExprIdent { return self.reject(index); }
