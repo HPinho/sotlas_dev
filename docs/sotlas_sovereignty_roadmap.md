@@ -7,11 +7,14 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Last directly verified green baseline: `3d4e4ae`,
-[CI #1343](https://github.com/HPinho/sotlas_dev/actions/runs/41609759973).
-The numeric delivery `a6a5a95` exposed outdated compound-assignment test
-expectations in CI #1344; `9084cf8` corrects those gates while retaining
-immutability and owned-aggregate rejection. Its CI was not rechecked here.
+Last directly verified green baseline: `9084cf8`,
+[CI #1345](https://github.com/HPinho/sotlas_dev/actions/runs/41648523027).
+The kernel delivery `9f761d8` failed CI #1346 in Mach-O conversion, legacy
+C-oracle rebuilding and a historical object-flag expectation. The repair keeps
+the raw-entry ELF linker usable by Mach-O conversion, enforces hosted-syscall
+rejection in the dedicated kernel command and uses instruction words supported
+by both native and legacy oracle emission. Bare-metal flag 4 is recognized;
+unknown object bits continue to be rejected. The repaired candidate awaits CI.
 
 The native profile includes
 [layout queries and packed records](native_layout_queries.md), checked

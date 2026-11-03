@@ -60,12 +60,13 @@ def verify_kernel_image(compiler,output,run_qemu=False):
         run([compiler,source,obj,'--object'])
         bad=source.with_suffix('.elf');run([compiler,'--link-kernel',obj,bad,'kernel_main'],False)
         assert not bad.exists()
-    source=project/'hosted_syscall.sotlas';obj=source.with_suffix('.o')
-    source.write_text('''module wrong;@extern(C) fn sotlas_linux_close(fd:u64)->i64;
-pub fn kernel_main(magic:u32,info:u32)->u32{let code:i64=sotlas_linux_close(0);return 42;}''',encoding='utf-8')
-    run([compiler,source,obj,'--object'])
-    bad=source.with_suffix('.elf');run([compiler,'--link-kernel',obj,bad,'kernel_main'],False)
-    assert not bad.exists()
+    for platform in ('linux','darwin'):
+        source=project/(platform+'_syscall.sotlas');obj=source.with_suffix('.o')
+        source.write_text('module wrong;@extern(C) fn sotlas_'+platform+'''_close(fd:u64)->i64;
+pub fn kernel_main(magic:u32,info:u32)->u32{let code:i64=sotlas_'''+platform+'''_close(0);return 42;}''',encoding='utf-8')
+        run([compiler,source,obj,'--object'])
+        bad=source.with_suffix('.elf');run([compiler,'--link-kernel',obj,bad,'kernel_main'],False)
+        assert not bad.exists()
 
 
 if __name__=='__main__':
