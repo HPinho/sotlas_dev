@@ -27,10 +27,17 @@ It also provides [fixed-array iteration](native_array_iteration.md),
 [if-let values](native_pattern_values.md). These share existing
 snapshot, cleanup and native ABI paths.
 
-The current candidate adds immutable aggregate constants, independent POD
-copies and readonly receiver protection, using the native data serializer and
-object/link pipeline. See [aggregate constants](native_aggregate_constants.md).
-Its full platform CI remains pending.
+The native profile also includes immutable aggregate constants, independent
+POD copies and readonly receiver protection. See
+[aggregate constants](native_aggregate_constants.md).
+
+The current candidate adds numeric compound updates to writable fields,
+fixed-array elements and raw pointer dereferences, with single evaluation of
+the address and explicit readonly rejection. Caller-backed f32 CPU kernels
+provide dot, scale, AXPY and row-major GEMV, plus an executable projection and
+residual example. See [numeric projection](native_numeric_projection.md).
+GPU/NPU dispatch and generative model execution remain open. Full platform
+CI for this candidate remains pending.
 
 ## Remaining work, grouped by outcome
 

@@ -1,0 +1,75 @@
+module sotlas::runtime::tensor_cpu;
+
+// CPU reference kernels. Callers own storage and must keep every range live.
+// Metadata checks cannot establish pointer provenance or exclusive access.
+pub struct NativeF32View { pub data:*const f32; pub length:usize; }
+pub struct NativeF32MutView { pub data:*mut f32; pub length:usize; }
+pub struct NativeF32Result { pub status:u32; pub value:f32; }
+
+// Status: 0 success, 1 invalid range, 2 incompatible shape, 3 unsafe overlap.
+pub fn native_f32_range_valid(data:*const f32,length:usize)->bool {
+    if length==0 { return true; }
+    if data==null || length>4611686018427387903 { return false; }
+    let address:usize=unsafe{data as usize};
+    return address%4==0 && length*4<=18446744073709551615-address;
+}
+
+// Only called after both ranges have passed native_f32_range_valid.
+fn native_f32_overlap(a:*const f32,an:usize,b:*const f32,bn:usize)->bool {
+    if an==0 || bn==0 { return false; }
+    let start_a:usize=unsafe{a as usize};
+    let start_b:usize=unsafe{b as usize};
+    return start_a<start_b+bn*4 && start_b<start_a+an*4;
+}
+
+pub fn native_f32_dot_cpu(left:NativeF32View,right:NativeF32View)->NativeF32Result {
+    if !native_f32_range_valid(left.data,left.length) || !native_f32_range_valid(right.data,right.length) {
+        return NativeF32Result{status:1,value:0.0};
+    }
+    if left.length!=right.length { return NativeF32Result{status:2,value:0.0}; }
+    let mut value:f32=0.0; let mut i:usize=0;
+    unsafe { while i<left.length { value+= *(left.data+i)* *(right.data+i); i+=1; } }
+    return NativeF32Result{status:0,value:value};
+}
+
+pub fn native_f32_scale_cpu(output:NativeF32MutView,scale:f32)->u32 {
+    if !native_f32_range_valid(unsafe{output.data as *const f32},output.length) { return 1; }
+    let mut i:usize=0;
+    unsafe { while i<output.length { *(output.data+i)*=scale; i+=1; } }
+    return 0;
+}
+
+pub fn native_f32_axpy_cpu(output:NativeF32MutView,input:NativeF32View,scale:f32)->u32 {
+    let output_data:*const f32=unsafe{output.data as *const f32};
+    if !native_f32_range_valid(output_data,output.length) || !native_f32_range_valid(input.data,input.length) { return 1; }
+    if output.length!=input.length { return 2; }
+    if output_data!=input.data && native_f32_overlap(output_data,output.length,input.data,input.length) { return 3; }
+    let mut i:usize=0;
+    unsafe { while i<output.length { *(output.data+i)+=scale* *(input.data+i); i+=1; } }
+    return 0;
+}
+
+// Row-major weights[rows,columns] times input[columns] -> output[rows].
+// All metadata and overlap checks finish before the first output write.
+pub fn native_f32_gemv_cpu(output:NativeF32MutView,input:NativeF32View,weights:NativeF32View,rows:usize,columns:usize)->u32 {
+    let output_data:*const f32=unsafe{output.data as *const f32};
+    if !native_f32_range_valid(output_data,output.length) || !native_f32_range_valid(input.data,input.length)
+        || !native_f32_range_valid(weights.data,weights.length) { return 1; }
+    if columns!=0 && rows>18446744073709551615/columns { return 2; }
+    if output.length!=rows || input.length!=columns || weights.length!=rows*columns { return 2; }
+    if native_f32_overlap(output_data,output.length,input.data,input.length)
+        || native_f32_overlap(output_data,output.length,weights.data,weights.length) { return 3; }
+    let mut row:usize=0;
+    unsafe {
+        while row<rows {
+            *(output.data+row)=0.0;
+            let mut column:usize=0;
+            while column<columns {
+                *(output.data+row)+= *(weights.data+row*columns+column)* *(input.data+column);
+                column+=1;
+            }
+            row+=1;
+        }
+    }
+    return 0;
+}
