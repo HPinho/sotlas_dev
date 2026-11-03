@@ -75,6 +75,17 @@ identity on each host, with SHA-256 prefixes `c54b8cbedef6` (Windows) and
 `e381fa185205` (Linux). Final Stage 3 compilers also passed the imported example
 checks above. Intel macOS execution remains subject to platform CI.
 
+CI #1344 exposed eight failed assertions in historical SV8.56/SV8.57 and
+operator-tag tests: seven still expected indexed scalar compounds to be
+rejected, and one expected opcode dispatch inside `lower_expression` after it
+had moved to the shared arithmetic helper. The updated gates execute the
+indexed operators, retain immutable-array rejection, reject owned aggregate
+arithmetic for all six integer operators, and check the shared opcode mapping.
+The affected local group passed 58 tests; 34 compound/kernel tests also passed
+through the existing native Stage 3 on both Windows and Linux. Compiler sources
+and the strict self-build identity check were unchanged by this test correction.
+Full CI certification of the correction remains pending.
+
 GPU and NPU execution, tensor language types, batching, attention, model
 formats, tokenization, autodifferentiation, FP16/BF16 and quantization remain
 outside this package. The CPU reference establishes a testable result for
