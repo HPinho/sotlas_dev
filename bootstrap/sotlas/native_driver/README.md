@@ -456,7 +456,16 @@ glob-module discovery and a Linux seed bundle are available. Broader module
 visibility/package semantics, full language parity, general Windows ABI coverage
 and the macOS native driver remain open.
 
-## Kernel interface
+## Bare-metal kernel boot
+
+`--link-kernel INPUT.o OUTPUT.elf ENTRY` links a native kernel and emits a
+Multiboot v1 boot image. The entry ABI is `(u32,u32)->u32`; startup establishes
+x86-64 paging, stack and floating-point state before the call. Reserved typed
+port-I/O and halt operations are implemented by the native backend and rejected
+by hosted linkers. See the [boot contract](../../../docs/native_kernel_boot.md)
+and [executable example](../../../examples/native_kernel_boot/README.md).
+
+## Linux system-call interface
 
 Reserved bodyless scalar declarations named `sotlas_linux_read`,
 `sotlas_linux_write`, `sotlas_linux_open` and `sotlas_linux_close` lower to a

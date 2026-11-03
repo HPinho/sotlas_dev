@@ -1,0 +1,39 @@
+barecore;
+module examples::native_kernel_boot;
+import sotlas::runtime::kernel_x86::*;
+
+static mut zeroed:[u64;64]=0;
+static mut initialized:[u32;3]=[7,11,24];
+struct KernelProbe { pub left:u32; pub right:u32; }
+
+fn arithmetic_probe(a:f64,b:f64)->u32 {
+    let mut values:[u32;3]=[20,10,10];values[1]+=2;
+    let record:KernelProbe=KernelProbe{left:values[0],right:values[1]+values[2]};
+    if a*b!=3.0 || record.left+record.right!=42 { return 0; }
+    return 42;
+}
+
+// The boot image initializes the stack, BSS, SSE environment and U32 handoff.
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() { return native_kernel_qemu_exit(1); }
+    if !native_kernel_serial_write("SOTLAS: kernel entered\n",23) { return native_kernel_qemu_exit(2); }
+    if native_kernel_boot_memory_kib(magic,info)<32768 { return native_kernel_qemu_exit(3); }
+    let mut i:usize=0;
+    unsafe {
+        while i<64 {
+            if zeroed[i]!=0 { return native_kernel_qemu_exit(4); }
+            zeroed[i]=i as u64;i+=1;
+        }
+        if initialized[0]+initialized[1]+initialized[2]!=42 || zeroed[63]!=63 { return native_kernel_qemu_exit(5); }
+    }
+    if arithmetic_probe(1.5,2.0)!=42 { return native_kernel_qemu_exit(6); }
+    if !native_kernel_serial_write("SOTLAS: memory, stack, data, SSE OK\n",36) { return native_kernel_qemu_exit(7); }
+    // Physical VGA text memory is identity-mapped by the startup page tables.
+    unsafe {
+        let screen:*mut u16=753664 as *mut u16;
+        *screen=3923;*(screen+1)=3919;*(screen+2)=3924;
+        if *screen!=3923 || *(screen+1)!=3919 || *(screen+2)!=3924 { return native_kernel_qemu_exit(8); }
+    }
+    if !native_kernel_serial_write("SOTLAS: VGA OK\n",15) { return native_kernel_qemu_exit(9); }
+    return native_kernel_qemu_exit(42);
+}
