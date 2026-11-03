@@ -1,0 +1,56 @@
+module sotlas::runtime::kernel_x86;
+
+// Reserved typed machine operations. They emit privileged instructions,
+// not foreign calls. Hosted executable linkers reject objects using them.
+@extern(C) fn sotlas_x86_out8(port:u16,value:u8)->i64;
+@extern(C) fn sotlas_x86_in8(port:u16)->i64;
+@extern(C) fn sotlas_x86_out32(port:u16,value:u32)->i64;
+@extern(C) fn sotlas_x86_halt()->i64;
+
+pub fn native_kernel_serial_init()->bool {
+    unsafe {
+        sotlas_x86_out8(1017,0);sotlas_x86_out8(1019,128);
+        sotlas_x86_out8(1016,3);sotlas_x86_out8(1017,0);
+        sotlas_x86_out8(1019,3);sotlas_x86_out8(1018,199);
+        sotlas_x86_out8(1020,30);sotlas_x86_out8(1016,174);
+        if sotlas_x86_in8(1016)!=174 { return false; }
+        sotlas_x86_out8(1020,15);
+    }
+    return true;
+}
+
+// Storage must remain readable; polling is bounded even if the UART is absent.
+pub fn native_kernel_serial_write(data:*const u8,length:usize)->bool {
+    if data==null && length!=0 { return false; }
+    let start:usize=unsafe{data as usize};let maximum:usize=18446744073709551615;
+    if length>maximum-start { return false; }
+    let mut i:usize=0;
+    unsafe {
+        while i<length {
+            let mut polls:u32=0;
+            while (sotlas_x86_in8(1021)&32)==0 {
+                if polls==65535 { return false; }polls+=1;
+            }
+            sotlas_x86_out8(1016,*(data+i));i+=1;
+        }
+    }
+    return true;
+}
+
+// The info pointer comes from the trusted Multiboot handoff, in mapped low RAM.
+pub fn native_kernel_boot_memory_kib(magic:u32,info:u32)->u32 {
+    if magic!=732803074 || info==0 || info%4!=0 || info>1073741812 { return 0; }
+    let data:*const u32=unsafe{(info as usize) as *const u32};
+    unsafe { if (*data&1)==0 { return 0; }return *(data+2); }
+}
+
+pub fn native_kernel_halt()->u32 {
+    while true { unsafe{sotlas_x86_halt();} }
+    return 0;
+}
+
+// Test/emulator protocol only: QEMU isa-debug-exit returns (code << 1) | 1.
+pub fn native_kernel_qemu_exit(code:u32)->u32 {
+    unsafe{sotlas_x86_out32(244,code);}
+    return native_kernel_halt();
+}

@@ -35,7 +35,15 @@ jobs:
         python -m pip install --upgrade pip
         pip install -e .
 
+    - name: Install kernel boot emulator
+      if: runner.os == 'Linux'
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-system-x86
+
     - name: Run Sotlas test suite
+      env:
+        SOTLAS_REQUIRE_KERNEL_BOOT: ${{ runner.os == 'Linux' && '1' || '0' }}
       run: |
         python -m unittest discover -s tests -p "test_*.py"
 

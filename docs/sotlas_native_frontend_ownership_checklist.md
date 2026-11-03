@@ -1,5 +1,11 @@
 # Native frontend and ownership closure
 
+Implemented capability: [native kernel boot](native_kernel_boot.md) connects
+barecore project resolution, typed unsafe port-I/O/halt operations, owned ELF
+linking, an owned Multiboot startup image and a QEMU-executed kernel. Handoff,
+BSS/data, stack, SSE, UART and physical VGA access are executable gates. This
+does not complete OS services, UEFI, interrupts or general device ownership.
+
 Implemented subset: [numeric place updates](native_numeric_projection.md)
 preserve a single destination evaluation for compound updates to scalar fields,
 fixed-array elements and raw pointer dereferences, including RHS propagation

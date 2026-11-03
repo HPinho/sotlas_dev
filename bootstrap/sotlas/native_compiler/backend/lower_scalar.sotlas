@@ -3905,6 +3905,32 @@ impl ScalarLowering {
                 actual_type = TargetTypeTag::U32;
             }
             let result: u32 = self.append_value(actual_type, 0, 0);
+            // These reserved operations execute at ring 0. They require an
+            // explicit unsafe call and exact bodyless scalar declarations.
+            let bare_sema: Sema = Sema::new();
+            let mut bare_operation: u64 = 0;
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_out8",15) { bare_operation=32; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_in8",14) { bare_operation=33; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_out32",16) { bare_operation=34; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_halt",15) { bare_operation=35; }
+            if bare_operation!=0 {
+                if callee_decl==0 || actual_type!=TargetTypeTag::I64 || result==0
+                    || argument_count!=target_bare_operand_count(bare_operation)
+                    || !bare_sema.is_in_unsafe_block(self.nodes,self.node_count,expression_index) { return 0; }
+                let mut child:usize=unsafe{(*(self.nodes+callee_decl)).first_child};
+                while child!=0 && child<self.node_count {
+                    let node:AstNode=unsafe{*(self.nodes+child)};
+                    if node.kind==AstKind::Block { return 0; }child=node.next_sibling;
+                }
+                let mut check:u32=0;
+                while check<argument_count {
+                    if self.function_parameter_type_from_ast(callee_decl,check)!=target_bare_operand_type(bare_operation,check) { return 0; }
+                    check=check+1;
+                }
+                if !self.append_instruction(TargetOpcode::SystemOp,result,TargetTypeTag::I64,first_operand,argument_count,expression_index) { return 0; }
+                unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=bare_operation;}
+                return result;
+            }
             // Reserved Linux kernel adapters use the existing scalar FFI ABI;
             // no C symbol or runtime is called. Only bodyless declarations
             // with the exact typed syscall signature become SystemOp.

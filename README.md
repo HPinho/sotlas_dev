@@ -41,6 +41,8 @@
 
 [Native f32 CPU projection](examples/native_numeric_projection/README.md)
 
+[Build and boot a native x86-64 kernel](examples/native_kernel_boot/README.md)
+
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)

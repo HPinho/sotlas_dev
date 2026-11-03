@@ -3139,6 +3139,34 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
+                    if instruction.immediate_bits>=32 && instruction.immediate_bits<=35 {
+                        platform_flags=platform_flags | 4;
+                        let operation:u64=instruction.immediate_bits;
+                        let expected:u32=target_bare_operand_count(operation);
+                        if instruction.operand_count!=expected || result_type!=TargetTypeTag::I64
+                            || instruction.type_tag!=result_type { return false; }
+                        let mut argument_index:u32=0;
+                        while argument_index<expected {
+                            let argument:TargetOperand=unsafe{*(operands+instruction.first_operand+argument_index)};
+                            if object_value_type(values,ir.value_count,argument.value_id)!=target_bare_operand_type(operation,argument_index)
+                                || !append_object_slot_load_rax64(output,capacity,&mut code,argument.value_id-slot_base) { return false; }
+                            if argument_index==0 && (!append_object_byte(output,capacity,&mut code,137)
+                                || !append_object_byte(output,capacity,&mut code,194)) { return false; } // mov edx,eax
+                            argument_index=argument_index+1;
+                        }
+                        let mut opcode:u8=244; // hlt
+                        if operation==32 { opcode=238; } // out dx,al
+                        if operation==33 {
+                            opcode=236; // in al,dx; upper result bits are zero
+                            if !append_object_byte(output,capacity,&mut code,49)
+                                || !append_object_byte(output,capacity,&mut code,192) { return false; }
+                        }
+                        if operation==34 { opcode=239; } // out dx,eax
+                        if !append_object_byte(output,capacity,&mut code,opcode) { return false; }
+                        if operation!=33 && (!append_object_byte(output,capacity,&mut code,49)
+                            || !append_object_byte(output,capacity,&mut code,192)) { return false; }
+                        if !append_object_slot_store64(output,capacity,&mut code,instruction.result_value-slot_base) { return false; }
+                    } else {
                     let darwin: bool = instruction.immediate_bits >= 16 && instruction.immediate_bits <= 25;
                     let mut operation: u64 = instruction.immediate_bits;
                     if darwin { operation = operation - 16; platform_flags = platform_flags | 2; }
@@ -3194,6 +3222,7 @@ pub fn emit_elf64_module_object(
                             || !append_object_byte(output, capacity, &mut code, 216) { return false; }
                     }
                     if !append_object_slot_store64(output, capacity, &mut code, instruction.result_value - slot_base) { return false; }
+                    }
                 } else if instruction.opcode == TargetOpcode::Call {
                     let callee_index: u32 = object_find_function(
                         source, source_len, functions, ir.function_count, instruction.symbol
@@ -3964,7 +3993,7 @@ pub fn validate_elf64_object(object: *const u8, length: usize) -> bool {
         || unsafe{*(object+4)} != 2 || unsafe{*(object+5)} != 1 || unsafe{*(object+6)} != 1
         || get_u16(object,length,16) != 1 || get_u16(object,length,18) != 62
         || get_u32(object,length,20) != 1 || get_u16(object,length,52) != 64
-        || get_u64(object,length,24) != 0 || (get_u32(object,length,48) & ~(3 as u32)) != 0
+        || get_u64(object,length,24) != 0 || (get_u32(object,length,48) & ~(7 as u32)) != 0
         || get_u64(object,length,32) != 0 || get_u16(object,length,56) != 0 || get_u16(object,length,54) != 0
         || get_u16(object,length,58) != 64
         || (unsafe{*(object+7)} != 0 && unsafe{*(object+7)} != 3)
@@ -4078,7 +4107,8 @@ pub fn link_elf64_executable(
             || get_u64(object,length,32) != 0 || get_u16(object,length,56) != 0
             || get_u16(object, length, 16) != 1 || get_u16(object, length, 18) != 62
             || get_u32(object, length, 20) != 1 || get_u16(object, length, 58) != 64
-            || (!freestanding && get_u32(object, length, 48) != (get_u32(object, length, 48) & 1)) {
+            || (!freestanding && get_u32(object, length, 48) != (get_u32(object, length, 48) & 1))
+            || (freestanding && (get_u32(object,length,48) & ~(4 as u32))!=0) {
             return false;
         }
         let section_count: u32 = get_u16(object, length, 60) as u32;
@@ -7556,4 +7586,107 @@ fn elf_library_entry_abi(object: *const u8, length: usize,
         index = index+1;
     }
     return false;
+}
+
+
+// Kernel entry ABI: the Multiboot magic and info physical address are U32;
+// a returning kernel yields U32 and is halted by the startup shim.
+pub fn elf_kernel_entry_abi(object:*const u8,length:usize,name:*const u8,name_length:usize)->bool {
+    let note:usize=elf_integer_abi_manifest(object,length);
+    let table:usize=elf_abi_symtab(object,length);
+    if note==0 || table==0 { return false; }
+    let headers:usize=get_u64(object,length,40) as usize;
+    let strings_header:usize=headers+(get_u32(object,length,table+40) as usize)*64;
+    let strings:usize=get_u64(object,length,strings_header+24) as usize;
+    let symbols:usize=get_u64(object,length,table+24) as usize;
+    let count:u32=get_u32(object,length,note+24);
+    let mut index:u32=0;
+    while index<count {
+        let at:usize=note+28+(index as usize)*108;
+        let symbol:usize=symbols+(get_u32(object,length,at) as usize)*24;
+        if get_u16(object,length,symbol+6)!=0 && elf_name_matches_slice(object,length,
+            strings+(get_u32(object,length,symbol) as usize),name,name_length) {
+            return get_u32(object,length,at+4)==4 && get_u32(object,length,at+8)==2
+                && get_u32(object,length,at+12)==4 && get_u32(object,length,at+16)==4;
+        }
+        index=index+1;
+    }
+    return false;
+}
+
+// Deterministic Multiboot v1 ELF32 container for an already linked ELF64
+// Sotlas kernel at 4 MiB. Two PT_LOAD segments reserve startup memory and
+// load the kernel with its original virtual/physical addresses and BSS size.
+// No assembler, C compiler, external linker or host process startup is used.
+pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
+    capacity:usize,written:*mut usize)->bool {
+    if written==null { return false; }unsafe{*written=0;}
+    if kernel==null || output==null || length<120 || length>8380416
+        || capacity<8192 || length>capacity-8192 { return false; }
+    let input_address:usize=unsafe{kernel as usize};
+    let output_address:usize=unsafe{output as usize};
+    let maximum_address:usize=18446744073709551615;
+    if length>maximum_address-input_address || length+8192>maximum_address-output_address
+        || (input_address<output_address+length+8192 && output_address<input_address+length) { return false; }
+    let entry:u64=get_u64(kernel,length,24);
+    let memory:u64=get_u64(kernel,length,104);
+    if get_u32(kernel,length,0)!=1179403647 || unsafe{*(kernel+4)}!=2 || unsafe{*(kernel+5)}!=1
+        || get_u16(kernel,length,16)!=2 || get_u16(kernel,length,18)!=62 || get_u32(kernel,length,20)!=1
+        || get_u64(kernel,length,32)!=64 || get_u16(kernel,length,52)!=64
+        || get_u16(kernel,length,54)!=56 || get_u16(kernel,length,56)!=1
+        || get_u32(kernel,length,64)!=1 || get_u32(kernel,length,68)!=7
+        || get_u64(kernel,length,72)!=0 || get_u64(kernel,length,80)!=4194304
+        || get_u64(kernel,length,88)!=4194304 || get_u64(kernel,length,96)!=length as u64
+        || memory<length as u64 || memory>33554432 || get_u64(kernel,length,112)!=4096
+        || entry<4194424 || entry>=(4194304 as u64)+(length as u64) { return false; }
+    let size:usize=8192+length;let mut i:usize=0;
+    while i<size { unsafe{*(output+i)=0;}i=i+1; }
+    // ELF32 little endian executable, i386 bootstrap, two program headers.
+    if !put_u32(output,capacity,0,1179403647) || !put_u8(output,capacity,4,1)
+        || !put_u8(output,capacity,5,1) || !put_u8(output,capacity,6,1)
+        || !put_u16(output,capacity,16,2) || !put_u16(output,capacity,18,3)
+        || !put_u32(output,capacity,20,1) || !put_u32(output,capacity,24,1048592)
+        || !put_u32(output,capacity,28,52) || !put_u16(output,capacity,40,52)
+        || !put_u16(output,capacity,42,32) || !put_u16(output,capacity,44,2) { return false; }
+    if !put_u32(output,capacity,52,1) || !put_u32(output,capacity,56,4096)
+        || !put_u32(output,capacity,60,1048576) || !put_u32(output,capacity,64,1048576)
+        || !put_u32(output,capacity,68,4096) || !put_u32(output,capacity,72,131072)
+        || !put_u32(output,capacity,76,7) || !put_u32(output,capacity,80,4096)
+        || !put_u32(output,capacity,84,1) || !put_u32(output,capacity,88,8192)
+        || !put_u32(output,capacity,92,4194304) || !put_u32(output,capacity,96,4194304)
+        || !put_u32(output,capacity,100,length as u32) || !put_u32(output,capacity,104,memory as u32)
+        || !put_u32(output,capacity,108,7) || !put_u32(output,capacity,112,4096) { return false; }
+    // Header in the first 8 KiB: align modules, request memory information.
+    if !put_u32(output,capacity,4096,464367618) || !put_u32(output,capacity,4100,3)
+        || !put_u32(output,capacity,4104,3830599675) { return false; }
+    // CLI/CLD; preserve EAX/EBX; check long mode and SSE2; zero page tables;
+    // identity-map 1 GiB with 2 MiB pages; enable PAE/SSE/EFER.LME/paging;
+    // load our GDT and far-jump to the 64-bit startup at physical 0x100200.
+    let protected_mode:[u8;201]=[250,252,137,198,137,221,188,0,0,18,0,129,254,2,176,173,
+        43,15,133,174,0,0,0,184,0,0,0,128,15,162,61,1,
+        0,0,128,15,130,156,0,0,0,184,1,0,0,128,15,162,
+        247,194,0,0,0,32,15,132,137,0,0,0,184,1,0,0,
+        0,15,162,247,194,0,0,0,4,116,122,191,0,16,16,0,
+        49,192,185,0,12,0,0,243,171,199,5,0,16,16,0,3,
+        32,16,0,199,5,0,32,16,0,3,48,16,0,191,0,48,
+        16,0,184,131,0,0,0,185,0,2,0,0,137,7,5,0,
+        0,32,0,131,199,8,226,244,15,32,224,13,32,6,0,0,
+        15,34,224,184,0,16,16,0,15,34,216,185,128,0,0,192,
+        15,50,13,0,1,0,0,15,48,15,1,21,24,3,16,0,
+        15,32,192,131,224,243,13,3,0,0,128,15,34,192,234,0,
+        2,16,0,8,0,250,244,235,252];
+    i=0;while i<201 { unsafe{*(output+4112+i)=protected_mode[i];}i=i+1; }
+    // Set flat segments, aligned 64 KiB stack, U32 entry arguments, x87 and
+    // MXCSR defaults, then CALL the actual ELF64 symbol. Return -> CLI/HLT.
+    let long_mode:[u8;62]=[102,184,16,0,142,216,142,192,142,208,49,192,142,224,142,232,
+        188,0,0,18,0,137,247,137,238,219,227,72,131,236,16,199,
+        4,36,128,31,0,0,15,174,20,36,72,131,196,16,72,184,
+        136,119,102,85,68,51,34,17,255,208,250,244,235,252];
+    i=0;while i<62 { unsafe{*(output+4608+i)=long_mode[i];}i=i+1; }
+    if !put_u64(output,capacity,4656,entry)
+        || !put_u64(output,capacity,4872,49427445715107839)
+        || !put_u64(output,capacity,4880,58425848876826623)
+        || !put_u16(output,capacity,4888,23) || !put_u32(output,capacity,4890,1049344) { return false; }
+    i=0;while i<length { unsafe{*(output+8192+i)=*(kernel+i);}i=i+1; }
+    unsafe{*written=size;}return true;
 }

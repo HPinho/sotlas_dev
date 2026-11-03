@@ -912,6 +912,9 @@ module syscall_probe;
         verify_aggregate_constants(native_stage3, self.directory / "aggregate constant cases")
         from native_numeric_gate import verify_numeric_projection
         verify_numeric_projection(native_stage3, self.directory / "numeric projection cases")
+        from native_kernel_gate import verify_kernel_image
+        verify_kernel_image(native_stage3,self.directory / "kernel boot cases",
+                            run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1')
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

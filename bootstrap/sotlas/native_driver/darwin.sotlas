@@ -619,6 +619,16 @@ fn driver_path_identifier(token: Token, source: *const u8, length: usize) -> boo
     return true;
 }
 
+// Resolved projects accept the same explicit barecore prefix as single files.
+fn driver_read_module_keyword(mut lexer:&mut Lexer)->bool {
+    let mut token:Token=lexer.next_token();
+    if token.kind==TokenKind::KwBarecore {
+        if lexer.next_token().kind!=TokenKind::SemiColon { return false; }
+        token=lexer.next_token();
+    }
+    return token.kind==TokenKind::KwModule;
+}
+
 fn driver_read_module_path(mut lexer: &mut Lexer, import_path: bool) -> bool {
     let first: Token = lexer.next_token();
     if !driver_path_identifier(first, lexer.source, lexer.source_len) { return false; }
@@ -845,7 +855,7 @@ fn driver_resolve_project(file_count: usize) -> usize {
         let start: usize = unsafe { *(driver_project_starts as *const usize + file) };
         let length: usize = unsafe { *(driver_project_lengths as *const usize + file) };
         let mut lexer: Lexer = Lexer::new(unsafe { source + start }, length);
-        if lexer.next_token().kind != TokenKind::KwModule { return 0; }
+        if !driver_read_module_keyword(&mut lexer) { return 0; }
         if !driver_read_module_path(&mut lexer, false) { return 0; }
         let off: usize = unsafe { *(driver_path_start as *const usize) };
         let size: usize = unsafe { *(driver_path_length as *const usize) };
@@ -1305,6 +1315,29 @@ fn driver_write_atomic_artifact(path:*const u8, bytes:*const u8, length:usize) -
         return fail(11);
     }
     return 0;
+}
+
+fn driver_kernel_operation(argc:u64,argv:*const *const u8)->u32 {
+    if argc!=5 { return fail(1); }
+    let input:*const u8=unsafe{*(argv+2)};
+    let output:*const u8=unsafe{*(argv+3)};
+    let entry:*const u8=unsafe{*(argv+4)};
+    if input==null || output==null || entry==null { return fail(1); }
+    let mut entry_length:usize=0;
+    while entry_length<4096 && unsafe{*(entry+entry_length)}!=0 { entry_length=entry_length+1; }
+    if entry_length==0 || entry_length==4096 { return fail(1); }
+    let bytes:*mut u8=unsafe{driver_object_bytes as *mut u8};
+    let length:i64=driver_read_artifact(input,bytes,8388608);
+    if length==-2 { return fail(2); }if length<0 { return fail(3); }
+    if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+    if !elf_kernel_entry_abi(bytes,length as usize,entry,entry_length) { return fail(9); }
+    let mut offset:usize=0;let mut object_length:usize=length as usize;
+    let mut image_length:usize=0;let image:*mut u8=unsafe{driver_image_bytes as *mut u8};
+    if !link_elf64_executable(bytes,unsafe{(&offset) as *const usize},unsafe{(&object_length) as *const usize},
+        1,entry,entry_length,null,0,4194304,true,image,16777216,unsafe{(&mut image_length) as *mut usize}) { return fail(9); }
+    let mut boot_length:usize=0;
+    if !wrap_elf64_multiboot(image,image_length,bytes,8388608,unsafe{(&mut boot_length) as *mut usize}) { return fail(9); }
+    return driver_write_artifact(output,bytes,boot_length,false);
 }
 
 fn driver_object_operation(argc: u64, argv: *const *const u8, linking: bool, check_only: bool) -> u32 {
@@ -2341,6 +2374,7 @@ fn driver_extended_dispatch(argc: u64, argv: *const *const u8, option: *const u8
         return driver_link_elf_objects(argc,argv,
             option_equals(option,"--link-elf-abi-objects",22));
     }
+    if option_equals(option,"--link-kernel",13) { return driver_kernel_operation(argc,argv); }
     if option_equals(option,"--link-object",13) { return driver_object_operation(argc,argv,true,false); }
     if option_equals(option,"--compare-three",15) {
         if argc != 5 { return fail(1); }
