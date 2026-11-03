@@ -1089,17 +1089,21 @@ class TestSotlasSovereigntySV2(unittest.TestCase):
             NATIVE_DIR / "backend" / "lower_scalar.sotlas"
         ).read_text(encoding="utf-8")
         expected = {
-            "Slash": 83,
-            "Percent": 84,
-            "Amp": 92,
-            "Pipe": 93,
-            "Caret": 94,
-            "Shl": 96,
-            "Shr": 97,
+            "Slash": (83, "Div"),
+            "Percent": (84, "Mod"),
+            "Amp": (92, "BitAnd"),
+            "Pipe": (93, "BitOr"),
+            "Caret": (94, "BitXor"),
+            "Shl": (96, "ShiftLeft"),
+            "Shr": (97, "ShiftRight"),
         }
-        for token, tag in expected.items():
+        arithmetic = lower_src.split("pub fn lower_arithmetic_values(", 1)[1].split("\n    pub fn ", 1)[0]
+        # Ordinary expressions and compound places share this opcode mapping.
+        self.assertIn("self.lower_arithmetic_values(expression.int_value,type_tag,left,right,expression_index)", lower_src)
+        self.assertIn("self.lower_arithmetic_values(operator_tag,typ,old,value,statement)", lower_src)
+        for token, (tag, opcode) in expected.items():
             self.assertIn(f"TokenKind::{token} {{ return {tag}; }}", parser_src)
-            self.assertIn(f"expression.int_value == {tag}", lower_src)
+            self.assertRegex(arithmetic, rf"operator_tag\s*==\s*{tag}\s*\{{\s*opcode\s*=\s*TargetOpcode::{opcode};")
 
     def test_sv4_boolean_negation_is_native(self):
         """Unary ! uses typed Bool equality and executes correctly for nested conditions."""

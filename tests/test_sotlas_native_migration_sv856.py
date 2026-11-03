@@ -26,9 +26,12 @@ pub fn main_entry()->u32{let mut value:u32=40;value+=addend();if unsafe{calls}!=
 
     def test_frontend_minus_equal_executes_and_rejects_immutable_bindings(self):self.compound('minus_equal','-=',44,2)
     def test_frontend_star_equal_executes_and_rejects_immutable_bindings(self):self.compound('star_equal','*=',21,2)
-    def test_frontend_slash_equal_executes_and_rejects_general_places(self):
+    def test_frontend_slash_equal_executes_for_names_and_indexed_places(self):
         self.compound('slash_equal','/=',84,2)
-        self.compile('compound_place','fn bad()->u32{let mut items:[u32;1]=[42];items[0]+=1;return items[0];}',success=False)
+        self.execute(self.compile('compound_place',
+            'pub fn main_entry()->u32{let mut items:[u32;2]=[41,84];items[0]+=1;items[1]/=2;if items[0]!=42{return 1;}return items[1];}'))
+        self.compile('compound_place_immutable',
+            'fn bad()->u32{let items:[u32;1]=[41];items[0]+=1;return items[0];}',success=False)
 
     def ownership(self,name,body):
         prefix='''struct Token{pub value:u32;}fn consume(v:sole Token)->void{return;}

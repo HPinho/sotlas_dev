@@ -42,14 +42,22 @@ pub fn main_entry()->u32{let mut value:u32=40;value|=increment();
 if unsafe{calls}!=1{return 1;}return value;}'''
         self.execute(self.compile('compound_or_once',source))
 
-    def test_native_compound_rejects_complex_places_and_owned_aggregate_erasure(self):
+    def test_native_compound_indexed_scalars_execute_and_preserve_immutability(self):
+        cases=(('%=',86,44),('&=',63,42),('|=',40,2),('^=',40,2),('<<=',21,1),('>>=',84,1))
+        for index,(operator,initial,operand) in enumerate(cases):
+            with self.subTest(operator=operator):
+                body='values[0]'+operator+str(operand)+';if values[1]!=99{return 1;}return values[0];}'
+                source='pub fn main_entry()->u32{let mut values:[u32;2]=['+str(initial)+',99];'+body
+                self.execute(self.compile('compound_index_'+str(index),source))
+                self.compile('compound_index_immutable_'+str(index),
+                             source.replace('let mut values:','let values:'),success=False)
+
+    def test_native_compound_rejects_owned_aggregate_erasure(self):
         for index,operator in enumerate(('%=','&=','|=','^=','<<=','>>=')):
             with self.subTest(operator=operator):
-                source='pub fn main_entry()->u32{let mut values:[u32;1]=[42];values[0]'+operator+'1;return 42;}'
-                self.compile('compound_index_reject_'+str(index),source,success=False)
-        owned='''struct Token{pub value:u32;}
+                owned='''struct Token{pub value:u32;}
 pub fn main_entry()->u32{let mut token:sole Token=Token{value:42};
-token&=1;return 42;}'''
-        self.compile('compound_owned_aggregate_reject',owned,success=False)
+token'''+operator+'''1;return 42;}'''
+                self.compile('compound_owned_aggregate_reject_'+str(index),owned,success=False)
 
 if __name__=='__main__':unittest.main()
