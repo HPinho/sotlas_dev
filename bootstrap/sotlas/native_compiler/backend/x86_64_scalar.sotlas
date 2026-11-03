@@ -4107,8 +4107,7 @@ pub fn link_elf64_executable(
             || get_u64(object,length,32) != 0 || get_u16(object,length,56) != 0
             || get_u16(object, length, 16) != 1 || get_u16(object, length, 18) != 62
             || get_u32(object, length, 20) != 1 || get_u16(object, length, 58) != 64
-            || (!freestanding && get_u32(object, length, 48) != (get_u32(object, length, 48) & 1))
-            || (freestanding && (get_u32(object,length,48) & ~(4 as u32))!=0) {
+            || (!freestanding && get_u32(object, length, 48) != (get_u32(object, length, 48) & 1)) {
             return false;
         }
         let section_count: u32 = get_u16(object, length, 60) as u32;
@@ -7662,27 +7661,44 @@ pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
     // CLI/CLD; preserve EAX/EBX; check long mode and SSE2; zero page tables;
     // identity-map 1 GiB with 2 MiB pages; enable PAE/SSE/EFER.LME/paging;
     // load our GDT and far-jump to the 64-bit startup at physical 0x100200.
-    let protected_mode:[u8;201]=[250,252,137,198,137,221,188,0,0,18,0,129,254,2,176,173,
-        43,15,133,174,0,0,0,184,0,0,0,128,15,162,61,1,
-        0,0,128,15,130,156,0,0,0,184,1,0,0,128,15,162,
-        247,194,0,0,0,32,15,132,137,0,0,0,184,1,0,0,
-        0,15,162,247,194,0,0,0,4,116,122,191,0,16,16,0,
-        49,192,185,0,12,0,0,243,171,199,5,0,16,16,0,3,
-        32,16,0,199,5,0,32,16,0,3,48,16,0,191,0,48,
-        16,0,184,131,0,0,0,185,0,2,0,0,137,7,5,0,
-        0,32,0,131,199,8,226,244,15,32,224,13,32,6,0,0,
-        15,34,224,184,0,16,16,0,15,34,216,185,128,0,0,192,
-        15,50,13,0,1,0,0,15,48,15,1,21,24,3,16,0,
-        15,32,192,131,224,243,13,3,0,0,128,15,34,192,234,0,
-        2,16,0,8,0,250,244,235,252];
-    i=0;while i<201 { unsafe{*(output+4112+i)=protected_mode[i];}i=i+1; }
+    // Fixed instruction words also remain representable by the legacy C oracle.
+    if !put_u64(output,capacity,4112,53160879432793338 as u64)
+        || !put_u64(output,capacity,4120,12515506656571822592 as u64)
+        || !put_u64(output,capacity,4128,13258597305906695979 as u64)
+        || !put_u64(output,capacity,4136,89405755072970752 as u64)
+        || !put_u64(output,capacity,4144,172082419728384 as u64)
+        || !put_u64(output,capacity,4152,11677693096283453440 as u64)
+        || !put_u64(output,capacity,4160,9515859722029286135 as u64)
+        || !put_u64(output,capacity,4168,1889785610377 as u64)
+        || !put_u64(output,capacity,4176,837378248448 as u64)
+        || !put_u64(output,capacity,4184,4521195025888260 as u64)
+        || !put_u64(output,capacity,4192,17509995402768269361 as u64)
+        || !put_u64(output,capacity,4200,216190443019683755 as u64)
+        || !put_u64(output,capacity,4208,1161928728675094560 as u64)
+        || !put_u64(output,capacity,4216,3458974520813028096 as u64)
+        || !put_u64(output,capacity,4224,13330654899226542096 as u64)
+        || !put_u64(output,capacity,4232,1415659875467776 as u64)
+        || !put_u64(output,capacity,4240,17645675942980362240 as u64)
+        || !put_u64(output,capacity,4248,6734741512207 as u64)
+        || !put_u64(output,capacity,4256,4521194915111439 as u64)
+        || !put_u64(output,capacity,4264,13835058608155927055 as u64)
+        || !put_u64(output,capacity,4272,1080863914864751119 as u64)
+        || !put_u64(output,capacity,4280,4507001593859888 as u64)
+        || !put_u64(output,capacity,4288,220100102419652623 as u64)
+        || !put_u64(output,capacity,4296,66076397071761408 as u64)
+        || !put_u64(output,capacity,4304,17002489371271630850 as u64)
+        || !put_u64(output,capacity,4312,252 as u64) { return false; }
     // Set flat segments, aligned 64 KiB stack, U32 entry arguments, x87 and
     // MXCSR defaults, then CALL the actual ELF64 symbol. Return -> CLI/HLT.
-    let long_mode:[u8;62]=[102,184,16,0,142,216,142,192,142,208,49,192,142,224,142,232,
-        188,0,0,18,0,137,247,137,238,219,227,72,131,236,16,199,
-        4,36,128,31,0,0,15,174,20,36,72,131,196,16,72,184,
-        136,119,102,85,68,51,34,17,255,208,250,244,235,252];
-    i=0;while i<62 { unsafe{*(output+4608+i)=long_mode[i];}i=i+1; }
+    // Fixed instruction words also remain representable by the legacy C oracle.
+    if !put_u64(output,capacity,4608,13875265606373128294 as u64)
+        || !put_u64(output,capacity,4616,16757578167206662286 as u64)
+        || !put_u64(output,capacity,4624,9941565335838654652 as u64)
+        || !put_u64(output,capacity,4632,14344224861782793198 as u64)
+        || !put_u64(output,capacity,4640,12542243487778612228 as u64)
+        || !put_u64(output,capacity,4648,13278881937504085012 as u64)
+        || !put_u64(output,capacity,4656,1234605616436508552 as u64)
+        || !put_u64(output,capacity,4664,278090357592319 as u64) { return false; }
     if !put_u64(output,capacity,4656,entry)
         || !put_u64(output,capacity,4872,49427445715107839)
         || !put_u64(output,capacity,4880,58425848876826623)

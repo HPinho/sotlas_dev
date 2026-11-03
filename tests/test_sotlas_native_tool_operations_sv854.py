@@ -27,13 +27,16 @@ class NativeToolOperationsSV854Tests(unittest.TestCase):
     def test_object_relocatable_headers_reject_nonzero_entry_addresses(self):
         self.invalid_object('object entry',lambda data:struct.pack_into('<Q',data,24,1))
 
-    def test_object_flags_reject_unknown_bits_and_preserve_internal_os_bits(self):
+    def test_object_flags_reject_unknown_bits_and_preserve_known_platform_bits(self):
         obj=self.object_file('object flags');original=obj.read_bytes()
-        for bits in (0,1,2,3):
+        # Linux=1, Darwin=2, privileged bare-metal operations=4. Verification
+        # recognizes their union; the selected executable linker enforces use.
+        for bits in range(8):
             data=bytearray(original);struct.pack_into('<I',data,48,bits);obj.write_bytes(data)
             self.native('--verify-object',obj)
-        data=bytearray(original);struct.pack_into('<I',data,48,4);obj.write_bytes(data)
-        self.native('--verify-object',obj,expected=8)
+        for bits in (8,0x80000000,0xffffffff):
+            data=bytearray(original);struct.pack_into('<I',data,48,bits);obj.write_bytes(data)
+            self.native('--verify-object',obj,expected=8)
 
     def test_object_section_names_must_fit_the_section_name_table(self):
         def mutate(data):

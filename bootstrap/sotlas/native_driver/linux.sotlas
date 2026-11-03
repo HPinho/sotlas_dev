@@ -1330,6 +1330,9 @@ fn driver_kernel_operation(argc:u64,argv:*const *const u8)->u32 {
     let length:i64=driver_read_artifact(input,bytes,8388608);
     if length==-2 { return fail(2); }if length<0 { return fail(3); }
     if !validate_elf64_object(bytes,length as usize) { return fail(8); }
+    // Bare-metal images cannot execute hosted Linux/Darwin syscalls.
+    // The generic freestanding linker also serves Mach-O payload conversion.
+    if unsafe{*(bytes+48)}!=0 && unsafe{*(bytes+48)}!=4 { return fail(9); }
     if !elf_kernel_entry_abi(bytes,length as usize,entry,entry_length) { return fail(9); }
     let mut offset:usize=0;let mut object_length:usize=length as usize;
     let mut image_length:usize=0;let image:*mut u8=unsafe{driver_image_bytes as *mut u8};

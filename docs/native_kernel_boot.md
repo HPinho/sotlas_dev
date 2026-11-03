@@ -96,10 +96,26 @@ The executable example above is the supported evidence for native kernel boot.
 
 ## Local verification for this delivery
 
-- 154 related instruction, IR, migration, platform-linking, structured-CFG and
-  AST self-host tests passed; 21 example/phase inventory tests passed.
+CI #1346 exposed a regression: the generic freestanding ELF linker is also
+used by Mach-O payload conversion, so its new bare-metal-only flag restriction
+rejected valid Darwin objects. The dedicated `--link-kernel` command now enforces
+the kernel OS-flag boundary; the shared raw-entry linker retains its original
+contract. The startup instruction bytes are emitted as fixed words that the
+legacy C oracle can represent, preserving that optional bootstrap gate.
+Object verification recognizes the new bare-metal bit and still rejects unknown
+bits. The kernel integration gate rejects both Linux and Darwin syscall inputs.
+
+- The original delivery passed 154 related instruction, IR, migration,
+  platform-linking, structured-CFG and AST self-host tests, plus 21 example/phase
+  inventory tests. CI subsequently exposed the compatibility failures above.
+- The regression repair passed 19 selected Mach-O, legacy Stage 1/2/3
+  fixed-point and privileged-instruction tests, plus the updated object-flag
+  test. The full Darwin driver fixture constructed its Mach-O compiler on
+  Windows; actual macOS execution remains a CI responsibility.
+- The repaired native compiler also cross-built the complete Darwin compiler
+  directly from original Sotlas sources with host tools absent from PATH.
 - Original-source native rebuilds preserved strict Stage 2/3 byte identity on
-  Windows (`a398df262d8e...`) and Linux/WSL (`1179c5dc62f3...`).
+  Windows (`5c2ba975a671...`) and Linux/WSL (`4ff548bc5c82...`) after the repair.
 - Both final Stage 3 compilers passed the imported kernel project, image and
   rejection gates. They emitted byte-identical boot images (SHA-256
   `1ef8fdf7b48c4c3a8fe3fde75451ed8c3dfc66aa8044ae77a40ece46759e8faf`).
