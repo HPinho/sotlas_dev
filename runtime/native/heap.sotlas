@@ -1,0 +1,147 @@
+module sotlas::runtime::heap;
+import sotlas::runtime::managed::*;
+
+// Variable-size allocations over caller-owned bytes and disjoint metadata.
+// Live intervals define the holes: freeing adjacent intervals coalesces them
+// without storing allocator headers in payload memory. Single-threaded.
+pub struct NativeHeapSlot {pub offset:usize;pub length:usize;pub generation:u64;pub live:bool;}
+pub struct NativeHeap {
+    pub data:*mut u8;pub capacity:usize;pub slots:*mut NativeHeapSlot;pub count:u32;
+    pub used:usize;pub sequence:u64;pub live:bool;
+}
+pub struct NativeHeapHandle {pub owner:*mut NativeHeap;pub index:u32;pub generation:u64;}
+
+pub fn native_heap_empty()->NativeHeap {
+    return NativeHeap{data:null,capacity:0,slots:null,count:0,used:0,sequence:0,live:false};
+}
+pub fn native_heap_invalid()->NativeHeapHandle {return NativeHeapHandle{owner:null,index:0,generation:0};}
+fn heap_range(address:usize,length:usize)->bool {return address!=0 && length<=18446744073709551615-address;}
+fn heap_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if n==0 || m==0 {return false;}if a>=b {return a-b<m;}return b-a<n;
+}
+fn heap_layout(p:*const NativeHeap,data:*mut u8,capacity:usize,slots:*mut NativeHeapSlot,count:u32)->bool {
+    let control:usize=unsafe{p as usize};let bytes:usize=unsafe{data as usize};let metadata:usize=unsafe{slots as usize};
+    let size:usize=(count as usize)*span_of::<NativeHeapSlot>();
+    return count>0 && count<=4096 && capacity>0
+        && heap_range(control,span_of::<NativeHeap>()) && control%align_of::<NativeHeap>()==0
+        && heap_range(bytes,capacity) && heap_range(metadata,size) && metadata%align_of::<NativeHeapSlot>()==0
+        && !heap_overlap(control,span_of::<NativeHeap>(),bytes,capacity)
+        && !heap_overlap(control,span_of::<NativeHeap>(),metadata,size) && !heap_overlap(bytes,capacity,metadata,size);
+}
+pub fn native_heap_open(mut p:*mut NativeHeap,data:*mut u8,capacity:usize,slots:*mut NativeHeapSlot,count:u32)->bool {
+    if !heap_layout(p,data,capacity,slots,count) {return false;}
+    unsafe {
+        if p.live || p.sequence==18446744073709551615 {return false;}
+        let mut i:u32=0;while i<count {
+            *(slots+(i as usize))=NativeHeapSlot{offset:0,length:0,generation:0,live:false};i+=1;
+        }
+        p.data=data;p.capacity=capacity;p.slots=slots;p.count=count;p.used=0;p.live=true;
+    }return true;
+}
+pub fn native_heap_shape(p:*const NativeHeap)->bool {
+    if p==null {return false;}
+    unsafe{return p.live && p.used<=p.capacity && heap_layout(p,p.data,p.capacity,p.slots,p.count);}
+}
+pub fn native_heap_current(handle:NativeHeapHandle)->bool {
+    let p:*const NativeHeap=handle.owner;
+    if !native_heap_shape(p) || handle.generation==0 {return false;}
+    unsafe {
+        if handle.index>=p.count {return false;}
+        let slot:*const NativeHeapSlot=p.slots+(handle.index as usize);
+        return slot.live && slot.generation==handle.generation && slot.length>0
+            && slot.offset<=p.capacity && slot.length<=p.capacity-slot.offset;
+    }
+}
+pub fn native_heap_address(handle:NativeHeapHandle)->*mut u8 {
+    if !native_heap_current(handle) {return null;}
+    unsafe {let p:*const NativeHeap=handle.owner;return p.data+(*(p.slots+(handle.index as usize))).offset;}
+}
+pub fn native_heap_length(handle:NativeHeapHandle)->usize {
+    if !native_heap_current(handle) {return 0;}unsafe{return (*(handle.owner.slots+(handle.index as usize))).length;}
+}
+pub fn native_heap_write(handle:NativeHeapHandle,offset:usize,source:*const u8,length:usize)->bool {
+    let capacity:usize=native_heap_length(handle);
+    if capacity==0 || offset>capacity || length>capacity-offset {return false;}
+    return native_memory_move(native_heap_address(handle)+offset,source,length);
+}
+pub fn native_heap_read(handle:NativeHeapHandle,offset:usize,destination:*mut u8,length:usize)->bool {
+    let capacity:usize=native_heap_length(handle);
+    if capacity==0 || offset>capacity || length>capacity-offset {return false;}
+    return native_memory_move(destination,native_heap_address(handle)+offset,length);
+}
+fn heap_alignment(alignment:usize)->bool {return alignment>0 && alignment<=4096 && (alignment&(alignment-1))==0;}
+
+// First-fit search, excluding one slot for resize. Every blocked candidate
+// advances past a live interval; there are at most count+1 candidates.
+fn heap_find(p:*const NativeHeap,size:usize,alignment:usize,exclude:u32)->usize {
+    let mut offset:usize=0;let mut attempts:u32=0;
+    unsafe {
+        while attempts<=p.count {
+            let address:usize=(p.data as usize)+offset;
+            let padding:usize=(alignment-(address&(alignment-1)))&(alignment-1);
+            if padding>p.capacity-offset {return p.capacity;}offset+=padding;
+            if size>p.capacity-offset {return p.capacity;}
+            let mut next:usize=offset;let mut i:u32=0;
+            while i<p.count {
+                let slot:*const NativeHeapSlot=p.slots+(i as usize);
+                if i!=exclude && slot.live {
+                    if slot.offset>p.capacity || slot.length==0 || slot.length>p.capacity-slot.offset {return p.capacity;}
+                    if heap_overlap(offset,size,slot.offset,slot.length) && slot.offset+slot.length>next {next=slot.offset+slot.length;}
+                }i+=1;
+            }
+            if next==offset {return offset;}offset=next;attempts+=1;
+        }return p.capacity;
+    }
+}
+fn heap_clear(data:*mut u8,length:usize)->u32 {
+    let mut i:usize=0;unsafe{while i<length {*(data+i)=0;i+=1;}}return 0;
+}
+pub fn native_heap_allocate(mut p:*mut NativeHeap,size:usize,alignment:usize,zero:bool)->NativeHeapHandle {
+    if !native_heap_shape(p) || size==0 || !heap_alignment(alignment) {return native_heap_invalid();}
+    unsafe {
+        if size>p.capacity-p.used || p.sequence==18446744073709551615 {return native_heap_invalid();}
+        let mut index:u32=0;while index<p.count && (*(p.slots+(index as usize))).live {index+=1;}
+        if index==p.count {return native_heap_invalid();}
+        let offset:usize=heap_find(p,size,alignment,p.count);if offset==p.capacity {return native_heap_invalid();}
+        p.sequence+=1;*(p.slots+(index as usize))=NativeHeapSlot{offset:offset,length:size,generation:p.sequence,live:true};
+        p.used+=size;if zero {heap_clear(p.data+offset,size);}
+        return NativeHeapHandle{owner:p,index:index,generation:p.sequence};
+    }
+}
+pub fn native_heap_calloc(p:*mut NativeHeap,count:usize,stride:usize,alignment:usize)->NativeHeapHandle {
+    if count==0 || stride==0 || count>18446744073709551615/stride {return native_heap_invalid();}
+    return native_heap_allocate(p,count*stride,alignment,true);
+}
+pub fn native_heap_release(handle:NativeHeapHandle,clear:bool)->bool {
+    if !native_heap_current(handle) {return false;}
+    let mut p:*mut NativeHeap=handle.owner;
+    unsafe {
+        let mut slot:*mut NativeHeapSlot=p.slots+(handle.index as usize);
+        if clear {heap_clear(p.data+slot.offset,slot.length);}p.used-=slot.length;slot.live=false;
+    }return true;
+}
+
+// On failure the old handle and bytes remain valid. A successful resize issues
+// a fresh generation, including when the address or size does not change.
+pub fn native_heap_resize(handle:NativeHeapHandle,size:usize,alignment:usize,zero_tail:bool)->NativeHeapHandle {
+    if !native_heap_current(handle) || size==0 || !heap_alignment(alignment) {return native_heap_invalid();}
+    let mut p:*mut NativeHeap=handle.owner;
+    unsafe {
+        let mut slot:*mut NativeHeapSlot=p.slots+(handle.index as usize);
+        let old_length:usize=slot.length;let old_offset:usize=slot.offset;
+        if size>p.capacity-(p.used-old_length) || p.sequence==18446744073709551615 {return native_heap_invalid();}
+        let offset:usize=heap_find(p,size,alignment,handle.index);if offset==p.capacity {return native_heap_invalid();}
+        let mut copy:usize=old_length;if copy>size {copy=size;}
+        if !native_memory_move(p.data+offset,p.data+old_offset,copy) {return native_heap_invalid();}
+        if zero_tail && size>old_length {heap_clear(p.data+offset+old_length,size-old_length);}
+        p.sequence+=1;slot.offset=offset;slot.length=size;slot.generation=p.sequence;p.used=p.used-old_length+size;
+        return NativeHeapHandle{owner:p,index:handle.index,generation:p.sequence};
+    }
+}
+pub fn native_heap_close(mut p:*mut NativeHeap)->bool {
+    if !native_heap_shape(p) {return false;}
+    unsafe {
+        let mut i:u32=0;while i<p.count {if (*(p.slots+(i as usize))).live {return false;}i+=1;}
+        if p.used!=0 {return false;}p.live=false;
+    }return true;
+}

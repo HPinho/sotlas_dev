@@ -1,0 +1,88 @@
+barecore;
+module examples::native_kernel_heap;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::kernel_heap::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::kernel_x86::*;
+
+static mut active_heap:*mut NativeKernelHeap=null;
+static mut irq_allocations:u64=0;
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    if vector!=32 || error!=0 {return native_kernel_qemu_exit(30);}
+    let p:*mut NativeKernelHeap=unsafe{active_heap};
+    if p!=null {
+        let handle:NativeHeapHandle=native_kernel_heap_allocate(p,23,8,true);
+        if handle.owner!=null {
+            if !native_kernel_heap_write(p,handle,0,"IRQ",3) || !native_kernel_heap_release(p,handle,true) {return native_kernel_qemu_exit(31);}
+            unsafe{irq_allocations+=1;}
+        }
+    }
+    if !native_kernel_timer_interrupt(vector,error) {return native_kernel_qemu_exit(32);}return 0;
+}
+
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
+    let initial:usize=native_kernel_pages_free();
+    let mut storage:[u64;512]=0;let words:*mut u64=unsafe{storage as *mut u64};
+    let metadata:usize=unsafe{words as usize};let slots:*mut NativeHeapSlot=unsafe{metadata as *mut NativeHeapSlot};
+    let mut heap:NativeKernelHeap=native_kernel_heap_empty();let p:*mut NativeKernelHeap=unsafe{(&mut heap) as *mut NativeKernelHeap};
+    if native_kernel_heap_allocate(p,1,1,false).owner!=null || native_kernel_heap_open(p,null,128,8)
+        || native_kernel_pages_free()!=initial {return native_kernel_qemu_exit(2);}
+    let overlap_address:usize=unsafe{p as usize}+field_offset!(NativeKernelHeap,backing);
+    if native_kernel_heap_open(p,unsafe{overlap_address as *mut NativeHeapSlot},1,1)
+        || native_kernel_pages_free()!=initial {return native_kernel_qemu_exit(19);}
+    if !native_kernel_heap_open(p,slots,128,8) || native_kernel_pages_free()!=initial-8
+        || native_kernel_heap_open(p,slots,128,8) {return native_kernel_qemu_exit(3);}
+    let a:NativeHeapHandle=native_kernel_heap_calloc(p,8,8,16);
+    let b:NativeHeapHandle=native_kernel_heap_allocate(p,64,1,false);
+    if a.owner==null || b.owner==null || !native_kernel_heap_write(p,a,0,"kernel-buffer",13)
+        || !native_kernel_heap_write(p,b,0,"neighbor",8) || native_kernel_heap_close(p) {return native_kernel_qemu_exit(4);}
+    let grown:NativeHeapHandle=native_kernel_heap_resize(p,a,4096,64,true);
+    let data:*mut u8=native_kernel_heap_address(p,grown);
+    if data==null || (unsafe{data as usize})%64!=0 || native_kernel_heap_address(p,a)!=null
+        || native_kernel_heap_release(p,a,false) {return native_kernel_qemu_exit(5);}
+    let mut readback:[u8;13]=0;
+    if !native_kernel_heap_read(p,grown,0,unsafe{readback as *mut u8},13) || readback[0]!=107 || readback[12]!=114 {return native_kernel_qemu_exit(6);}
+    let mut i:usize=13;unsafe{while i<4096 {if *(data+i)!=0 {return native_kernel_qemu_exit(7);}i+=1;}}
+    if native_kernel_heap_resize(p,grown,65536,1,false).owner!=null || native_kernel_heap_address(p,grown)!=data
+        || native_kernel_heap_used(p)!=4160 {return native_kernel_qemu_exit(8);}
+    if !native_kernel_heap_release(p,grown,true) || !native_kernel_heap_release(p,b,true)
+        || native_kernel_heap_used(p)!=0 {return native_kernel_qemu_exit(9);}
+    let mut other:NativeKernelHeap=native_kernel_heap_empty();let q:*mut NativeKernelHeap=unsafe{(&mut other) as *mut NativeKernelHeap};
+    let mut other_storage:[u64;16]=0;let other_words:*mut u64=unsafe{other_storage as *mut u64};
+    let other_address:usize=unsafe{other_words as usize};let other_slots:*mut NativeHeapSlot=unsafe{other_address as *mut NativeHeapSlot};
+    if !native_kernel_heap_open(q,other_slots,4,1) {return native_kernel_qemu_exit(20);}
+    let foreign:NativeHeapHandle=native_kernel_heap_allocate(q,4,1,false);
+    if foreign.owner==null || native_kernel_heap_release(p,foreign,false) || native_kernel_heap_write(p,foreign,0,"bad",3)
+        || native_kernel_heap_resize(p,foreign,8,1,false).owner!=null || native_kernel_heap_address(p,foreign)!=null
+        || !native_kernel_heap_release(q,foreign,false) || !native_kernel_heap_close(q)
+        || native_kernel_pages_free()!=initial-8 {return native_kernel_qemu_exit(21);}
+    native_kernel_serial_write("SOTLAS: heap resize and failure preservation OK\n",48);
+    if !native_kernel_interrupts_install() || !native_kernel_timer_start(1000) {return native_kernel_qemu_exit(10);}
+    unsafe{active_heap=p;}
+    if native_kernel_timer_wait(2)<2 {return native_kernel_qemu_exit(11);}unsafe{sotlas_x86_sti();}
+    i=0;
+    while i<3000 {
+        let size:usize=17+i%496;let handle:NativeHeapHandle=native_kernel_heap_allocate(p,size,16,true);
+        let resized:NativeHeapHandle=native_kernel_heap_resize(p,handle,size+512,16,true);
+        if resized.owner==null || !native_kernel_heap_write(p,resized,0,"42",2)
+            || !native_kernel_heap_release(p,resized,false) {return native_kernel_qemu_exit(12);}i+=1;
+    }
+    let all:NativeHeapHandle=native_kernel_heap_allocate(p,32768,1,false);
+    if all.owner==null || native_kernel_heap_allocate(p,1,1,false).owner!=null
+        || native_kernel_heap_calloc(p,18446744073709551615,2,1).owner!=null {return native_kernel_qemu_exit(13);}
+    if !native_kernel_heap_write(p,all,32767,"Z",1) || native_kernel_heap_write(p,all,32768,"Z",1)
+        || !native_kernel_heap_release(p,all,true) {return native_kernel_qemu_exit(14);}
+    let flags:u64=native_kernel_interrupts_disable();
+    if (flags&512)==0 || unsafe{irq_allocations}==0 {return native_kernel_qemu_exit(15);}
+    native_kernel_timer_stop();unsafe{active_heap=null;}native_kernel_interrupts_restore(flags);
+    native_kernel_serial_write("SOTLAS: heap IRQ allocation and exhaustion OK\n",46);
+    if !native_kernel_heap_close(p) || native_kernel_pages_free()!=initial || native_kernel_heap_address(p,all)!=null
+        || native_kernel_heap_close(p) {return native_kernel_qemu_exit(16);}
+    if !native_kernel_heap_open(p,slots,128,8) {return native_kernel_qemu_exit(17);}
+    let again:NativeHeapHandle=native_kernel_heap_allocate(p,1,1,false);
+    if again.owner==null || native_kernel_heap_release(p,all,false) || !native_kernel_heap_release(p,again,false)
+        || !native_kernel_heap_close(p) || native_kernel_pages_free()!=initial {return native_kernel_qemu_exit(18);}
+    native_kernel_serial_write("SOTLAS: heap pages returned and stale handles rejected\n",55);
+    return native_kernel_qemu_exit(42);
+}
