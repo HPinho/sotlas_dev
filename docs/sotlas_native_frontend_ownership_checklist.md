@@ -4,7 +4,10 @@ Implemented capability: [native kernel boot](native_kernel_boot.md) connects
 barecore project resolution, typed unsafe port-I/O/halt operations, owned ELF
 linking, an owned Multiboot startup image and a QEMU-executed kernel. Handoff,
 BSS/data, stack, SSE, UART and physical VGA access are executable gates. This
-does not complete OS services, UEFI, interrupts or general device ownership.
+does not complete OS services, UEFI or general device ownership. The
+[interrupt profile](native_kernel_interrupts.md) now also covers typed unsafe
+IRQ operations, linked exception dispatch, saved-state return and PIC/PIT
+timer execution; TSS/IST, APIC/SMP and general device ownership remain open.
 
 Implemented subset: [numeric place updates](native_numeric_projection.md)
 preserve a single destination evaluation for compound updates to scalar fields,

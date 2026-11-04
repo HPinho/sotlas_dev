@@ -465,6 +465,12 @@ port-I/O and halt operations are implemented by the native backend and rejected
 by hosted linkers. See the [boot contract](../../../docs/native_kernel_boot.md)
 and [executable example](../../../examples/native_kernel_boot/README.md).
 
+An optional `kernel_interrupt` dispatcher with machine ABI
+`(u32,u64,Pointer)->u32` enables the owned IDT/stub image extension. The runtime
+installs this table and provides BSP PIC/PIT timer handling, interrupt-state
+save/restore and waiting. The [interrupt example](../../../examples/native_kernel_interrupts/README.md)
+executes real trap/error returns and repeated timer interrupts in QEMU.
+
 ## Linux system-call interface
 
 Reserved bodyless scalar declarations named `sotlas_linux_read`,

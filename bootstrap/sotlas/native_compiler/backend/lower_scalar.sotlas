@@ -3913,6 +3913,12 @@ impl ScalarLowering {
             if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_in8",14) { bare_operation=33; }
             if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_out32",16) { bare_operation=34; }
             if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_halt",15) { bare_operation=35; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_irq_save",19) { bare_operation=36; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_sti",14) { bare_operation=37; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_lidt",15) { bare_operation=38; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_int3",15) { bare_operation=39; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_load_ds",18) { bare_operation=40; }
+            if bare_sema.source_slice_equals(self.source,self.source_len,callee_symbol.offset,callee_symbol.length,"sotlas_x86_wait_irq",19) { bare_operation=41; }
             if bare_operation!=0 {
                 if callee_decl==0 || actual_type!=TargetTypeTag::I64 || result==0
                     || argument_count!=target_bare_operand_count(bare_operation)

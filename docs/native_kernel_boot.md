@@ -86,15 +86,21 @@ with executable acceptance, rejection and CI boot gates. This is not a complete
 operating system or a complete firmware/bootloader implementation. A Multiboot
 loader supplies the initial protected-mode handoff (QEMU's direct kernel loader
 in the test). BIOS disk boot sectors, UEFI firmware services, secure boot,
-interrupt/exception handlers, SMP, a general allocator, device drivers and
-physical-machine certification are separate deliverables. Interrupts remain
-disabled; the initial low identity map is not a memory-protection design.
+TSS/IST emergency stacks, SMP, a general allocator, device drivers and
+physical-machine certification are separate deliverables. The basic example
+leaves interrupts disabled; [the interrupt profile](native_kernel_interrupts.md)
+adds a linked Sotlas dispatcher, IDT, exception returns and PIC/PIT timer
+execution. The initial low identity map is not a memory-protection design.
 
 The older graphical source in `bootstrap/sotlas/kernel/main.sotlas` is retained
 as a historical integration experiment; it is not the entry used by this gate.
 The executable example above is the supported evidence for native kernel boot.
 
-## Local verification for this delivery
+## Earlier boot delivery verification
+
+The records below describe the boot/compatibility delivery before the interrupt
+extension. Current compiler and image evidence is recorded in the
+[interrupt contract](native_kernel_interrupts.md).
 
 CI #1346 exposed a regression: the generic freestanding ELF linker is also
 used by Mach-O payload conversion, so its new bare-metal-only flag restriction

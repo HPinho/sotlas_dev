@@ -3139,7 +3139,7 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    if instruction.immediate_bits>=32 && instruction.immediate_bits<=35 {
+                    if instruction.immediate_bits>=32 && instruction.immediate_bits<=41 {
                         platform_flags=platform_flags | 4;
                         let operation:u64=instruction.immediate_bits;
                         let expected:u32=target_bare_operand_count(operation);
@@ -3154,6 +3154,27 @@ pub fn emit_elf64_module_object(
                                 || !append_object_byte(output,capacity,&mut code,194)) { return false; } // mov edx,eax
                             argument_index=argument_index+1;
                         }
+                        if operation>=36 {
+                            // IRQ save returns the original RFLAGS with IF disabled.
+                            if operation==36 {
+                                if !append_object_byte(output,capacity,&mut code,156)
+                                    || !append_object_byte(output,capacity,&mut code,88)
+                                    || !append_object_byte(output,capacity,&mut code,250) { return false; }
+                            } else {
+                                if operation==37 && !append_object_byte(output,capacity,&mut code,251) { return false; }
+                                if operation==38 && (!append_object_byte(output,capacity,&mut code,15)
+                                    || !append_object_byte(output,capacity,&mut code,1)
+                                    || !append_object_byte(output,capacity,&mut code,24)) { return false; }
+                                if operation==39 && !append_object_byte(output,capacity,&mut code,204) { return false; }
+                                if operation==40 && (!append_object_byte(output,capacity,&mut code,142)
+                                    || !append_object_byte(output,capacity,&mut code,216)) { return false; }
+                                if operation==41 && (!append_object_byte(output,capacity,&mut code,251)
+                                    || !append_object_byte(output,capacity,&mut code,244)
+                                    || !append_object_byte(output,capacity,&mut code,250)) { return false; }
+                                if !append_object_byte(output,capacity,&mut code,49)
+                                    || !append_object_byte(output,capacity,&mut code,192) { return false; }
+                            }
+                        } else {
                         let mut opcode:u8=244; // hlt
                         if operation==32 { opcode=238; } // out dx,al
                         if operation==33 {
@@ -3165,6 +3186,7 @@ pub fn emit_elf64_module_object(
                         if !append_object_byte(output,capacity,&mut code,opcode) { return false; }
                         if operation!=33 && (!append_object_byte(output,capacity,&mut code,49)
                             || !append_object_byte(output,capacity,&mut code,192)) { return false; }
+                        }
                         if !append_object_slot_store64(output,capacity,&mut code,instruction.result_value-slot_base) { return false; }
                     } else {
                     let darwin: bool = instruction.immediate_bits >= 16 && instruction.immediate_bits <= 25;
@@ -4078,6 +4100,27 @@ pub fn link_elf64_executable(
     capacity: usize,
     output_length: *mut usize
 ) -> bool {
+    return link_elf64_executable_symbol(object_data,object_offsets,object_lengths,object_count,
+        entry_name,entry_name_length,entry_arguments,entry_argument_count,base_address,freestanding,
+        output,capacity,output_length,null,0,null);
+}
+
+pub fn link_elf64_executable_symbol(
+    object_data: *const u8,
+    object_offsets: *const usize,
+    object_lengths: *const usize,
+    object_count: u32,
+    entry_name: *const u8,
+    entry_name_length: usize,
+    entry_arguments: *const u32,
+    entry_argument_count: u32,
+    base_address: u64,
+    freestanding: bool,
+    output: *mut u8,
+    capacity: usize,
+    output_length: *mut usize,
+    published_name:*const u8,published_length:usize,published_address:*mut u64
+) -> bool {
     if output_length == null { return false; }
     unsafe { *output_length = 0; }
     if object_data == null || object_offsets == null || object_lengths == null || output == null
@@ -4424,6 +4467,20 @@ pub fn link_elf64_executable(
     }
     if entry >= global_count { return false; }
     let entry_address: u64 = global_address[entry as usize];
+    if published_address!=null {
+        unsafe{*published_address=0;}
+        if published_name==null || published_length==0 { return false; }
+        let mut symbol:u32=0;
+        while symbol<global_count {
+            let owner:*const u8=unsafe{object_data+*(object_offsets+global_object[symbol as usize])};
+            let size:usize=unsafe{*(object_lengths+global_object[symbol as usize])};
+            if elf_name_matches_slice(owner,size,global_name[symbol as usize],published_name,published_length) {
+                unsafe{*published_address=global_address[symbol as usize];}break;
+            }
+            symbol=symbol+1;
+        }
+    }
+
     if !freestanding {
         let owner: u32 = global_object[entry as usize];
         let object: *const u8 = unsafe { object_data + *(object_offsets + owner) };
@@ -7619,14 +7676,21 @@ pub fn elf_kernel_entry_abi(object:*const u8,length:usize,name:*const u8,name_le
 // No assembler, C compiler, external linker or host process startup is used.
 pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
     capacity:usize,written:*mut usize)->bool {
+    return wrap_elf64_multiboot_interrupts(kernel,length,0,output,capacity,written);
+}
+
+pub fn wrap_elf64_multiboot_interrupts(kernel:*const u8,length:usize,dispatcher:u64,output:*mut u8,
+    capacity:usize,written:*mut usize)->bool {
     if written==null { return false; }unsafe{*written=0;}
-    if kernel==null || output==null || length<120 || length>8380416
-        || capacity<8192 || length>capacity-8192 { return false; }
+    let mut prefix:usize=8192;let mut boot_size:u32=4096;
+    if dispatcher!=0 { prefix=36864;boot_size=32768; }
+    if kernel==null || output==null || length<120 || length>(8388608 as usize)-prefix
+        || capacity<prefix || length>capacity-prefix { return false; }
     let input_address:usize=unsafe{kernel as usize};
     let output_address:usize=unsafe{output as usize};
     let maximum_address:usize=18446744073709551615;
-    if length>maximum_address-input_address || length+8192>maximum_address-output_address
-        || (input_address<output_address+length+8192 && output_address<input_address+length) { return false; }
+    if length>maximum_address-input_address || length+prefix>maximum_address-output_address
+        || (input_address<output_address+length+prefix && output_address<input_address+length) { return false; }
     let entry:u64=get_u64(kernel,length,24);
     let memory:u64=get_u64(kernel,length,104);
     if get_u32(kernel,length,0)!=1179403647 || unsafe{*(kernel+4)}!=2 || unsafe{*(kernel+5)}!=1
@@ -7637,8 +7701,9 @@ pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
         || get_u64(kernel,length,72)!=0 || get_u64(kernel,length,80)!=4194304
         || get_u64(kernel,length,88)!=4194304 || get_u64(kernel,length,96)!=length as u64
         || memory<length as u64 || memory>33554432 || get_u64(kernel,length,112)!=4096
-        || entry<4194424 || entry>=(4194304 as u64)+(length as u64) { return false; }
-    let size:usize=8192+length;let mut i:usize=0;
+        || entry<4194424 || entry>=(4194304 as u64)+(length as u64)
+        || (dispatcher!=0 && (dispatcher<4194424 || dispatcher>=(4194304 as u64)+(length as u64))) { return false; }
+    let size:usize=prefix+length;let mut i:usize=0;
     while i<size { unsafe{*(output+i)=0;}i=i+1; }
     // ELF32 little endian executable, i386 bootstrap, two program headers.
     if !put_u32(output,capacity,0,1179403647) || !put_u8(output,capacity,4,1)
@@ -7649,9 +7714,9 @@ pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
         || !put_u16(output,capacity,42,32) || !put_u16(output,capacity,44,2) { return false; }
     if !put_u32(output,capacity,52,1) || !put_u32(output,capacity,56,4096)
         || !put_u32(output,capacity,60,1048576) || !put_u32(output,capacity,64,1048576)
-        || !put_u32(output,capacity,68,4096) || !put_u32(output,capacity,72,131072)
+        || !put_u32(output,capacity,68,boot_size) || !put_u32(output,capacity,72,131072)
         || !put_u32(output,capacity,76,7) || !put_u32(output,capacity,80,4096)
-        || !put_u32(output,capacity,84,1) || !put_u32(output,capacity,88,8192)
+        || !put_u32(output,capacity,84,1) || !put_u32(output,capacity,88,prefix as u32)
         || !put_u32(output,capacity,92,4194304) || !put_u32(output,capacity,96,4194304)
         || !put_u32(output,capacity,100,length as u32) || !put_u32(output,capacity,104,memory as u32)
         || !put_u32(output,capacity,108,7) || !put_u32(output,capacity,112,4096) { return false; }
@@ -7703,6 +7768,79 @@ pub fn wrap_elf64_multiboot(kernel:*const u8,length:usize,output:*mut u8,
         || !put_u64(output,capacity,4872,49427445715107839)
         || !put_u64(output,capacity,4880,58425848876826623)
         || !put_u16(output,capacity,4888,23) || !put_u32(output,capacity,4890,1049344) { return false; }
-    i=0;while i<length { unsafe{*(output+8192+i)=*(kernel+i);}i=i+1; }
+    if dispatcher!=0 && !emit_kernel_idt(output,capacity,dispatcher) { return false; }
+    i=0;while i<length { unsafe{*(output+prefix+i)=*(kernel+i);}i=i+1; }
     unsafe{*written=size;}return true;
+}
+
+
+// 1=absent, 2=valid defined handler, 0=invalid declaration/ABI.
+pub fn elf_kernel_interrupt_abi(object:*const u8,length:usize)->u32 {
+    let note:usize=elf_integer_abi_manifest(object,length);let table:usize=elf_abi_symtab(object,length);
+    if note==0 || table==0 { return 0; }
+    let headers:usize=get_u64(object,length,40) as usize;
+    let strings_header:usize=headers+(get_u32(object,length,table+40) as usize)*64;
+    let strings:usize=get_u64(object,length,strings_header+24) as usize;
+    let symbols:usize=get_u64(object,length,table+24) as usize;
+    let count:u32=get_u32(object,length,note+24);let mut index:u32=0;
+    while index<count {
+        let at:usize=note+28+(index as usize)*108;
+        let symbol:usize=symbols+(get_u32(object,length,at) as usize)*24;
+        if elf_name_matches_slice(object,length,strings+(get_u32(object,length,symbol) as usize),"kernel_interrupt",16) {
+            if get_u16(object,length,symbol+6)!=0 && get_u32(object,length,at+4)==4
+                && get_u32(object,length,at+8)==3 && get_u32(object,length,at+12)==4
+                && get_u32(object,length,at+16)==5 && get_u32(object,length,at+20)==14 { return 2; }
+            return 0;
+        }
+        index=index+1;
+    }
+    return 1;
+}
+
+// The startup's low identity map is executable. The loader places these IDT
+// gates and stubs at fixed reserved physical addresses, outside page tables.
+fn emit_kernel_idt(output:*mut u8,capacity:usize,dispatcher:u64)->bool {
+    if output==null || capacity<36864 || dispatcher==0 { return false; }
+    if !put_u16(output,capacity,4896,4095) || !put_u64(output,capacity,4898,1064960)
+        || !put_u32(output,capacity,4912,827413065) { return false; } // IDTR and IRQ1 marker
+    let mut vector:u32=0;
+    while vector<256 {
+        let idt_slot:usize=(20480 as usize)+(vector as usize)*16;
+        let address:u64=(1069056 as u64)+(vector as u64)*32;
+        if !put_u16(output,capacity,idt_slot,address as u16) || !put_u16(output,capacity,idt_slot+2,8)
+            || !put_u8(output,capacity,idt_slot+4,0) || !put_u8(output,capacity,idt_slot+5,142)
+            || !put_u16(output,capacity,idt_slot+6,(address>>16) as u16)
+            || !put_u32(output,capacity,idt_slot+8,0) || !put_u32(output,capacity,idt_slot+12,0) { return false; }
+        let stub:usize=(24576 as usize)+(vector as usize)*32;let mut cursor:usize=stub;
+        // CPU error-code vectors already have the error word on their stack.
+        if vector!=8 && vector!=10 && vector!=11 && vector!=12 && vector!=13 && vector!=14
+            && vector!=17 && vector!=21 && vector!=29 && vector!=30 {
+            if !put_u8(output,capacity,cursor,106) || !put_u8(output,capacity,cursor+1,0) { return false; }
+            cursor=cursor+2;
+        }
+        if !put_u8(output,capacity,cursor,104) || !put_u32(output,capacity,cursor+1,vector) { return false; }
+        cursor=cursor+5;
+        let following:u32=(1048576 as u32)+(cursor as u32)-4096+5;
+        if !put_u8(output,capacity,cursor,233) || !put_u32(output,capacity,cursor+1,(1077248 as u32)-following) { return false; }
+        vector=vector+1;
+    }
+    // Save all 15 GPRs; aligned FXSAVE64; normalized vector/error/frame in
+    // SysV argument registers; CLD; CALL dispatcher; FXRSTOR64; restore; IRETQ.
+    if !put_u64(output,capacity,32768,4708326859909255504 as u64)
+        || !put_u64(output,capacity,32776,4707177857071268176 as u64)
+        || !put_u64(output,capacity,32784,5212706932423737684 as u64)
+        || !put_u64(output,capacity,32792,581557920784521 as u64)
+        || !put_u64(output,capacity,32800,9550244684279007232 as u64)
+        || !put_u64(output,capacity,32808,12542322652087451684 as u64)
+        || !put_u64(output,capacity,32816,10036404228723319812 as u64)
+        || !put_u64(output,capacity,32824,10416060678015058096 as u64)
+        || !put_u64(output,capacity,32832,9851704432041918600 as u64)
+        || !put_u64(output,capacity,32840,18379509157860828791 as u64)
+        || !put_u64(output,capacity,32848,10036311406473595088 as u64)
+        || !put_u64(output,capacity,32856,6863767307122910372 as u64)
+        || !put_u64(output,capacity,32864,6575638366744829505 as u64)
+        || !put_u64(output,capacity,32872,6800251000046312001 as u64)
+        || !put_u64(output,capacity,32880,14160241197676387165 as u64)
+        || !put_u64(output,capacity,32888,13584400 as u64) { return false; }
+    return put_u64(output,capacity,32839,dispatcher);
 }

@@ -1428,12 +1428,16 @@ fn driver_kernel_operation(argc:u64,argv:*const *const u8)->u32 {
     // The generic freestanding linker also serves Mach-O payload conversion.
     if unsafe{*(bytes+48)}!=0 && unsafe{*(bytes+48)}!=4 { return fail(9); }
     if !elf_kernel_entry_abi(bytes,length as usize,entry,entry_length) { return fail(9); }
+    let irq_abi:u32=elf_kernel_interrupt_abi(bytes,length as usize);
+    if irq_abi==0 { return fail(9); }
+    let mut dispatcher:u64=0;
     let mut offset:usize=0;let mut object_length:usize=length as usize;
     let mut image_length:usize=0;let image:*mut u8=unsafe{driver_image_bytes as *mut u8};
-    if !link_elf64_executable(bytes,unsafe{(&offset) as *const usize},unsafe{(&object_length) as *const usize},
-        1,entry,entry_length,null,0,4194304,true,image,16777216,unsafe{(&mut image_length) as *mut usize}) { return fail(9); }
+    if !link_elf64_executable_symbol(bytes,unsafe{(&offset) as *const usize},unsafe{(&object_length) as *const usize},
+        1,entry,entry_length,null,0,4194304,true,image,16777216,unsafe{(&mut image_length) as *mut usize},"kernel_interrupt",16,unsafe{(&mut dispatcher) as *mut u64}) { return fail(9); }
+    if (irq_abi==2 && dispatcher==0) || (irq_abi==1 && dispatcher!=0) { return fail(9); }
     let mut boot_length:usize=0;
-    if !wrap_elf64_multiboot(image,image_length,bytes,8388608,unsafe{(&mut boot_length) as *mut usize}) { return fail(9); }
+    if !wrap_elf64_multiboot_interrupts(image,image_length,dispatcher,bytes,8388608,unsafe{(&mut boot_length) as *mut usize}) { return fail(9); }
     return driver_write_artifact(output,bytes,boot_length,false);
 }
 

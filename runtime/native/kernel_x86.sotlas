@@ -2,10 +2,105 @@ module sotlas::runtime::kernel_x86;
 
 // Reserved typed machine operations. They emit privileged instructions,
 // not foreign calls. Hosted executable linkers reject objects using them.
-@extern(C) fn sotlas_x86_out8(port:u16,value:u8)->i64;
-@extern(C) fn sotlas_x86_in8(port:u16)->i64;
-@extern(C) fn sotlas_x86_out32(port:u16,value:u32)->i64;
-@extern(C) fn sotlas_x86_halt()->i64;
+@extern(C) pub fn sotlas_x86_out8(port:u16,value:u8)->i64;
+@extern(C) pub fn sotlas_x86_in8(port:u16)->i64;
+@extern(C) pub fn sotlas_x86_out32(port:u16,value:u32)->i64;
+@extern(C) pub fn sotlas_x86_halt()->i64;
+@extern(C) pub fn sotlas_x86_irq_save()->i64;
+@extern(C) pub fn sotlas_x86_sti()->i64;
+@extern(C) pub fn sotlas_x86_lidt(descriptor:*const u8)->i64;
+@extern(C) pub fn sotlas_x86_int3()->i64;
+@extern(C) pub fn sotlas_x86_load_ds(selector:u16)->i64;
+@extern(C) pub fn sotlas_x86_wait_irq()->i64;
+
+static mut native_irq_ready:bool=false;
+static mut native_timer_running:bool=false;
+static mut native_timer_ticks:u64=0;
+
+pub fn native_kernel_interrupts_disable()->u64 {
+    return unsafe{sotlas_x86_irq_save()} as u64;
+}
+pub fn native_kernel_interrupts_restore(flags:u64)->u32 {
+    unsafe{sotlas_x86_irq_save();if (flags&512)!=0 { sotlas_x86_sti(); }}return 0;
+}
+
+fn native_kernel_io_wait()->u32 { unsafe{sotlas_x86_out8(128,0);}return 0; }
+
+// BSP-only legacy PIC setup. Success leaves interrupts disabled and all IRQs
+// masked; timer_start selects IRQ0 and wait_ticks restores its caller's IF.
+pub fn native_kernel_interrupts_install()->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let marker:*const u32=unsafe{1049392 as *const u32};
+    unsafe {
+        if *marker!=827413065 || native_irq_ready {
+            native_kernel_interrupts_restore(flags);return false;
+        }
+        sotlas_x86_out8(33,255);sotlas_x86_out8(161,255);
+        sotlas_x86_out8(32,17);native_kernel_io_wait();
+        sotlas_x86_out8(160,17);native_kernel_io_wait();
+        sotlas_x86_out8(33,32);native_kernel_io_wait();
+        sotlas_x86_out8(161,40);native_kernel_io_wait();
+        sotlas_x86_out8(33,4);native_kernel_io_wait();
+        sotlas_x86_out8(161,2);native_kernel_io_wait();
+        sotlas_x86_out8(33,1);native_kernel_io_wait();
+        sotlas_x86_out8(161,1);native_kernel_io_wait();
+        sotlas_x86_out8(33,255);sotlas_x86_out8(161,255);
+        sotlas_x86_lidt(1049376 as *const u8);
+        native_irq_ready=true;native_timer_ticks=0;
+    }
+    return true;
+}
+
+pub fn native_kernel_timer_start(hz:u32)->bool {
+    if hz<19 || hz>1000 { return false; }
+    let flags:u64=native_kernel_interrupts_disable();
+    unsafe {
+        if !native_irq_ready { native_kernel_interrupts_restore(flags);return false; }
+        let divisor:u32=(1193182 as u32)/hz;
+        sotlas_x86_out8(33,255);
+        sotlas_x86_out8(67,54);sotlas_x86_out8(64,(divisor&255) as u8);
+        sotlas_x86_out8(64,(divisor>>8) as u8);
+        native_timer_ticks=0;native_timer_running=true;sotlas_x86_out8(33,254);
+    }
+    native_kernel_interrupts_restore(flags);return true;
+}
+
+// Called from kernel_interrupt with IF clear. Other vectors belong to the
+// kernel's exception/device policy; IRQ0 is acknowledged even after stopping.
+pub fn native_kernel_timer_interrupt(vector:u32,error:u64)->bool {
+    if vector!=32 || error!=0 { return false; }
+    unsafe {
+        if !native_irq_ready { return false; }
+        if native_timer_running { native_timer_ticks+=1; }
+        sotlas_x86_out8(32,32);
+    }
+    return true;
+}
+
+pub fn native_kernel_timer_read()->u64 {
+    let flags:u64=native_kernel_interrupts_disable();
+    let ticks:u64=unsafe{native_timer_ticks};native_kernel_interrupts_restore(flags);return ticks;
+}
+
+// STI;HLT;CLI closes the check/sleep race. This blocks for real hardware
+// interrupts and requires a functioning PIC/PIT; the QEMU gate has a timeout.
+pub fn native_kernel_timer_wait(count:u32)->u64 {
+    if count==0 || count>10000 { return 0; }
+    let flags:u64=native_kernel_interrupts_disable();
+    unsafe {
+        if !native_timer_running { native_kernel_interrupts_restore(flags);return 0; }
+        let start:u64=native_timer_ticks;
+        while native_timer_ticks-start<(count as u64) { sotlas_x86_wait_irq(); }
+        let elapsed:u64=native_timer_ticks-start;
+        native_kernel_interrupts_restore(flags);return elapsed;
+    }
+}
+
+pub fn native_kernel_timer_stop()->u32 {
+    let flags:u64=native_kernel_interrupts_disable();
+    unsafe { sotlas_x86_out8(33,255);native_timer_running=false; }
+    native_kernel_interrupts_restore(flags);return 0;
+}
 
 pub fn native_kernel_serial_init()->bool {
     unsafe {

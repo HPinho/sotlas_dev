@@ -348,6 +348,7 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_numeric_projection(stage3, self.directory / "numeric projection cases")
         from native_kernel_gate import verify_kernel_image
         verify_kernel_image(stage3,self.directory / "kernel image cases")
+        verify_kernel_image(stage3,self.directory / "kernel interrupt cases",interrupts=True)
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

@@ -16,6 +16,7 @@ fn arithmetic_probe(a:f64,b:f64)->u32 {
 // The boot image initializes the stack, BSS, SSE environment and U32 handoff.
 pub fn kernel_main(magic:u32,info:u32)->u32 {
     if !native_kernel_serial_init() { return native_kernel_qemu_exit(1); }
+    if native_kernel_interrupts_install() { return native_kernel_qemu_exit(10); }
     if !native_kernel_serial_write("SOTLAS: kernel entered\n",23) { return native_kernel_qemu_exit(2); }
     if native_kernel_boot_memory_kib(magic,info)<32768 { return native_kernel_qemu_exit(3); }
     let mut i:usize=0;
