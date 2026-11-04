@@ -1,0 +1,60 @@
+barecore;
+module examples::native_kernel_interrupts;
+import sotlas::runtime::kernel_x86::*;
+
+static mut breakpoints:u32=0;
+static mut protection_faults:u32=0;
+static mut handler_math:f64=0.0;
+static mut expected_break_if:u64=0;
+
+// The common stub supplies the CPU frame: RIP, CS, RFLAGS, RSP and SS.
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    unsafe {
+        // Exercise SSE in the handler while interrupted code also uses it.
+        let a:f64=3.0;let b:f64=7.0;handler_math=a*b;
+        if frame==null || *(frame+1)!=8 { return native_kernel_qemu_exit(10); }
+        if vector==3 && error==0 {
+            if (*(frame+2)&512)!=expected_break_if { return native_kernel_qemu_exit(10); }
+            breakpoints+=1;return 0;
+        }
+        if vector==13 && error==24 {
+            let rip:u64=*frame;let address:usize=rip as usize;
+            let instruction:*const u8=address as *const u8;
+            if *instruction==142 && *(instruction+1)==216 {
+                protection_faults+=1;*frame+=2;return 0;
+            }
+        }
+    }
+    if native_kernel_timer_interrupt(vector,error) { return 0; }
+    native_kernel_serial_write("SOTLAS: unexpected exception\n",29);
+    return native_kernel_qemu_exit(11);
+}
+
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() || native_kernel_boot_memory_kib(magic,info)<32768 { return native_kernel_qemu_exit(1); }
+    if !native_kernel_interrupts_install() { return native_kernel_qemu_exit(2); }
+    if native_kernel_interrupts_install() || native_kernel_timer_start(0)
+        || native_kernel_timer_start(18) || native_kernel_timer_start(1001) { return native_kernel_qemu_exit(3); }
+    unsafe {
+        sotlas_x86_int3();sotlas_x86_load_ds(24);
+        if breakpoints!=1 || protection_faults!=1 || handler_math!=21.0 { return native_kernel_qemu_exit(4); }
+    }
+    native_kernel_serial_write("SOTLAS: breakpoint and error frame OK\n",38);
+    if !native_kernel_timer_start(1000) || native_kernel_timer_wait(0)!=0
+        || native_kernel_timer_wait(10001)!=0 || native_kernel_timer_wait(5)<5 { return native_kernel_qemu_exit(5); }
+    let flags:u64=native_kernel_interrupts_disable();
+    if (flags&512)!=0 { return native_kernel_qemu_exit(6); }
+    // Keep timer interrupts active while floating-point work is in progress.
+    unsafe{sotlas_x86_sti();}
+    let before:u64=native_kernel_timer_read();let mut i:u32=0;let mut sum:f64=0.0;
+    while i<100000 { sum+=0.5;i+=1; }
+    if native_kernel_timer_wait(2)<2 || sum!=50000.0 || native_kernel_timer_read()<=before { return native_kernel_qemu_exit(7); }
+    unsafe{expected_break_if=512;sotlas_x86_int3();if breakpoints!=2 { return native_kernel_qemu_exit(10); }}
+    let enabled:u64=native_kernel_interrupts_disable();
+    if (enabled&512)==0 { return native_kernel_qemu_exit(8); }
+    native_kernel_timer_stop();
+    let stopped:u64=native_kernel_timer_read();
+    if native_kernel_timer_wait(1)!=0 || native_kernel_timer_read()!=stopped { return native_kernel_qemu_exit(9); }
+    native_kernel_serial_write("SOTLAS: timer and SSE preservation OK\n",38);
+    return native_kernel_qemu_exit(42);
+}

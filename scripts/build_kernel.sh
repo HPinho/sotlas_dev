@@ -1,24 +1,35 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-if [[ $# -lt 1 || $# -gt 3 || ( $# -eq 3 && "$3" != --run ) ]]; then
-    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run]' >&2
+if [[ $# -lt 1 || $# -gt 4 ]]; then
+    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts]' >&2
     exit 1
 fi
+run=false
+interrupts=false
+for option in "${@:3}"; do
+    case "$option" in
+        --run) [[ $run == false ]] || exit 1; run=true ;;
+        --interrupts) [[ $interrupts == false ]] || exit 1; interrupts=true ;;
+        *) echo "Unknown kernel option: $option" >&2; exit 1 ;;
+    esac
+done
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compiler="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [[ -x "$compiler" ]] || { echo 'An executable native compiler is required.' >&2; exit 1; }
 output="${2:-$repository/build/kernel-boot}"
 [[ ! -e "$output" ]] || { echo 'Choose a fresh output directory; existing builds are preserved.' >&2; exit 1; }
 qemu=''
-if [[ ${3:-} == --run ]]; then
+if [[ $run == true ]]; then
     qemu="$(command -v qemu-system-x86_64)"
     timeout_tool="$(command -v timeout)"
     [[ -n "$qemu" && -n "$timeout_tool" ]] || { echo 'QEMU x86-64 and timeout are required for --run.' >&2; exit 1; }
 fi
 mkdir -p "$output/src/sotlas/runtime"
 output="$(cd "$output" && pwd)"
-cp "$repository/examples/native_kernel_boot/main.sotlas" "$output/src/main.sotlas"
+example=native_kernel_boot
+if [[ $interrupts == true ]]; then example=native_kernel_interrupts; fi
+cp "$repository/examples/$example/main.sotlas" "$output/src/main.sotlas"
 cp "$repository/runtime/native/kernel_x86.sotlas" "$output/src/sotlas/runtime/kernel_x86.sotlas"
 environment="$(command -v env)"
 native() { "$environment" PATH="$output/no-host-tools" "$@"; }
@@ -37,8 +48,14 @@ if [[ -n "$qemu" ]]; then
     set -e
     cat "$output/serial.log"
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
-    grep -Fxq 'SOTLAS: kernel entered' "$output/serial.log"
-    grep -Fxq 'SOTLAS: memory, stack, data, SSE OK' "$output/serial.log"
-    grep -Fxq 'SOTLAS: VGA OK' "$output/serial.log"
-    echo 'Kernel boot verified: Multiboot handoff, native x86-64, BSS/data, stack, SSE and VGA.'
+    if [[ $interrupts == true ]]; then
+        grep -Fxq 'SOTLAS: breakpoint and error frame OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: timer and SSE preservation OK' "$output/serial.log"
+        echo 'Kernel interrupts verified: trap/error frames, PIC/PIT timer, IRETQ and SSE preservation.'
+    else
+        grep -Fxq 'SOTLAS: kernel entered' "$output/serial.log"
+        grep -Fxq 'SOTLAS: memory, stack, data, SSE OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: VGA OK' "$output/serial.log"
+        echo 'Kernel boot verified: Multiboot handoff, native x86-64, BSS/data, stack, SSE and VGA.'
+    fi
 fi

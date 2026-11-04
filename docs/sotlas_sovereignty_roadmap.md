@@ -7,14 +7,11 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Last directly verified green baseline: `9084cf8`,
-[CI #1345](https://github.com/HPinho/sotlas_dev/actions/runs/41648523027).
-The kernel delivery `9f761d8` failed CI #1346 in Mach-O conversion, legacy
-C-oracle rebuilding and a historical object-flag expectation. The repair keeps
-the raw-entry ELF linker usable by Mach-O conversion, enforces hosted-syscall
-rejection in the dedicated kernel command and uses instruction words supported
-by both native and legacy oracle emission. Bare-metal flag 4 is recognized;
-unknown object bits continue to be rejected. The repaired candidate awaits CI.
+Current green baseline: `e786c0c`, reported by the maintainer before this
+delivery. The last directly inspected successful run remains
+[CI #1345](https://github.com/HPinho/sotlas_dev/actions/runs/41648523027)
+for `9084cf8`. The kernel/Mach-O/bootstrap compatibility repair in `e786c0c`
+is retained; subsequent workflow results are supplied by the maintainer.
 
 The native profile includes
 [layout queries and packed records](native_layout_queries.md), checked
@@ -41,12 +38,16 @@ provide dot, scale, AXPY and row-major GEMV, plus an executable projection and
 residual example. See [numeric projection](native_numeric_projection.md).
 GPU/NPU dispatch and generative model execution remain open.
 
-The current delivery connects the native compiler to an executable kernel boot
+The native profile connects the compiler to an executable kernel boot
 path: barecore imports, typed privileged operations, the owned freestanding ELF
 linker, a Multiboot image emitter and x86-64 startup. The example boots under
 QEMU and verifies handoff, BSS/data, stack, arithmetic/SSE, serial and VGA memory
 access before an explicit guest exit. See [kernel boot](native_kernel_boot.md).
-Its full platform CI remains pending; complete OS/firmware support is not implied.
+The current delivery adds [exceptions and timer interrupts](native_kernel_interrupts.md):
+an attested Sotlas dispatcher, 256 IDT entries/stubs, saved-state IRETQ return,
+typed interrupt-control instructions, PIC remapping and PIT ticks. The QEMU
+application tests both exception frame forms, IF restoration and floating-point
+work during timer delivery. Its full platform CI remains pending.
 
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable

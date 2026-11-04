@@ -642,11 +642,12 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
 // Privileged x86-64 operations: OUT8, IN8, OUT32 and HLT. No OS syscall ABI.
 pub fn target_bare_operand_count(operation:u64)->u32 {
     if operation==32 || operation==34 { return 2; }
-    if operation==33 { return 1; }
+    if operation==33 || operation==38 || operation==40 { return 1; }
     return 0;
 }
 pub fn target_bare_operand_type(operation:u64,index:u32)->TargetTypeTag {
-    if operation<32 || operation>35 || index>=target_bare_operand_count(operation) { return TargetTypeTag::Invalid; }
+    if operation<32 || operation>41 || index>=target_bare_operand_count(operation) { return TargetTypeTag::Invalid; }
+    if operation==38 { return TargetTypeTag::Pointer; }
     if index==0 { return TargetTypeTag::U16; }
     if operation==32 { return TargetTypeTag::U8; }
     return TargetTypeTag::U32;
@@ -1246,7 +1247,7 @@ pub fn target_module_validate_cfg(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    if instruction.immediate_bits >= 32 && instruction.immediate_bits <= 35 {
+                    if instruction.immediate_bits >= 32 && instruction.immediate_bits <= 41 {
                         let expected: u32 = target_bare_operand_count(instruction.immediate_bits);
                         if instruction.type_tag != TargetTypeTag::I64 || instruction.result_value == 0
                             || instruction.operand_count != expected || instruction.symbol.length != 0
