@@ -7768,6 +7768,12 @@ pub fn wrap_elf64_multiboot_interrupts(kernel:*const u8,length:usize,dispatcher:
         || !put_u64(output,capacity,4872,49427445715107839)
         || !put_u64(output,capacity,4880,58425848876826623)
         || !put_u16(output,capacity,4888,23) || !put_u32(output,capacity,4890,1049344) { return false; }
+    // Runtime allocator contract: versioned bounds for all loaded kernel BSS
+    // and the low identity map. These bytes live in the reserved boot segment.
+    if !put_u32(output,capacity,4928,827147597) || !put_u32(output,capacity,4932,1)
+        || !put_u64(output,capacity,4936,4194304)
+        || !put_u64(output,capacity,4944,(4194304 as u64)+memory)
+        || !put_u64(output,capacity,4952,1073741824) { return false; }
     if dispatcher!=0 && !emit_kernel_idt(output,capacity,dispatcher) { return false; }
     i=0;while i<length { unsafe{*(output+prefix+i)=*(kernel+i);}i=i+1; }
     unsafe{*written=size;}return true;

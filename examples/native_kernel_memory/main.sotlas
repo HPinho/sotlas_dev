@@ -1,0 +1,76 @@
+barecore;
+module examples::native_kernel_memory;
+import sotlas::runtime::kernel_x86::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::pages::*;
+
+static mut interrupt_allocations:u64=0;
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    if vector!=32 || error!=0 {return native_kernel_qemu_exit(20);}
+    let available:usize=native_kernel_pages_free();
+    let span:NativePageSpan=native_kernel_pages_allocate(1,1,false);
+    if span.owner!=null {
+        if !native_kernel_pages_release(span) {return native_kernel_qemu_exit(21);}
+        unsafe{interrupt_allocations+=1;}
+    }else if available!=0 {return native_kernel_qemu_exit(22);}
+    if !native_kernel_timer_interrupt(vector,error) {return native_kernel_qemu_exit(23);}return 0;
+}
+
+fn read32(address:usize)->u32 {let p:*const u32=unsafe{address as *const u32};return unsafe{*p};}
+fn module_preserved(info:u32)->bool {
+    let header:usize=info as usize;
+    if (read32(header)&8)==0 || read32(header+20)!=1 {return false;}
+    let table:usize=read32(header+24) as usize;
+    let start:usize=read32(table) as usize;let end:usize=read32(table+4) as usize;
+    if end-start!=25 {return false;}
+    let expected:*const u8="SOTLAS-MODULE-RESERVED\n42";
+    let actual:*const u8=unsafe{start as *const u8};let mut i:usize=0;
+    unsafe{while i<25 {if *(actual+i)!=*(expected+i) {return false;}i+=1;}}return true;
+}
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if native_kernel_pages_init(0,info) || native_kernel_pages_init(magic,0)
+        || native_kernel_pages_allocate(1,1,false).owner!=null {return native_kernel_qemu_exit(18);}
+    if !native_kernel_serial_init() || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
+    if native_kernel_pages_init(magic,info) || !module_preserved(info) {return native_kernel_qemu_exit(2);}
+    let initial:usize=native_kernel_pages_free();if initial<1024 {return native_kernel_qemu_exit(3);}
+    if !native_kernel_interrupts_install() || !native_kernel_timer_start(1000)
+        || native_kernel_timer_wait(2)<2 {return native_kernel_qemu_exit(15);}
+    unsafe{sotlas_x86_sti();}
+    let block:NativePageSpan=native_kernel_pages_allocate(3,4,false);
+    let address:usize=native_kernel_page_address(block);
+    if address==0 || address%16384!=0 || native_kernel_pages_free()!=initial-3 {return native_kernel_qemu_exit(4);}
+    let bytes:*mut u8=unsafe{address as *mut u8};unsafe{*bytes=77;*(bytes+12287)=88;}
+    if !native_kernel_pages_release(block) || native_kernel_pages_release(block) {return native_kernel_qemu_exit(5);}
+    let clean:NativePageSpan=native_kernel_pages_allocate(3,4,true);
+    if clean.first!=block.first || clean.generation==block.generation || native_kernel_page_address(block)!=0 {return native_kernel_qemu_exit(6);}
+    let mut i:usize=0;unsafe{while i<12288 {if *(bytes+i)!=0 {return native_kernel_qemu_exit(7);}i+=1;}}
+    if !native_kernel_pages_release(clean) || native_kernel_pages_free()!=initial {return native_kernel_qemu_exit(8);}
+    native_kernel_serial_write("SOTLAS: page allocation and reuse OK\n",37);
+    let first:NativePageSpan=native_kernel_pages_allocate(1,1,false);
+    if first.owner==null {return native_kernel_qemu_exit(9);}
+    let kernel_end:usize=read32(1049424) as usize;
+    let first_address:usize=native_kernel_page_address(first);
+    if first_address<kernel_end {return native_kernel_qemu_exit(17);}
+    let first_data:*mut u8=unsafe{first_address as *mut u8};unsafe{*first_data=41;*(first_data+4095)=42;}
+    let mut allocated:usize=1;
+    while native_kernel_pages_free()!=0 {
+        let span:NativePageSpan=native_kernel_pages_allocate(1,1,false);
+        let place:usize=native_kernel_page_address(span);
+        if place<kernel_end || place>=1073741824 {return native_kernel_qemu_exit(10);}
+        let data:*mut u8=unsafe{place as *mut u8};unsafe{*data=41;*(data+4095)=42;}
+        allocated+=1;
+    }
+    if allocated!=initial || native_kernel_pages_allocate(1,1,false).owner!=null {return native_kernel_qemu_exit(11);}
+    if !native_kernel_pages_release(first) {return native_kernel_qemu_exit(12);}
+    let last:NativePageSpan=native_kernel_pages_allocate(1,1,false);
+    if last.first!=first.first || native_kernel_pages_release(first) || native_kernel_pages_free()!=0 {return native_kernel_qemu_exit(13);}
+    native_kernel_serial_write("SOTLAS: memory map and exhaustion OK\n",37);
+    if !module_preserved(info) {return native_kernel_qemu_exit(14);}
+    native_kernel_serial_write("SOTLAS: boot module preserved\n",30);
+    let flags:u64=native_kernel_interrupts_disable();
+    if (flags&512)==0 {return native_kernel_qemu_exit(19);}native_kernel_interrupts_restore(flags);
+    native_kernel_timer_stop();
+    if unsafe{interrupt_allocations}==0 {return native_kernel_qemu_exit(16);}
+    native_kernel_serial_write("SOTLAS: IRQ-safe page metadata OK\n",34);
+    return native_kernel_qemu_exit(42);
+}

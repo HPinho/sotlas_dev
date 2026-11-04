@@ -1,5 +1,11 @@
 # Native frontend and ownership closure
 
+Implemented capability: [kernel physical pages](native_kernel_memory.md) adds
+boot-map validation, reserved-image/module protection, contiguous aligned spans,
+generation-checked release and single-CPU interrupt-safe allocation. The guest
+tests exhaustion with 32/64/128 MiB RAM; general heap/VM and automatic ownership
+integration remain separate.
+
 Implemented capability: [native kernel boot](native_kernel_boot.md) connects
 barecore project resolution, typed unsafe port-I/O/halt operations, owned ELF
 linking, an owned Multiboot startup image and a QEMU-executed kernel. Handoff,

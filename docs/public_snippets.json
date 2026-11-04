@@ -390,6 +390,13 @@
       "status": "EXPERIMENTAL",
       "source": null,
       "verification": "tests/test_sotlas_native_result_propagation.py; tests/test_sotlas_native_numeric_results.py; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-kernel-memory",
+      "document": "docs/native_kernel_memory.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_kernel_memory/main.sotlas",
+      "verification": "tests/test_sotlas_native_pages.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

@@ -2,18 +2,21 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 4 ]]; then
-    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts]' >&2
+    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory]' >&2
     exit 1
 fi
 run=false
 interrupts=false
+memory=false
 for option in "${@:3}"; do
     case "$option" in
         --run) [[ $run == false ]] || exit 1; run=true ;;
         --interrupts) [[ $interrupts == false ]] || exit 1; interrupts=true ;;
+        --memory) [[ $memory == false ]] || exit 1; memory=true ;;
         *) echo "Unknown kernel option: $option" >&2; exit 1 ;;
     esac
 done
+[[ $memory == false || $interrupts == false ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compiler="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [[ -x "$compiler" ]] || { echo 'An executable native compiler is required.' >&2; exit 1; }
@@ -29,8 +32,14 @@ mkdir -p "$output/src/sotlas/runtime"
 output="$(cd "$output" && pwd)"
 example=native_kernel_boot
 if [[ $interrupts == true ]]; then example=native_kernel_interrupts; fi
+if [[ $memory == true ]]; then example=native_kernel_memory; fi
 cp "$repository/examples/$example/main.sotlas" "$output/src/main.sotlas"
 cp "$repository/runtime/native/kernel_x86.sotlas" "$output/src/sotlas/runtime/kernel_x86.sotlas"
+if [[ $memory == true ]]; then
+    cp "$repository/runtime/native/pages.sotlas" "$output/src/sotlas/runtime/pages.sotlas"
+    cp "$repository/runtime/native/kernel_memory.sotlas" "$output/src/sotlas/runtime/kernel_memory.sotlas"
+    printf 'SOTLAS-MODULE-RESERVED\n42' > "$output/boot-module.bin"
+fi
 environment="$(command -v env)"
 native() { "$environment" PATH="$output/no-host-tools" "$@"; }
 native "$compiler" --check-build "$output/src" "$output/src/main.sotlas"
@@ -38,17 +47,25 @@ native "$compiler" --build-obj "$output/kernel.o" "$output/src" "$output/src/mai
 native "$compiler" --link-kernel "$output/kernel.o" "$output/kernel.elf" kernel_main
 echo "Kernel image: $output/kernel.elf"
 if [[ -n "$qemu" ]]; then
+    module_args=()
+    if [[ $memory == true ]]; then module_args=(-initrd "$output/boot-module.bin"); fi
     set +e
     # Do not use -no-shutdown: QEMU 10.2 implements debug-exit as shutdown.
     "$timeout_tool" 15s "$qemu" -machine pc -accel tcg -cpu qemu64 -m 64M \
-        -kernel "$output/kernel.elf" -display none -serial stdio -monitor none \
+        -kernel "$output/kernel.elf" "${module_args[@]}" -display none -serial stdio -monitor none \
         -no-reboot -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
         > "$output/serial.log" 2>&1
     status=$?
     set -e
     cat "$output/serial.log"
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
-    if [[ $interrupts == true ]]; then
+    if [[ $memory == true ]]; then
+        grep -Fxq 'SOTLAS: page allocation and reuse OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: memory map and exhaustion OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: boot module preserved' "$output/serial.log"
+        grep -Fxq 'SOTLAS: IRQ-safe page metadata OK' "$output/serial.log"
+        echo 'Kernel memory verified: aligned spans, zeroing, stale handles, exhaustion and boot module preservation.'
+    elif [[ $interrupts == true ]]; then
         grep -Fxq 'SOTLAS: breakpoint and error frame OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: timer and SSE preservation OK' "$output/serial.log"
         echo 'Kernel interrupts verified: trap/error frames, PIC/PIT timer, IRETQ and SSE preservation.'

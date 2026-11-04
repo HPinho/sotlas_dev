@@ -92,7 +92,7 @@ requires separate platform implementations and execution gates.
 ### P4 — applications and kernel documentation
 
 - [ ] Publish complete terminal and graphical calculator projects, expected behavior, build commands and troubleshooting instructions.
-- [ ] Publish a minimal kernel project with documented entry, target, boot environment, memory assumptions and diagnostic output; reproduce it in the selected emulator.
+- [x] Publish a minimal kernel project with documented entry, target, boot environment, memory assumptions and diagnostic output; reproduce it in the selected emulator. See [native boot](native_kernel_boot.md), [interrupts](native_kernel_interrupts.md) and [physical pages](native_kernel_memory.md); local QEMU execution is covered, release certification still requires platform CI.
 - [ ] Document which compiler, library and ownership contracts each example exercises and automate its build/execution checks.
 
 ### P5 — installation
