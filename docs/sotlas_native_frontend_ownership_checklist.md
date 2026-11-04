@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented capability: [page-backed kernel heap](native_kernel_heap.md) adds
+variable-sized buffers, overlap-safe resize, checked read/write and page
+reclamation. Kernel operations restore IF and reject handles from other heaps.
+Ownership remains explicit; this does not complete automatic ARC/drop lowering.
+
 Implemented capability: [kernel physical pages](native_kernel_memory.md) adds
 boot-map validation, reserved-image/module protection, contiguous aligned spans,
 generation-checked release and single-CPU interrupt-safe allocation. The guest

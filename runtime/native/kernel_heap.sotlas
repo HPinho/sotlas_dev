@@ -1,0 +1,90 @@
+module sotlas::runtime::kernel_heap;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::pages::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::kernel_x86::*;
+
+// Stable caller-owned descriptor and slot metadata, backed by owned physical
+// pages. Do not mutate/copy live descriptors or release their backing directly.
+pub struct NativeKernelHeap {pub heap:NativeHeap;pub backing:NativePageSpan;}
+pub fn native_kernel_heap_empty()->NativeKernelHeap {
+    return NativeKernelHeap{heap:native_heap_empty(),backing:native_page_invalid()};
+}
+fn kernel_heap_context(mut p:*mut NativeKernelHeap)->*mut NativeHeap {
+    let address:usize=unsafe{p as usize}+field_offset!(NativeKernelHeap,heap);
+    return unsafe{address as *mut NativeHeap};
+}
+fn kernel_heap_shape(mut p:*mut NativeKernelHeap)->bool {
+    if p==null {return false;}
+    let q:*const NativeHeap=kernel_heap_context(p);
+    let span:NativePageSpan=unsafe{p.backing};let address:usize=native_kernel_page_address(span);
+    unsafe{return address!=0 && native_heap_shape(q) && (q.data as usize)==address && q.capacity==span.count*4096;}
+}
+pub fn native_kernel_heap_open(mut p:*mut NativeKernelHeap,slots:*mut NativeHeapSlot,count:u32,pages:usize)->bool {
+    if p==null || count==0 || count>4096 || pages==0 || pages>262144 {return false;}
+    let control:usize=unsafe{p as usize};let metadata:usize=unsafe{slots as usize};
+    let size:usize=(count as usize)*span_of::<NativeHeapSlot>();let maximum:usize=18446744073709551615;
+    if span_of::<NativeKernelHeap>()>maximum-control || control%align_of::<NativeKernelHeap>()!=0
+        || metadata==0 || size>maximum-metadata || metadata%align_of::<NativeHeapSlot>()!=0 {return false;}
+    if control>=metadata {if control-metadata<size {return false;}}
+    else {if metadata-control<span_of::<NativeKernelHeap>() {return false;}}
+    let flags:u64=native_kernel_interrupts_disable();
+    if unsafe{p.heap.live || p.backing.owner!=null} {native_kernel_interrupts_restore(flags);return false;}
+    let span:NativePageSpan=native_kernel_pages_allocate(pages,1,false);
+    let address:usize=native_kernel_page_address(span);
+    if address==0 {native_kernel_interrupts_restore(flags);return false;}
+    let mut overlap:bool=false;
+    if control>=address {overlap=control-address<pages*4096;}
+    else {overlap=address-control<span_of::<NativeKernelHeap>();}
+    if overlap {native_kernel_pages_release(span);native_kernel_interrupts_restore(flags);return false;}
+    let q:*mut NativeHeap=kernel_heap_context(p);
+    let opened:bool=native_heap_open(q,unsafe{address as *mut u8},pages*4096,slots,count);
+    if !opened {native_kernel_pages_release(span);native_kernel_interrupts_restore(flags);return false;}
+    unsafe{p.backing=span;}native_kernel_interrupts_restore(flags);return true;
+}
+pub fn native_kernel_heap_allocate(p:*mut NativeKernelHeap,size:usize,alignment:usize,zero:bool)->NativeHeapHandle {
+    let flags:u64=native_kernel_interrupts_disable();let mut handle:NativeHeapHandle=native_heap_invalid();
+    if kernel_heap_shape(p) {handle=native_heap_allocate(kernel_heap_context(p),size,alignment,zero);}
+    native_kernel_interrupts_restore(flags);return handle;
+}
+pub fn native_kernel_heap_calloc(p:*mut NativeKernelHeap,count:usize,stride:usize,alignment:usize)->NativeHeapHandle {
+    if count==0 || stride==0 || count>18446744073709551615/stride {return native_heap_invalid();}
+    return native_kernel_heap_allocate(p,count*stride,alignment,true);
+}
+pub fn native_kernel_heap_resize(p:*mut NativeKernelHeap,handle:NativeHeapHandle,size:usize,alignment:usize,zero_tail:bool)->NativeHeapHandle {
+    let flags:u64=native_kernel_interrupts_disable();let mut next:NativeHeapHandle=native_heap_invalid();
+    if kernel_heap_shape(p) && handle.owner==kernel_heap_context(p) {next=native_heap_resize(handle,size,alignment,zero_tail);}
+    native_kernel_interrupts_restore(flags);return next;
+}
+pub fn native_kernel_heap_release(p:*mut NativeKernelHeap,handle:NativeHeapHandle,clear:bool)->bool {
+    let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
+    if kernel_heap_shape(p) && handle.owner==kernel_heap_context(p) {okay=native_heap_release(handle,clear);}
+    native_kernel_interrupts_restore(flags);return okay;
+}
+pub fn native_kernel_heap_address(p:*mut NativeKernelHeap,handle:NativeHeapHandle)->*mut u8 {
+    let flags:u64=native_kernel_interrupts_disable();let mut address:*mut u8=null;
+    if kernel_heap_shape(p) && handle.owner==kernel_heap_context(p) {address=native_heap_address(handle);}
+    native_kernel_interrupts_restore(flags);return address;
+}
+pub fn native_kernel_heap_write(p:*mut NativeKernelHeap,handle:NativeHeapHandle,offset:usize,source:*const u8,length:usize)->bool {
+    let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
+    if kernel_heap_shape(p) && handle.owner==kernel_heap_context(p) {okay=native_heap_write(handle,offset,source,length);}
+    native_kernel_interrupts_restore(flags);return okay;
+}
+pub fn native_kernel_heap_read(p:*mut NativeKernelHeap,handle:NativeHeapHandle,offset:usize,destination:*mut u8,length:usize)->bool {
+    let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
+    if kernel_heap_shape(p) && handle.owner==kernel_heap_context(p) {okay=native_heap_read(handle,offset,destination,length);}
+    native_kernel_interrupts_restore(flags);return okay;
+}
+pub fn native_kernel_heap_used(p:*mut NativeKernelHeap)->usize {
+    let flags:u64=native_kernel_interrupts_disable();let mut used:usize=0;
+    if kernel_heap_shape(p) {let q:*const NativeHeap=kernel_heap_context(p);used=unsafe{q.used};}
+    native_kernel_interrupts_restore(flags);return used;
+}
+pub fn native_kernel_heap_close(mut p:*mut NativeKernelHeap)->bool {
+    let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
+    if kernel_heap_shape(p) && native_heap_close(kernel_heap_context(p)) {
+        okay=native_kernel_pages_release(unsafe{p.backing});if okay {unsafe{p.backing=native_page_invalid();}}
+    }
+    native_kernel_interrupts_restore(flags);return okay;
+}

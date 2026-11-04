@@ -56,6 +56,13 @@ The same guest exhausts usable RAM under QEMU with 32, 64 and 128 MiB while
 preserving its boot module. This is a physical allocator, not a general heap
 or virtual-memory subsystem. The new delivery still requires platform CI.
 
+A [page-backed kernel heap](native_kernel_heap.md) now provides variable-sized
+aligned buffers, checked copies, failure-preserving resize, individual release
+and page reclamation on close. A QEMU workload combines those operations with
+timer-handler allocations and checks close/reopen and stale handles. Its page
+reservation is explicit; automatic heap growth, SMP and automatic ownership
+cleanup remain open. This delivery has local evidence, with CI not yet checked.
+
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable
 capabilities, not helper count or unweighted checkbox percentages; the requested
