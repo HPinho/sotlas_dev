@@ -1,0 +1,121 @@
+module sotlas::runtime::kernel_memory;
+import sotlas::runtime::pages::*;
+import sotlas::runtime::kernel_x86::*;
+
+// BSP-only, 4096-byte physical pages in the startup's first GiB identity map.
+// Metadata belongs to the kernel BSS and is excluded by the image end marker.
+static mut kernel_page_states:[u8;262144]=0;
+static mut kernel_page_tags:[u64;262144]=0;
+static mut kernel_page_control:[u64;16]=0;
+static mut kernel_pages_ready:bool=false;
+
+fn kernel_pages_context()->*mut NativePages {
+    let words:*mut u64=unsafe{kernel_page_control as *mut u64};
+    let address:usize=unsafe{words as usize};return unsafe{address as *mut NativePages};
+}
+fn kernel_memory_read32(address:usize)->u32 {
+    let data:*const u32=unsafe{address as *const u32};return unsafe{*data};
+}
+fn kernel_memory_read64(address:usize)->u64 {
+    let data:*const u64=unsafe{address as *const u64};return unsafe{*data};
+}
+fn kernel_memory_range(address:usize,length:usize)->bool {
+    return address!=0 && address<1073741824 && length<=1073741824-address;
+}
+fn kernel_memory_string_length(address:usize)->usize {
+    if !kernel_memory_range(address,4096) {return 0;}
+    let data:*const u8=unsafe{address as *const u8};let mut i:usize=0;
+    unsafe{while i<4096 {if *(data+i)==0 {return i+1;}i+=1;}}return 0;
+}
+
+// Trusted Multiboot pointers must refer to readable RAM. Bounds validation
+// cannot establish physical pointer provenance. A failed initialization stays
+// unsealed and cannot allocate. Optional unretained firmware tables may be
+// reclaimed; the handoff, map, modules and their strings are retained.
+pub fn native_kernel_pages_init(magic:u32,info:u32)->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let okay:bool=kernel_pages_initialize(magic,info);
+    native_kernel_interrupts_restore(flags);return okay;
+}
+fn kernel_pages_initialize(magic:u32,info:u32)->bool {
+    if span_of::<NativePages>()>128 || align_of::<NativePages>()>8 {return false;}
+    if unsafe{kernel_pages_ready} || magic!=732803074 || info%4!=0
+        || !kernel_memory_range(info as usize,116) {return false;}
+    if kernel_memory_read32(1049408)!=827147597 || kernel_memory_read32(1049412)!=1
+        || kernel_memory_read64(1049416)!=4194304 || kernel_memory_read64(1049432)!=1073741824 {return false;}
+    let kernel_end:usize=kernel_memory_read64(1049424) as usize;
+    if kernel_end<=4194304 || kernel_end>37748736 {return false;}
+    let header:usize=info as usize;let present:u32=kernel_memory_read32(header);
+    if (present&64)==0 {return false;}
+    let length:usize=kernel_memory_read32(header+44) as usize;
+    let map_address:usize=kernel_memory_read32(header+48) as usize;
+    if length==0 || length>65536 || !kernel_memory_range(map_address,length) {return false;}
+    let mut modules:usize=0;let mut table:usize=0;
+    if (present&8)!=0 {
+        modules=kernel_memory_read32(header+20) as usize;table=kernel_memory_read32(header+24) as usize;
+        if modules>256 || (modules!=0 && !kernel_memory_range(table,modules*16)) {return false;}
+    }
+    let mut command:usize=0;let mut command_length:usize=0;
+    if (present&4)!=0 {
+        command=kernel_memory_read32(header+16) as usize;command_length=kernel_memory_string_length(command);
+        if command_length==0 {return false;}
+    }
+    let mut loader:usize=0;let mut loader_length:usize=0;
+    if (present&512)!=0 {
+        loader=kernel_memory_read32(header+64) as usize;loader_length=kernel_memory_string_length(loader);
+        if loader_length==0 {return false;}
+    }
+    let mut i:usize=0;
+    while i<modules {
+        let entry:usize=table+i*16;let start:usize=kernel_memory_read32(entry) as usize;
+        let end:usize=kernel_memory_read32(entry+4) as usize;let text:usize=kernel_memory_read32(entry+8) as usize;
+        if start>end || (text!=0 && kernel_memory_string_length(text)==0) {return false;}i+=1;
+    }
+    let mut p:*mut NativePages=kernel_pages_context();
+    if !native_pages_open(p,unsafe{kernel_page_states as *mut u8},unsafe{kernel_page_tags as *mut u64},262144,0)
+        || !native_pages_import_map(p,unsafe{map_address as *const u8},length) {return false;}
+    // Includes startup stack/page tables/IDT, low firmware memory and kernel BSS.
+    if !native_pages_configure(p,0,kernel_end,false)
+        || !native_pages_configure(p,header,header+116,false)
+        || !native_pages_configure(p,map_address,map_address+length,false) {return false;}
+    if command_length!=0 {native_pages_configure(p,command,command+command_length,false);}
+    if loader_length!=0 {native_pages_configure(p,loader,loader+loader_length,false);}
+    if modules!=0 {native_pages_configure(p,table,table+modules*16,false);}
+    i=0;
+    while i<modules {
+        let entry:usize=table+i*16;let start:usize=kernel_memory_read32(entry) as usize;
+        let end:usize=kernel_memory_read32(entry+4) as usize;let text:usize=kernel_memory_read32(entry+8) as usize;
+        native_pages_configure(p,start,end,false);
+        if text!=0 {native_pages_configure(p,text,text+kernel_memory_string_length(text),false);}i+=1;
+    }
+    if unsafe{p.free}==0 || !native_pages_seal(p) {return false;}
+    unsafe{kernel_pages_ready=true;}return true;
+}
+
+// Handles are allocation identities; callers must serialize access to their
+// payload and must stop using all aliases before release. This is not SMP-safe.
+pub fn native_kernel_pages_allocate(count:usize,alignment:usize,zero:bool)->NativePageSpan {
+    let flags:u64=native_kernel_interrupts_disable();
+    if !unsafe{kernel_pages_ready} {native_kernel_interrupts_restore(flags);return native_page_invalid();}
+    let span:NativePageSpan=native_pages_allocate(kernel_pages_context(),count,alignment);
+    let address:usize=native_page_address(span);native_kernel_interrupts_restore(flags);
+    if zero && address!=0 {
+        let data:*mut u8=unsafe{address as *mut u8};let mut i:usize=0;
+        unsafe{while i<count*4096 {*(data+i)=0;i+=1;}}
+    }return span;
+}
+pub fn native_kernel_pages_release(span:NativePageSpan)->bool {
+    let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
+    if unsafe{kernel_pages_ready} && span.owner==kernel_pages_context() {okay=native_pages_release(span);}
+    native_kernel_interrupts_restore(flags);return okay;
+}
+pub fn native_kernel_page_address(span:NativePageSpan)->usize {
+    let flags:u64=native_kernel_interrupts_disable();let mut address:usize=0;
+    if unsafe{kernel_pages_ready} && span.owner==kernel_pages_context() {address=native_page_address(span);}
+    native_kernel_interrupts_restore(flags);return address;
+}
+pub fn native_kernel_pages_free()->usize {
+    let flags:u64=native_kernel_interrupts_disable();let p:*const NativePages=kernel_pages_context();
+    let mut count:usize=0;if unsafe{kernel_pages_ready} {count=unsafe{p.free};}
+    native_kernel_interrupts_restore(flags);return count;
+}

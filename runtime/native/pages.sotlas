@@ -1,0 +1,157 @@
+module sotlas::runtime::pages;
+
+// Caller-owned metadata and a stable control address. No backing bytes are
+// touched: base identifies the address space managed in 4096-byte pages.
+pub struct NativePages {
+    pub states:*mut u8;pub tags:*mut u64;pub count:usize;pub base:usize;
+    pub free:usize;pub allocated:usize;pub cursor:usize;pub sequence:u64;
+    pub live:bool;pub sealed:bool;
+}
+pub struct NativePageSpan {pub owner:*mut NativePages;pub first:usize;pub count:usize;pub generation:u64;}
+
+pub fn native_pages_empty()->NativePages {
+    return NativePages{states:null,tags:null,count:0,base:0,free:0,allocated:0,cursor:0,sequence:0,live:false,sealed:false};
+}
+pub fn native_page_invalid()->NativePageSpan {return NativePageSpan{owner:null,first:0,count:0,generation:0};}
+
+fn native_pages_range(address:usize,size:usize)->bool {
+    let maximum:usize=18446744073709551615;return address!=0 && size<=maximum-address;
+}
+fn native_pages_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if a>=b {return a-b<m;}return b-a<n;
+}
+pub fn native_pages_open(mut p:*mut NativePages,states:*mut u8,tags:*mut u64,count:usize,base:usize)->bool {
+    let control:usize=unsafe{p as usize};let bytes:usize=unsafe{states as usize};let words:usize=unsafe{tags as usize};
+    let maximum:usize=18446744073709551615;
+    if count==0 || count>262144 || base%4096!=0 || count*4096>maximum-base
+        || !native_pages_range(control,span_of::<NativePages>()) || control%align_of::<NativePages>()!=0
+        || !native_pages_range(bytes,count) || !native_pages_range(words,count*8) || words%8!=0 {return false;}
+    if native_pages_overlap(control,span_of::<NativePages>(),bytes,count)
+        || native_pages_overlap(control,span_of::<NativePages>(),words,count*8)
+        || native_pages_overlap(bytes,count,words,count*8) {return false;}
+    unsafe {
+        if p.live {return false;}
+        let mut i:usize=0;while i<count {*(states+i)=0;*(tags+i)=0;i+=1;}
+        p.states=states;p.tags=tags;p.count=count;p.base=base;p.free=0;p.allocated=0;
+        p.cursor=0;p.sequence=0;p.sealed=false;p.live=true;
+    }return true;
+}
+pub fn native_pages_shape(p:*const NativePages)->bool {
+    if p==null {return false;}
+    unsafe {return p.live && p.states!=null && p.tags!=null && p.count>0 && p.count<=262144
+        && p.free<=p.count && p.allocated<=p.count-p.free && p.cursor<p.count;}
+}
+
+// Offer only completely contained pages. Reserve every intersecting page.
+// Configuration is immutable after seal; allocation cannot revive reservations.
+pub fn native_pages_configure(mut p:*mut NativePages,start:usize,end:usize,available:bool)->bool {
+    if !native_pages_shape(p) || start>end {return false;}
+    unsafe {
+        if p.sealed {return false;}
+        let limit:usize=p.base+p.count*4096;
+        if start==end || end<=p.base || start>=limit {return true;}
+        let mut low:usize=start;let mut high:usize=end;
+        if low<p.base {low=p.base;}if high>limit {high=limit;}
+        let mut first:usize=(low-p.base)/4096;let mut last:usize=(high-p.base)/4096;
+        if available {if (low-p.base)%4096!=0 {first+=1;}}
+        else {last=((high-1-p.base)/4096)+1;}
+        while first<last {
+            let old:u8=*(p.states+first);
+            if available && old==0 {*(p.states+first)=1;p.free+=1;}
+            if !available && old==1 {*(p.states+first)=0;p.free-=1;}
+            first+=1;
+        }
+    }return true;
+}
+pub fn native_pages_seal(mut p:*mut NativePages)->bool {
+    if !native_pages_shape(p) {return false;}unsafe{if p.sealed {return false;}p.sealed=true;}return true;
+}
+fn native_pages_find(p:*const NativePages,first:usize,last:usize,count:usize,alignment:usize)->usize {
+    let mut candidate:usize=first;
+    unsafe {
+        while candidate<last && candidate<=p.count-count {
+            let remainder:usize=(p.base/4096+candidate)&(alignment-1);
+            if remainder!=0 {candidate+=alignment-remainder;continue;}
+            let mut run:usize=0;
+            while run<count && *(p.states+candidate+run)==1 {run+=1;}
+            if run==count {return candidate;}candidate+=run+1;
+        }return p.count;
+    }
+}
+pub fn native_pages_allocate(mut p:*mut NativePages,count:usize,alignment:usize)->NativePageSpan {
+    if !native_pages_shape(p) || count==0 || alignment==0 || alignment>262144 || (alignment&(alignment-1))!=0 {return native_page_invalid();}
+    unsafe {
+        if !p.sealed || count>p.free || p.sequence==18446744073709551615 {return native_page_invalid();}
+        let mut first:usize=native_pages_find(p,p.cursor,p.count,count,alignment);
+        if first==p.count && p.cursor!=0 {first=native_pages_find(p,0,p.cursor,count,alignment);}
+        if first==p.count {return native_page_invalid();}
+        p.sequence+=1;*(p.tags+first)=p.sequence;*(p.states+first)=2;
+        let mut i:usize=1;while i<count {*(p.states+first+i)=3;i+=1;}
+        p.free-=count;p.allocated+=count;p.cursor=first+count;if p.cursor==p.count {p.cursor=0;}
+        return NativePageSpan{owner:p,first:first,count:count,generation:p.sequence};
+    }
+}
+pub fn native_pages_current(span:NativePageSpan)->bool {
+    let p:*const NativePages=unsafe{span.owner as *const NativePages};
+    if !native_pages_shape(p) || span.count==0 || span.generation==0 {return false;}
+    unsafe {
+        if !p.sealed || span.first>=p.count || span.count>p.count-span.first
+            || *(p.states+span.first)!=2 || *(p.tags+span.first)!=span.generation {return false;}
+        let mut i:usize=1;while i<span.count {if *(p.states+span.first+i)!=3 {return false;}i+=1;}
+        return span.first+span.count==p.count || *(p.states+span.first+span.count)!=3;
+    }
+}
+pub fn native_pages_release(span:NativePageSpan)->bool {
+    if !native_pages_current(span) {return false;}
+    let mut p:*mut NativePages=span.owner;
+    unsafe {
+        let mut i:usize=0;while i<span.count {*(p.states+span.first+i)=1;i+=1;}
+        p.free+=span.count;p.allocated-=span.count;if span.first<p.cursor {p.cursor=span.first;}
+    }return true;
+}
+pub fn native_page_address(span:NativePageSpan)->usize {
+    if !native_pages_current(span) {return 0;}unsafe{return span.owner.base+span.first*4096;}
+}
+
+fn native_pages_u32(data:*const u8,at:usize)->u32 {
+    let address:usize=unsafe{data as usize}+at;let word:*const u32=unsafe{address as *const u32};return unsafe{*word};
+}
+fn native_pages_u64(data:*const u8,at:usize)->u64 {
+    return (native_pages_u32(data,at) as u64)|((native_pages_u32(data,at+4) as u64)<<32);
+}
+
+// Multiboot v1 variable-length records. Validate everything before changing
+// metadata, then offer usable memory and finally reserve all other types.
+pub fn native_pages_import_map(mut p:*mut NativePages,data:*const u8,length:usize)->bool {
+    if !native_pages_shape(p) || data==null || length==0 || length>65536 {return false;}
+    let address:usize=unsafe{data as usize};if !native_pages_range(address,length) {return false;}
+    unsafe {
+        if p.sealed || p.free!=0 || p.allocated!=0
+            || native_pages_overlap(address,length,p.states as usize,p.count)
+            || native_pages_overlap(address,length,p.tags as usize,p.count*8)
+            || native_pages_overlap(address,length,p as usize,span_of::<NativePages>()) {return false;}
+    }
+    let mut at:usize=0;let mut records:u32=0;let maximum:u64=18446744073709551615;
+    while at<length {
+        if length-at<4 || records==1024 {return false;}
+        let size:usize=native_pages_u32(data,at) as usize;
+        if size<20 || size>length-at-4 {return false;}
+        let start:u64=native_pages_u64(data,at+4);let span:u64=native_pages_u64(data,at+12);
+        if span>maximum-start {return false;}
+        at+=size+4;records+=1;
+    }
+    let mut pass:u32=0;
+    while pass<2 {
+        at=0;
+        while at<length {
+            let size:usize=native_pages_u32(data,at) as usize;
+            let start:u64=native_pages_u64(data,at+4);let span:u64=native_pages_u64(data,at+12);
+            let usable:bool=native_pages_u32(data,at+20)==1;
+            if (pass==0 && usable) || (pass==1 && !usable) {
+                if !native_pages_configure(p,start as usize,(start+span) as usize,usable) {return false;}
+            }
+            at+=size+4;
+        }
+        pass+=1;
+    }return true;
+}

@@ -49,6 +49,13 @@ typed interrupt-control instructions, PIC remapping and PIT ticks. The QEMU
 application tests both exception frame forms, IF restoration and floating-point
 work during timer delivery. Its full platform CI remains pending.
 
+The kernel now has [physical page allocation](native_kernel_memory.md): a
+validated Multiboot map, explicit reservations for the image and boot modules,
+aligned spans, zeroing, stale-handle checks and IRQ-safe metadata on one CPU.
+The same guest exhausts usable RAM under QEMU with 32, 64 and 128 MiB while
+preserving its boot module. This is a physical allocator, not a general heap
+or virtual-memory subsystem. The new delivery still requires platform CI.
+
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable
 capabilities, not helper count or unweighted checkbox percentages; the requested
