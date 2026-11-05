@@ -81,6 +81,13 @@ pub fn native_kernel_heap_used(p:*mut NativeKernelHeap)->usize {
     if kernel_heap_shape(p) {let q:*const NativeHeap=kernel_heap_context(p);used=unsafe{q.used};}
     native_kernel_interrupts_restore(flags);return used;
 }
+// Explicit lower-level borrow for collections. The caller must already have
+// IF clear, keep it clear while using the heap, and close children first.
+pub fn native_kernel_heap_borrow(p:*mut NativeKernelHeap)->*mut NativeHeap {
+    let flags:u64=native_kernel_interrupts_disable();let mut result:*mut NativeHeap=null;
+    if (flags&512)==0 && kernel_heap_shape(p) {result=kernel_heap_context(p);}
+    native_kernel_interrupts_restore(flags);return result;
+}
 pub fn native_kernel_heap_close(mut p:*mut NativeKernelHeap)->bool {
     let flags:u64=native_kernel_interrupts_disable();let mut okay:bool=false;
     if kernel_heap_shape(p) && native_heap_close(kernel_heap_context(p)) {

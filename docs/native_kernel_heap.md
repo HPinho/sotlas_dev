@@ -84,7 +84,10 @@ interrupts, then restore the caller's IF state. Operations verify that the
 handle belongs to this heap and that its physical reservation is still live.
 Close requires no live buffers and releases the backing pages exactly once.
 Do not manipulate the descriptor's internal heap or release its page span
-through the lower-level APIs while it is open.
+through the lower-level APIs while it is open. The explicit
+`native_kernel_heap_borrow` exception supports [POD collections](native_vector.md):
+the caller must have IF clear, serialize every use and close the collection
+before the heap. Borrowing with IF set is rejected.
 
 The page reservation is fixed at open time; it does not expand automatically.
 The caller selects its size and metadata count. This is a single-processor

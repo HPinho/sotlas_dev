@@ -63,6 +63,13 @@ timer-handler allocations and checks close/reopen and stale handles. Its page
 reservation is explicit; automatic heap growth, SMP and automatic ownership
 cleanup remain open. This delivery has local evidence, with CI not yet checked.
 
+[Heap-backed POD vectors](native_vector.md) connect that allocation path to
+dynamic sequences: growth, insertion/removal, self-insertion snapshots, shrinking
+and revision-checked views. The kernel example grows a u64 sequence with timer
+interrupts between serialized operations, checks its values and returns all
+pages. Resource-bearing generics and automatic container cleanup are separate
+language-level work; this delivery does not mark those parity items complete.
+
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable
 capabilities, not helper count or unweighted checkbox percentages; the requested

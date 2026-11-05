@@ -1,0 +1,62 @@
+barecore;
+module examples::native_kernel_collections;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::vector::*;
+import sotlas::runtime::kernel_heap::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::kernel_x86::*;
+
+static mut owner:*mut NativeKernelHeap=null;
+static mut interrupts:u64=0;
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    if vector!=32 || error!=0 {return native_kernel_qemu_exit(30);}
+    let p:*mut NativeKernelHeap=unsafe{owner};
+    let temporary:NativeHeapHandle=native_kernel_heap_allocate(p,32,8,true);
+    if temporary.owner==null || !native_kernel_heap_release(p,temporary,false)
+        || !native_kernel_timer_interrupt(vector,error) {return native_kernel_qemu_exit(31);}
+    unsafe{interrupts+=1;}return 0;
+}
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
+    let baseline:usize=native_kernel_pages_free();
+    let mut metadata:[u64;1024]=0;let words:*mut u64=unsafe{metadata as *mut u64};
+    let address:usize=unsafe{words as usize};let slots:*mut NativeHeapSlot=unsafe{address as *mut NativeHeapSlot};
+    let mut heap:NativeKernelHeap=native_kernel_heap_empty();let p:*mut NativeKernelHeap=unsafe{(&mut heap) as *mut NativeKernelHeap};
+    if !native_kernel_heap_open(p,slots,256,32) {return native_kernel_qemu_exit(2);}
+    let q:*mut NativeHeap=native_kernel_heap_borrow(p);if q==null {return native_kernel_qemu_exit(3);}
+    let mut sequence:NativeVector=native_vector_empty();let v:*mut NativeVector=unsafe{(&mut sequence) as *mut NativeVector};
+    if !native_vector_open(v,q,8,8) || !native_kernel_interrupts_install() || !native_kernel_timer_start(1000) {return native_kernel_qemu_exit(4);}
+    unsafe{owner=p;}if native_kernel_timer_wait(2)<2 {return native_kernel_qemu_exit(5);}unsafe{sotlas_x86_sti();}
+    if native_kernel_heap_borrow(p)!=null {return native_kernel_qemu_exit(6);}
+    let mut i:usize=0;
+    while i<2000 {
+        let mut value:u64=i as u64;let pointer:*mut u64=unsafe{(&mut value) as *mut u64};let raw:usize=unsafe{pointer as usize};
+        let flags:u64=native_kernel_interrupts_disable();
+        let added:bool=native_vector_append(v,unsafe{raw as *const u8},1);native_kernel_interrupts_restore(flags);
+        if !added {return native_kernel_qemu_exit(7);}i+=1;
+    }
+    let flags:u64=native_kernel_interrupts_disable();
+    let old:NativeVectorView=native_vector_view(v,0,2000);
+    if native_kernel_heap_close(p) || !native_vector_remove(v,100,50) || native_vector_view_current(old) {return native_kernel_qemu_exit(8);}
+    let extra:[u64;3]=[7,8,9];let extra_words:*const u64=unsafe{extra as *const u64};let extra_address:usize=unsafe{extra_words as usize};
+    if !native_vector_insert(v,0,unsafe{extra_address as *const u8},3)
+        || !native_vector_append(v,native_heap_address(sequence.storage),3) {return native_kernel_qemu_exit(9);}
+    let current:NativeVectorView=native_vector_view(v,0,1956);
+    if native_vector_reserve(v,18446744073709551615) || !native_vector_view_current(current) {return native_kernel_qemu_exit(10);}
+    let mut sum:u64=0;i=0;
+    while i<1956 {
+        let mut value:u64=0;let output:*mut u64=unsafe{(&mut value) as *mut u64};let raw:usize=unsafe{output as usize};
+        if !native_vector_read(current,i,unsafe{raw as *mut u8},1) {return native_kernel_qemu_exit(11);}
+        sum+=value;i+=1;
+    }
+    if sum!=1992823 || native_vector_read(current,1956,null,1) {return native_kernel_qemu_exit(12);}
+    if !native_vector_shrink(v) || sequence.capacity!=1956 || native_vector_view_current(current) {return native_kernel_qemu_exit(13);}
+    native_kernel_interrupts_restore(flags);
+    native_kernel_serial_write("SOTLAS: dynamic words and checked views OK\n",43);
+    let final_flags:u64=native_kernel_interrupts_disable();
+    if (final_flags&512)==0 || unsafe{interrupts}==0 || !native_vector_close(v) || native_vector_view_current(current)
+        || !native_kernel_heap_close(p) || native_kernel_pages_free()!=baseline {return native_kernel_qemu_exit(14);}
+    native_kernel_timer_stop();unsafe{owner=null;}native_kernel_interrupts_restore(final_flags);
+    native_kernel_serial_write("SOTLAS: collections IRQ and heap reclamation OK\n",48);
+    return native_kernel_qemu_exit(42);
+}

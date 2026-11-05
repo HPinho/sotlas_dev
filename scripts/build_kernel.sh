@@ -2,24 +2,28 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 4 ]]; then
-    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap]' >&2
+    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap|--collections]' >&2
     exit 1
 fi
 run=false
 interrupts=false
 memory=false
 heap=false
+collections=false
 for option in "${@:3}"; do
     case "$option" in
         --run) [[ $run == false ]] || exit 1; run=true ;;
         --interrupts) [[ $interrupts == false ]] || exit 1; interrupts=true ;;
         --memory) [[ $memory == false ]] || exit 1; memory=true ;;
         --heap) [[ $heap == false ]] || exit 1; heap=true ;;
+        --collections) [[ $collections == false ]] || exit 1; collections=true ;;
         *) echo "Unknown kernel option: $option" >&2; exit 1 ;;
     esac
 done
 [[ $memory == false || $interrupts == false ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 [[ $heap == false || ( $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
+[[ $collections == false || ( $heap == false && $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
+if [[ $collections == true ]]; then heap=true; fi
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compiler="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
 [[ -x "$compiler" ]] || { echo 'An executable native compiler is required.' >&2; exit 1; }
@@ -37,6 +41,7 @@ example=native_kernel_boot
 if [[ $interrupts == true ]]; then example=native_kernel_interrupts; fi
 if [[ $memory == true ]]; then example=native_kernel_memory; fi
 if [[ $heap == true ]]; then example=native_kernel_heap; fi
+if [[ $collections == true ]]; then example=native_kernel_collections; fi
 cp "$repository/examples/$example/main.sotlas" "$output/src/main.sotlas"
 cp "$repository/runtime/native/kernel_x86.sotlas" "$output/src/sotlas/runtime/kernel_x86.sotlas"
 if [[ $memory == true || $heap == true ]]; then
@@ -47,6 +52,9 @@ if [[ $heap == true ]]; then
     for module in managed heap kernel_heap; do
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
     done
+fi
+if [[ $collections == true ]]; then
+    cp "$repository/runtime/native/vector.sotlas" "$output/src/sotlas/runtime/vector.sotlas"
 fi
 if [[ $memory == true ]]; then
     printf 'SOTLAS-MODULE-RESERVED\n42' > "$output/boot-module.bin"
@@ -70,7 +78,11 @@ if [[ -n "$qemu" ]]; then
     set -e
     cat "$output/serial.log"
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
-    if [[ $heap == true ]]; then
+    if [[ $collections == true ]]; then
+        grep -Fxq 'SOTLAS: dynamic words and checked views OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: collections IRQ and heap reclamation OK' "$output/serial.log"
+        echo 'Kernel collections verified: growing POD vector, checked views, interrupt serialization and reclamation.'
+    elif [[ $heap == true ]]; then
         grep -Fxq 'SOTLAS: heap resize and failure preservation OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: heap IRQ allocation and exhaustion OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: heap pages returned and stale handles rejected' "$output/serial.log"

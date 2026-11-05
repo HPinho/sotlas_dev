@@ -921,6 +921,8 @@ module syscall_probe;
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',memory=True)
         verify_kernel_image(native_stage3,self.directory / "kernel heap cases",
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',heap=True)
+        verify_kernel_image(native_stage3,self.directory / "kernel collection cases",
+                            run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',collections=True)
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

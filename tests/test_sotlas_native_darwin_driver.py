@@ -351,6 +351,7 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_kernel_image(stage3,self.directory / "kernel interrupt cases",interrupts=True)
         verify_kernel_image(stage3,self.directory / "kernel memory cases",memory=True)
         verify_kernel_image(stage3,self.directory / "kernel heap cases",heap=True)
+        verify_kernel_image(stage3,self.directory / "kernel collection cases",collections=True)
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"
