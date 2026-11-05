@@ -1,0 +1,154 @@
+module sotlas::runtime::vector;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::managed::*;
+
+// Explicitly owned POD elements. Stride/alignment describe bytes, not a generic
+// language type. The stable descriptor must outlive all borrowed views.
+pub struct NativeVector {
+    pub heap:*mut NativeHeap;pub storage:NativeHeapHandle;pub length:usize;
+    pub capacity:usize;pub stride:usize;pub alignment:usize;pub revision:u64;pub live:bool;
+}
+pub struct NativeVectorView {pub owner:*const NativeVector;pub revision:u64;pub first:usize;pub count:usize;}
+pub fn native_vector_empty()->NativeVector {
+    return NativeVector{heap:null,storage:native_heap_invalid(),length:0,capacity:0,stride:0,alignment:0,revision:1,live:false};
+}
+fn vector_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if n==0 || m==0 {return false;}if a>=b {return a-b<m;}return b-a<n;
+}
+fn vector_descriptor(p:*const NativeVector,heap:*const NativeHeap)->bool {
+    if p==null || !native_heap_shape(heap) {return false;}
+    let address:usize=unsafe{p as usize};let maximum:usize=18446744073709551615;
+    if span_of::<NativeVector>()>maximum-address || address%align_of::<NativeVector>()!=0 {return false;}
+    unsafe{return !vector_overlap(address,span_of::<NativeVector>(),heap.data as usize,heap.capacity)
+        && !vector_overlap(address,span_of::<NativeVector>(),heap as usize,span_of::<NativeHeap>())
+        && !vector_overlap(address,span_of::<NativeVector>(),heap.slots as usize,(heap.count as usize)*span_of::<NativeHeapSlot>());}
+}
+pub fn native_vector_shape(p:*const NativeVector)->bool {
+    if p==null {return false;}
+    unsafe {
+        if !p.live || !vector_descriptor(p,p.heap) || p.revision==0 || p.length>p.capacity
+            || p.stride==0 || p.stride>4096 || p.alignment==0 || p.alignment>4096
+            || (p.alignment&(p.alignment-1))!=0 || p.stride%p.alignment!=0
+            || p.capacity>18446744073709551615/p.stride {return false;}
+        if p.capacity==0 {return p.storage.owner==null;}
+        return p.storage.owner==p.heap && native_heap_length(p.storage)==p.capacity*p.stride;
+    }
+}
+pub fn native_vector_open(mut p:*mut NativeVector,heap:*mut NativeHeap,stride:usize,alignment:usize)->bool {
+    if !vector_descriptor(p,heap) || stride==0 || stride>4096 || alignment==0 || alignment>4096
+        || (alignment&(alignment-1))!=0 || stride%alignment!=0 {return false;}
+    unsafe {
+        if p.live || p.revision==0 || p.revision==18446744073709551615 {return false;}
+        p.heap=heap;p.storage=native_heap_invalid();p.length=0;p.capacity=0;
+        p.stride=stride;p.alignment=alignment;p.revision+=1;p.live=true;
+    }return true;
+}
+fn vector_mutable(p:*const NativeVector)->bool {
+    return native_vector_shape(p) && unsafe{p.revision!=18446744073709551615};
+}
+// Change capacity without publishing a revision. All fallible work happens
+// before the descriptor commit. Exact allocation is tried after geometric growth.
+fn vector_reserve(mut p:*mut NativeVector,needed:usize)->bool {
+    unsafe {
+        if needed<=p.capacity {return true;}
+        let maximum:usize=18446744073709551615/p.stride;if needed>maximum {return false;}
+        let mut capacity:usize=p.capacity;if capacity==0 {capacity=4;if capacity>maximum {capacity=needed;}}
+        while capacity<needed {if capacity>maximum/2 {capacity=needed;}else{capacity*=2;}}
+        let mut storage:NativeHeapHandle=native_heap_invalid();
+        if p.capacity==0 {storage=native_heap_allocate(p.heap,capacity*p.stride,p.alignment,false);}
+        else {storage=native_heap_resize(p.storage,capacity*p.stride,p.alignment,false);}
+        if storage.owner==null && capacity!=needed {
+            capacity=needed;
+            if p.capacity==0 {storage=native_heap_allocate(p.heap,capacity*p.stride,p.alignment,false);}
+            else {storage=native_heap_resize(p.storage,capacity*p.stride,p.alignment,false);}
+        }
+        if storage.owner==null {return false;}p.storage=storage;p.capacity=capacity;return true;
+    }
+}
+pub fn native_vector_reserve(mut p:*mut NativeVector,needed:usize)->bool {
+    if !vector_mutable(p) {return false;}unsafe{if needed<=p.capacity {return true;}}
+    if !vector_reserve(p,needed) {return false;}unsafe{p.revision+=1;}return true;
+}
+pub fn native_vector_view(p:*const NativeVector,first:usize,count:usize)->NativeVectorView {
+    if native_vector_shape(p) {unsafe{if first<=p.length && count<=p.length-first {
+        return NativeVectorView{owner:p,revision:p.revision,first:first,count:count};
+    }}}
+    return NativeVectorView{owner:null,revision:0,first:0,count:0};
+}
+pub fn native_vector_view_current(view:NativeVectorView)->bool {
+    if !native_vector_shape(view.owner) || view.revision==0 {return false;}
+    unsafe{return view.revision==view.owner.revision && view.first<=view.owner.length && view.count<=view.owner.length-view.first;}
+}
+pub fn native_vector_read(view:NativeVectorView,offset:usize,destination:*mut u8,count:usize)->bool {
+    if !native_vector_view_current(view) || offset>view.count || count>view.count-offset {return false;}
+    if count==0 {return true;}
+    unsafe {let p:*const NativeVector=view.owner;
+        if vector_overlap(destination as usize,count*p.stride,native_heap_address(p.storage) as usize,p.capacity*p.stride) {return false;}
+        return native_heap_read(p.storage,(view.first+offset)*p.stride,destination,count*p.stride);}
+}
+
+// Self-insertion snapshots only initialized elements before resizing/shifting.
+// A snapshot or capacity failure leaves contents, handle and revision unchanged.
+pub fn native_vector_insert(mut p:*mut NativeVector,index:usize,source:*const u8,count:usize)->bool {
+    if !vector_mutable(p) {return false;}
+    unsafe {
+        if index>p.length || count>(18446744073709551615/p.stride)-p.length {return false;}
+        if count==0 {return true;}
+        let size:usize=count*p.stride;let address:usize=source as usize;
+        if address==0 || size>18446744073709551615-address {return false;}
+        let mut input:*const u8=source;let mut snapshot:NativeHeapHandle=native_heap_invalid();
+        let data:*mut u8=native_heap_address(p.storage);let base:usize=data as usize;
+        if vector_overlap(address,size,base,p.capacity*p.stride) {
+            if address<base || address-base>p.length*p.stride || size>p.length*p.stride-(address-base) {return false;}
+            snapshot=native_heap_allocate(p.heap,size,p.alignment,false);
+            if snapshot.owner==null {return false;}
+            if !native_heap_write(snapshot,0,source,size) {native_heap_release(snapshot,false);return false;}
+            input=native_heap_address(snapshot);
+        }
+        if !vector_reserve(p,p.length+count) {
+            if snapshot.owner!=null {native_heap_release(snapshot,false);}return false;
+        }
+        let output:*mut u8=native_heap_address(p.storage);
+        native_memory_move(output+(index+count)*p.stride,output+index*p.stride,(p.length-index)*p.stride);
+        native_memory_move(output+index*p.stride,input,size);
+        if snapshot.owner!=null {native_heap_release(snapshot,false);}
+        p.length+=count;p.revision+=1;return true;
+    }
+}
+pub fn native_vector_append(p:*mut NativeVector,source:*const u8,count:usize)->bool {
+    if !native_vector_shape(p) {return false;}return native_vector_insert(p,unsafe{p.length},source,count);
+}
+pub fn native_vector_remove(mut p:*mut NativeVector,index:usize,count:usize)->bool {
+    if !vector_mutable(p) {return false;}
+    unsafe {
+        if index>p.length || count>p.length-index {return false;}if count==0 {return true;}
+        let data:*mut u8=native_heap_address(p.storage);let tail:usize=p.length-index-count;
+        native_memory_move(data+index*p.stride,data+(index+count)*p.stride,tail*p.stride);
+        p.length-=count;p.revision+=1;return true;
+    }
+}
+pub fn native_vector_set(mut p:*mut NativeVector,index:usize,source:*const u8)->bool {
+    if !vector_mutable(p) {return false;}
+    unsafe{if index>=p.length || !native_heap_write(p.storage,index*p.stride,source,p.stride) {return false;}p.revision+=1;}return true;
+}
+pub fn native_vector_clear(mut p:*mut NativeVector)->bool {
+    if !vector_mutable(p) {return false;}unsafe{if p.length!=0 {p.length=0;p.revision+=1;}}return true;
+}
+pub fn native_vector_shrink(mut p:*mut NativeVector)->bool {
+    if !vector_mutable(p) {return false;}
+    unsafe {
+        if p.capacity==p.length {return true;}
+        if p.length==0 {
+            if p.capacity!=0 && !native_heap_release(p.storage,true) {return false;}
+            p.storage=native_heap_invalid();p.capacity=0;p.revision+=1;return true;
+        }
+        let storage:NativeHeapHandle=native_heap_resize(p.storage,p.length*p.stride,p.alignment,false);
+        if storage.owner==null {return false;}p.storage=storage;p.capacity=p.length;p.revision+=1;return true;
+    }
+}
+pub fn native_vector_close(mut p:*mut NativeVector)->bool {
+    if !native_vector_shape(p) {return false;}
+    unsafe{if p.capacity!=0 && !native_heap_release(p.storage,true) {return false;}
+        p.storage=native_heap_invalid();p.capacity=0;p.length=0;p.live=false;
+        if p.revision!=18446744073709551615 {p.revision+=1;}}return true;
+}

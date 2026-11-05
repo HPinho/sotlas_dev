@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented capability: [dynamic POD vectors](native_vector.md) adds heap-backed
+sequences, failure-preserving growth, self-insertion and revision-checked views.
+The kernel integration explicitly serializes heap borrows with IF clear.
+Language generics and resource-bearing container cleanup remain open.
+
 Implemented capability: [page-backed kernel heap](native_kernel_heap.md) adds
 variable-sized buffers, overlap-safe resize, checked read/write and page
 reclamation. Kernel operations restore IF and reject handles from other heaps.
