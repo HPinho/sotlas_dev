@@ -927,6 +927,8 @@ module syscall_probe;
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',collections=True)
         from native_numeric_gate import verify_heap_text
         verify_heap_text(native_stage3,self.directory / "heap text cases")
+        from native_numeric_gate import verify_word_map
+        verify_word_map(native_stage3,self.directory / "word map cases")
         from native_ui_gate import verify_ui
         verify_ui(native_stage3, self.directory / "ui cases")
         source = self.directory / "resolved_stage3_example.sotlas"

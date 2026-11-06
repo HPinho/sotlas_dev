@@ -3,6 +3,7 @@ module examples::native_kernel_collections;
 import sotlas::runtime::heap::*;
 import sotlas::runtime::vector::*;
 import sotlas::runtime::heap_text::*;
+import sotlas::runtime::word_map::*;
 import sotlas::runtime::kernel_heap::*;
 import sotlas::runtime::kernel_memory::*;
 import sotlas::runtime::kernel_x86::*;
@@ -56,6 +57,27 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     native_kernel_serial_write("SOTLAS: dynamic words and checked views OK\n",43);
     let final_flags:u64=native_kernel_interrupts_disable();
     if (final_flags&512)==0 || unsafe{interrupts}==0 || !native_vector_close(v) || native_vector_view_current(current) {return native_kernel_qemu_exit(14);}
+    let mut counts:NativeWordMap=native_word_map_empty();let dictionary:*mut NativeWordMap=unsafe{(&mut counts) as *mut NativeWordMap};
+    if !native_word_map_open(dictionary,q){return native_kernel_qemu_exit(20);}native_kernel_interrupts_restore(final_flags);
+    i=0;while i<6000 {
+        let saved:u64=native_kernel_interrupts_disable();let added:bool=native_word_map_add(dictionary,(i%257) as u64,1);
+        native_kernel_interrupts_restore(saved);if !added{return native_kernel_qemu_exit(21);}i+=1;
+    }
+    let map_flags:u64=native_kernel_interrupts_disable();
+    let mut cursor:NativeWordCursor=native_word_map_cursor(dictionary);let mut total:u64=0;let mut distinct:usize=0;
+    while true {
+        let item:NativeWordItem=native_word_map_next(cursor);if !item.valid{return native_kernel_qemu_exit(22);}if item.done{break;}
+        let mut expected:u64=23;if item.key<89{expected=24;}
+        if item.key>=257 || item.value!=expected{return native_kernel_qemu_exit(23);}
+        total+=item.value;distinct+=1;cursor=item.next;
+    }
+    let old_cursor:NativeWordCursor=native_word_map_cursor(dictionary);
+    if total!=6000 || distinct!=257 || counts.count!=257 || !native_word_map_remove(dictionary,0).found
+        || native_word_map_next(old_cursor).valid || !native_word_map_shrink(dictionary)
+        || native_word_map_get(dictionary,0).found || !native_word_map_close(dictionary){return native_kernel_qemu_exit(24);}
+    native_kernel_interrupts_restore(map_flags);
+    native_kernel_serial_write("SOTLAS: dynamic map histogram OK\n",33);
+    let text_flags:u64=native_kernel_interrupts_disable();
     let mut report:NativeHeapText=native_heap_text_empty();let t:*mut NativeHeapText=unsafe{(&mut report) as *mut NativeHeapText};
     if !native_heap_text_open(t,q) || native_heap_text_append(t,"Sotlas: ",8).status!=0
         || native_heap_text_insert_scalar(t,8,233).status!=0 || native_heap_text_append(t," events=",8).status!=0
@@ -70,7 +92,7 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
         || !native_heap_text_close(t) || native_vector_view_current(view) {return native_kernel_qemu_exit(17);}
     if !native_kernel_heap_close(p) || native_kernel_pages_free()!=baseline {return native_kernel_qemu_exit(18);}
     native_kernel_serial_write("SOTLAS: growing UTF-8 report OK\n",32);
-    native_kernel_timer_stop();unsafe{owner=null;}native_kernel_interrupts_restore(final_flags);
+    native_kernel_timer_stop();unsafe{owner=null;}native_kernel_interrupts_restore(text_flags);
     native_kernel_serial_write("SOTLAS: collections IRQ and heap reclamation OK\n",48);
     return native_kernel_qemu_exit(42);
 }

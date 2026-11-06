@@ -418,6 +418,13 @@
       "status": "EXPERIMENTAL",
       "source": "examples/native_heap_text/main.sotlas",
       "verification": "tests/test_sotlas_native_heap_text.py; tests/native_numeric_gate.py::verify_heap_text; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
+      "id": "native-word-map",
+      "document": "docs/native_word_map.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_word_map/main.sotlas",
+      "verification": "tests/test_sotlas_native_word_map.py; tests/native_numeric_gate.py::verify_word_map; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     }
   ]
 }

@@ -75,6 +75,11 @@ editing, checked slices, self-edits and atomic u64/i64 formatting over those
 vectors. Hosted programs and the kernel use the same module. This is an
 explicit library owner; builtin string parity and automatic cleanup remain open.
 
+[Dynamic word maps](native_word_map.md) add heap-backed u64 lookup/update,
+checked counters, removal, transactional rehash and revision-checked iteration.
+Hosted and kernel histograms verify counts and cleanup. This remains explicit
+POD library ownership; generic resource-bearing maps and automatic drop are open.
+
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable
 capabilities, not helper count or unweighted checkbox percentages; the requested

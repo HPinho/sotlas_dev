@@ -354,6 +354,8 @@ class NativeDarwinDriverTests(unittest.TestCase):
         verify_kernel_image(stage3,self.directory / "kernel collection cases",collections=True)
         from native_numeric_gate import verify_heap_text
         verify_heap_text(stage3,self.directory / "heap text cases")
+        from native_numeric_gate import verify_word_map
+        verify_word_map(stage3,self.directory / "word map cases")
         from native_ui_gate import verify_ui
         verify_ui(stage3, self.directory / "ui cases")
         source = self.directory / "stage3_program.sotlas"

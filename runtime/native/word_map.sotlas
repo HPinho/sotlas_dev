@@ -1,0 +1,193 @@
+module sotlas::runtime::word_map;
+import sotlas::runtime::heap::*;
+
+// Single-threaded u64 -> u64 owner. Empty/live/deleted bucket states are
+// separate from keys, so zero and U64_MAX are ordinary keys and values.
+pub struct NativeWordBucket {pub state:u64;pub key:u64;pub value:u64;}
+pub struct NativeWordMap {
+    pub heap:*mut NativeHeap;pub storage:NativeHeapHandle;pub capacity:usize;
+    pub count:usize;pub deleted:usize;pub revision:u64;pub live:bool;
+}
+pub struct NativeWordLookup {pub valid:bool;pub found:bool;pub value:u64;}
+pub struct NativeWordCursor {pub owner:*const NativeWordMap;pub revision:u64;pub next:usize;}
+pub struct NativeWordItem {pub valid:bool;pub done:bool;pub key:u64;pub value:u64;pub next:NativeWordCursor;}
+pub fn native_word_map_empty()->NativeWordMap {
+    return NativeWordMap{heap:null,storage:native_heap_invalid(),capacity:0,count:0,deleted:0,revision:1,live:false};
+}
+pub fn native_word_map_hash(key:u64)->u64 {
+    let mut mixed:u64=key;mixed=(mixed^(mixed>>30))*13787848793156543929;
+    mixed=(mixed^(mixed>>27))*10723151780598845931;return mixed^(mixed>>31);
+}
+fn word_map_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if n==0 || m==0 {return false;}if a>=b {return a-b<m;}return b-a<n;
+}
+fn word_map_descriptor(p:*const NativeWordMap,heap:*const NativeHeap)->bool {
+    if p==null || !native_heap_shape(heap) {return false;}
+    let control:usize=unsafe{p as usize};let size:usize=span_of::<NativeWordMap>();
+    if control%align_of::<NativeWordMap>()!=0 || size>18446744073709551615-control {return false;}
+    unsafe{return !word_map_overlap(control,size,heap as usize,span_of::<NativeHeap>())
+        && !word_map_overlap(control,size,heap.data as usize,heap.capacity)
+        && !word_map_overlap(control,size,heap.slots as usize,(heap.count as usize)*span_of::<NativeHeapSlot>());}
+}
+pub fn native_word_map_open(mut p:*mut NativeWordMap,heap:*mut NativeHeap)->bool {
+    if !word_map_descriptor(p,heap) {return false;}
+    unsafe {
+        if p.live || p.revision==0 || p.revision==18446744073709551615 {return false;}
+        p.heap=heap;p.storage=native_heap_invalid();p.capacity=0;p.count=0;p.deleted=0;p.revision+=1;p.live=true;
+    }return true;
+}
+pub fn native_word_map_shape(p:*const NativeWordMap)->bool {
+    if p==null {return false;}
+    unsafe {
+        if !p.live || p.revision==0 || !word_map_descriptor(p,p.heap) {return false;}
+        if p.capacity==0 {return p.storage.owner==null && p.count==0 && p.deleted==0;}
+        return p.capacity>=8 && (p.capacity&(p.capacity-1))==0
+            && p.capacity<=18446744073709551615/span_of::<NativeWordBucket>()
+            && p.count<=p.capacity-p.capacity/4 && p.deleted<=p.capacity-p.count
+            && p.storage.owner==p.heap && native_heap_length(p.storage)==p.capacity*span_of::<NativeWordBucket>();
+    }
+}
+fn word_map_table(storage:NativeHeapHandle)->*mut NativeWordBucket {
+    let address:usize=unsafe{native_heap_address(storage) as usize};return unsafe{address as *mut NativeWordBucket};
+}
+fn word_map_find(p:*const NativeWordMap,key:u64)->usize {
+    unsafe {
+        if p.capacity==0 {return 0;}
+        let table:*const NativeWordBucket=word_map_table(p.storage);let mut at:usize=(native_word_map_hash(key) as usize)&(p.capacity-1);
+        let mut probes:usize=0;while probes<p.capacity {
+            let bucket:*const NativeWordBucket=table+at;
+            if bucket.state==0 {return p.capacity;}if bucket.state==1 && bucket.key==key {return at;}
+            at=(at+1)&(p.capacity-1);probes+=1;
+        }return p.capacity;
+    }
+}
+pub fn native_word_map_get(p:*const NativeWordMap,key:u64)->NativeWordLookup {
+    if !native_word_map_shape(p) {return NativeWordLookup{valid:false,found:false,value:0};}
+    let at:usize=word_map_find(p,key);
+    unsafe {
+        if at==p.capacity {return NativeWordLookup{valid:true,found:false,value:0};}
+        let bucket:*const NativeWordBucket=word_map_table(p.storage)+at;
+        return NativeWordLookup{valid:true,found:true,value:bucket.value};
+    }
+}
+fn word_map_place(storage:NativeHeapHandle,capacity:usize,key:u64,value:u64)->bool {
+    let table:*mut NativeWordBucket=word_map_table(storage);
+    let mut at:usize=(native_word_map_hash(key) as usize)&(capacity-1);let mut probes:usize=0;
+    unsafe {while probes<capacity {
+        let mut bucket:*mut NativeWordBucket=table+at;
+        if bucket.state!=1 {bucket.key=key;bucket.value=value;bucket.state=1;return true;}
+        at=(at+1)&(capacity-1);probes+=1;
+    }}return false;
+}
+fn word_map_capacity(entries:usize)->usize {
+    let maximum:usize=18446744073709551615/span_of::<NativeWordBucket>();let mut capacity:usize=8;
+    while entries>capacity-capacity/4 {if capacity>maximum/2 {return 0;}capacity*=2;}return capacity;
+}
+// Build a separate zeroed table, then commit. Failure never publishes a new
+// allocation or invalidates cursors. Both tables coexist during rehash.
+fn word_map_rehash(mut p:*mut NativeWordMap,capacity:usize)->bool {
+    unsafe {
+        let next:NativeHeapHandle=native_heap_calloc(p.heap,capacity,span_of::<NativeWordBucket>(),align_of::<NativeWordBucket>());
+        if next.owner==null {return false;}
+        let old:NativeHeapHandle=p.storage;let table:*const NativeWordBucket=word_map_table(old);
+        let mut observed:usize=0;let mut i:usize=0;
+        while i<p.capacity {
+            let bucket:*const NativeWordBucket=table+i;
+            if bucket.state>2 {native_heap_release(next,true);return false;}
+            if bucket.state==1 {
+                if !word_map_place(next,capacity,bucket.key,bucket.value) {native_heap_release(next,true);return false;}
+                observed+=1;
+            }i+=1;
+        }
+        if observed!=p.count {native_heap_release(next,true);return false;}
+        if p.capacity!=0 && !native_heap_release(old,true) {native_heap_release(next,true);return false;}
+        p.storage=next;p.capacity=capacity;p.deleted=0;return true;
+    }
+}
+fn word_map_mutable(p:*const NativeWordMap)->bool {return native_word_map_shape(p) && unsafe{p.revision!=18446744073709551615};}
+pub fn native_word_map_reserve(mut p:*mut NativeWordMap,entries:usize)->bool {
+    if !word_map_mutable(p) {return false;}
+    unsafe {
+        if entries<=p.capacity-p.capacity/4 {return true;}
+        let capacity:usize=word_map_capacity(entries);if capacity==0 || !word_map_rehash(p,capacity) {return false;}
+        p.revision+=1;return true;
+    }
+}
+pub fn native_word_map_set(mut p:*mut NativeWordMap,key:u64,value:u64)->bool {
+    if !word_map_mutable(p) {return false;}let at:usize=word_map_find(p,key);
+    unsafe {
+        if at!=p.capacity {let mut bucket:*mut NativeWordBucket=word_map_table(p.storage)+at;
+            bucket.value=value;p.revision+=1;return true;}
+        if p.count+1>p.capacity-p.capacity/4 {
+            let capacity:usize=word_map_capacity(p.count+1);if capacity==0 || !word_map_rehash(p,capacity) {return false;}
+        }
+        // count is below the load limit, so a free/deleted bucket must exist.
+        let table:*mut NativeWordBucket=word_map_table(p.storage);
+        let mut index:usize=(native_word_map_hash(key) as usize)&(p.capacity-1);
+        let mut probes:usize=0;while probes<p.capacity {
+            let mut bucket:*mut NativeWordBucket=table+index;
+            if bucket.state!=1 {
+                if bucket.state==2 {p.deleted-=1;}bucket.key=key;bucket.value=value;bucket.state=1;
+                p.count+=1;p.revision+=1;return true;
+            }index=(index+1)&(p.capacity-1);probes+=1;
+        }
+    }return false;
+}
+pub fn native_word_map_add(p:*mut NativeWordMap,key:u64,amount:u64)->bool {
+    let old:NativeWordLookup=native_word_map_get(p,key);if !old.valid || amount>18446744073709551615-old.value {return false;}
+    return native_word_map_set(p,key,old.value+amount);
+}
+pub fn native_word_map_remove(mut p:*mut NativeWordMap,key:u64)->NativeWordLookup {
+    if !word_map_mutable(p) {return NativeWordLookup{valid:false,found:false,value:0};}
+    let at:usize=word_map_find(p,key);unsafe {
+        if at==p.capacity {return NativeWordLookup{valid:true,found:false,value:0};}
+        let mut bucket:*mut NativeWordBucket=word_map_table(p.storage)+at;let value:u64=bucket.value;
+        bucket.state=2;bucket.key=0;bucket.value=0;p.count-=1;p.deleted+=1;p.revision+=1;
+        return NativeWordLookup{valid:true,found:true,value:value};
+    }
+}
+pub fn native_word_map_shrink(mut p:*mut NativeWordMap)->bool {
+    if !word_map_mutable(p) {return false;}unsafe {
+        if p.capacity==0 {return true;}
+        if p.count==0 {
+            if !native_heap_release(p.storage,true) {return false;}
+            p.storage=native_heap_invalid();p.capacity=0;p.deleted=0;p.revision+=1;return true;
+        }
+        let capacity:usize=word_map_capacity(p.count);
+        if capacity==p.capacity && p.deleted==0 {return true;}
+        if !word_map_rehash(p,capacity) {return false;}p.revision+=1;return true;
+    }
+}
+pub fn native_word_map_clear(mut p:*mut NativeWordMap)->bool {
+    if !word_map_mutable(p) {return false;}unsafe {
+        if p.count==0 && p.deleted==0 {return true;}
+        let table:*mut NativeWordBucket=word_map_table(p.storage);let mut i:usize=0;
+        while i<p.capacity {*(table+i)=NativeWordBucket{state:0,key:0,value:0};i+=1;}
+        p.count=0;p.deleted=0;p.revision+=1;
+    }return true;
+}
+pub fn native_word_map_close(mut p:*mut NativeWordMap)->bool {
+    if !native_word_map_shape(p) {return false;}unsafe {
+        if p.capacity!=0 && !native_heap_release(p.storage,true) {return false;}
+        p.storage=native_heap_invalid();p.capacity=0;p.count=0;p.deleted=0;p.live=false;
+        if p.revision!=18446744073709551615 {p.revision+=1;}
+    }return true;
+}
+pub fn native_word_map_cursor(p:*const NativeWordMap)->NativeWordCursor {
+    if !native_word_map_shape(p) {return NativeWordCursor{owner:null,revision:0,next:0};}
+    return NativeWordCursor{owner:p,revision:unsafe{p.revision},next:0};
+}
+pub fn native_word_map_next(cursor:NativeWordCursor)->NativeWordItem {
+    let invalid:NativeWordItem=NativeWordItem{valid:false,done:false,key:0,value:0,next:cursor};
+    if !native_word_map_shape(cursor.owner) || cursor.revision==0 {return invalid;}
+    let p:*const NativeWordMap=cursor.owner;unsafe {
+        if cursor.revision!=p.revision || cursor.next>p.capacity {return invalid;}
+        let table:*const NativeWordBucket=word_map_table(p.storage);let mut at:usize=cursor.next;
+        while at<p.capacity {
+            let bucket:*const NativeWordBucket=table+at;at+=1;
+            if bucket.state==1 {return NativeWordItem{valid:true,done:false,key:bucket.key,value:bucket.value,
+                next:NativeWordCursor{owner:p,revision:cursor.revision,next:at}};}
+        }
+        return NativeWordItem{valid:true,done:true,key:0,value:0,next:NativeWordCursor{owner:p,revision:cursor.revision,next:p.capacity}};
+    }
+}
