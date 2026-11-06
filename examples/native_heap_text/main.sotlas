@@ -1,0 +1,23 @@
+module examples::native_heap_text;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::heap_text::*;
+import sotlas::runtime::vector::*;
+
+// The same text API works in hosted programs and the barecore collection demo.
+pub fn main_entry()->u32 {
+    let mut memory:[u8;4096]=0;let data:*mut u8=unsafe{memory as *mut u8};
+    let mut metadata:[u64;128]=0;let words:*mut u64=unsafe{metadata as *mut u64};
+    let address:usize=unsafe{words as usize};let slots:*mut NativeHeapSlot=unsafe{address as *mut NativeHeapSlot};
+    let mut heap:NativeHeap=native_heap_empty();let h:*mut NativeHeap=unsafe{(&mut heap) as *mut NativeHeap};
+    let mut report:NativeHeapText=native_heap_text_empty();let t:*mut NativeHeapText=unsafe{(&mut report) as *mut NativeHeapText};
+    if !native_heap_open(h,data,4096,slots,32) || !native_heap_text_open(t,h) {return 1;}
+    if native_heap_text_append(t,"Sotlas: ",8).status!=0 || native_heap_text_insert_scalar(t,8,128578).status!=0
+        || native_heap_text_append(t," total=",7).status!=0 || native_heap_text_append_u64(t,18446744073709551615).status!=0 {return 2;}
+    let old:NativeVectorView=native_heap_text_view(t);
+    if native_heap_text_replace_scalars(t,0,6,"Native",6).status!=0 || native_vector_view_current(old)
+        || native_heap_text_scalar_at(t,8).value!=128578 {return 3;}
+    let slice:NativeVectorView=native_heap_text_slice(t,8,9);let mut scalar:[u8;4]=0;
+    if slice.count!=4 || !native_vector_read(slice,0,unsafe{scalar as *mut u8},4) || scalar[0]!=240 || scalar[3]!=130 {return 4;}
+    if !native_heap_text_close(t) || native_vector_view_current(slice) || heap.used!=0 || !native_heap_close(h) {return 5;}
+    return 42;
+}

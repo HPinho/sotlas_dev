@@ -8,6 +8,11 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 
 
+def verify_heap_text(compiler,output):
+    verify_numeric_pipeline(compiler,output,example='native_heap_text',
+                            modules=('results','managed','text','unicode','utf8_buffer','heap','vector','heap_text'))
+
+
 def verify_numeric_pipeline(compiler, output, example='native_numeric_pipeline', modules=('results',)):
     compiler = Path(compiler).resolve()
     output = Path(output).resolve()

@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented capability: [heap-owned UTF-8 text](native_heap_text.md) adds
+failure-preserving growth/replacement, scalar edits, checked views and 64-bit
+decimal formatting. It runs in hosted programs and the native kernel; builtin
+string parity and automatic ownership cleanup remain open.
+
 Implemented capability: [dynamic POD vectors](native_vector.md) adds heap-backed
 sequences, failure-preserving growth, self-insertion and revision-checked views.
 The kernel integration explicitly serializes heap borrows with IF clear.

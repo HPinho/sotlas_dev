@@ -5,6 +5,11 @@ Sotlas heap. It supports geometric growth with exact-capacity fallback, append,
 insertion, removal, replacement, checked reads, shrinking, clear and close.
 The implementation runs in native applications and in the kernel.
 
+`native_vector_replace` performs an atomic element-range splice: deletion,
+insertion and replacement share one preflight and commit. It supports aliased
+initialized sources through a temporary snapshot and can shrink without growing
+capacity. It also backs the [dynamic UTF-8 text owner](native_heap_text.md).
+
 ## Elements and ownership
 
 Initialize a stable `NativeVector` descriptor with `native_vector_empty()`,

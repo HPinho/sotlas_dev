@@ -51,6 +51,8 @@
 
 [Dynamic collections on the native kernel heap](examples/native_kernel_collections/README.md)
 
+[Growing UTF-8 text for native programs and kernels](examples/native_heap_text/README.md)
+
 [![CI](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml/badge.svg)](https://github.com/HPinho/sotlas_dev/actions)
 [![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](LICENSE)
 [![Target](https://img.shields.io/badge/target-x86__64--freestanding-orange.svg)](#)
