@@ -1,0 +1,124 @@
+module sotlas::runtime::heap_text;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::vector::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::results::*;
+
+// Explicit UTF-8 owner over a byte vector. Keep the descriptor stable and use
+// its text APIs, not raw vector edits. Views retain the vector's revision.
+pub struct NativeHeapText {pub bytes:NativeVector;}
+pub fn native_heap_text_empty()->NativeHeapText {return NativeHeapText{bytes:native_vector_empty()};}
+fn heap_text_vector(t:*const NativeHeapText)->*const NativeVector {
+    let address:usize=unsafe{t as usize}+field_offset!(NativeHeapText,bytes);return unsafe{address as *const NativeVector};
+}
+fn heap_text_mut(t:*mut NativeHeapText)->*mut NativeVector {
+    let address:usize=unsafe{t as usize}+field_offset!(NativeHeapText,bytes);return unsafe{address as *mut NativeVector};
+}
+pub fn native_heap_text_open(t:*mut NativeHeapText,heap:*mut NativeHeap)->bool {
+    if t==null {return false;}return native_vector_open(heap_text_mut(t),heap,1,1);
+}
+fn heap_text_shape(t:*const NativeHeapText)->bool {
+    if t==null {return false;}let v:*const NativeVector=heap_text_vector(t);
+    return native_vector_shape(v) && unsafe{v.stride==1 && v.alignment==1 && v.length<=4294967295};
+}
+fn heap_text_validate(data:*const u8,length:usize)->NativeU32Result {
+    if data==null && length!=0 {return native_u32_error(1,0);}
+    let address:usize=unsafe{data as usize};
+    if length>4294967295 || length>18446744073709551615-address {return native_u32_error(7,0);}
+    let mut at:usize=0;let mut count:u32=0;
+    while at<length {let scalar:NativeUtf8Scalar=native_utf8_scalar(data,length,at);
+        if !scalar.valid {return native_u32_error(8,at);}at=scalar.next;count+=1;}
+    return native_u32_ok(count);
+}
+pub fn native_heap_text_check(t:*const NativeHeapText)->NativeU32Result {
+    if !heap_text_shape(t) {return native_u32_error(7,0);}
+    let v:*const NativeVector=heap_text_vector(t);unsafe{return heap_text_validate(native_heap_address(v.storage),v.length);}
+}
+pub fn native_heap_text_view(t:*const NativeHeapText)->NativeVectorView {
+    if native_heap_text_check(t).status!=0 {return NativeVectorView{owner:null,revision:0,first:0,count:0};}
+    let v:*const NativeVector=heap_text_vector(t);return native_vector_view(v,0,unsafe{v.length});
+}
+pub fn native_heap_text_scalar_offset(t:*const NativeHeapText,index:u32)->NativeU32Result {
+    let count:u32=native_heap_text_check(t)?;if index>count {return native_u32_error(7,index as usize);}
+    let v:*const NativeVector=heap_text_vector(t);let data:*const u8=native_heap_address(unsafe{v.storage});
+    let length:usize=unsafe{v.length};let mut at:usize=0;let mut i:u32=0;
+    while i<index {let scalar:NativeUtf8Scalar=native_utf8_scalar(data,length,at);at=scalar.next;i+=1;}
+    return native_u32_ok(at as u32);
+}
+pub fn native_heap_text_scalar_at(t:*const NativeHeapText,index:u32)->NativeU32Result {
+    let at:u32=native_heap_text_scalar_offset(t,index)?;let v:*const NativeVector=heap_text_vector(t);
+    if (at as usize)==unsafe{v.length} {return native_u32_error(7,index as usize);}
+    let scalar:NativeUtf8Scalar=native_utf8_scalar(native_heap_address(unsafe{v.storage}),unsafe{v.length},at as usize);
+    return native_u32_ok(scalar.scalar);
+}
+pub fn native_heap_text_slice(t:*const NativeHeapText,start:u32,end:u32)->NativeVectorView {
+    let invalid:NativeVectorView=NativeVectorView{owner:null,revision:0,first:0,count:0};
+    if start>end {return invalid;}
+    let first:NativeU32Result=native_heap_text_scalar_offset(t,start);let last:NativeU32Result=native_heap_text_scalar_offset(t,end);
+    if first.status!=0 || last.status!=0 {return invalid;}
+    return native_vector_view(heap_text_vector(t),first.value as usize,(last.value-first.value) as usize);
+}
+pub fn native_heap_text_replace(t:*mut NativeHeapText,start:usize,end:usize,data:*const u8,length:usize)->NativeU32Result {
+    native_heap_text_check(t)?;let v:*mut NativeVector=heap_text_mut(t);
+    unsafe {
+        if start>end || end>v.length || length>4294967295-(v.length-(end-start))
+            || v.revision==18446744073709551615 {return native_u32_error(7,start);}
+        let backing:*const u8=native_heap_address(v.storage);
+        if start<v.length && *(backing+start)>=128 && *(backing+start)<=191 {return native_u32_error(8,start);}
+        if end<v.length && *(backing+end)>=128 && *(backing+end)<=191 {return native_u32_error(8,end);}
+        let source:usize=data as usize;let base:usize=backing as usize;
+        if length!=0 && ((source>=base && source-base<v.capacity) || (source<base && base-source<length)) {
+            if source<base || source-base>v.length || length>v.length-(source-base) {return native_u32_error(7,0);}
+        }
+        heap_text_validate(data,length)?;
+        if !native_vector_replace(v,start,end-start,data,length) {return native_u32_error(10,start);}
+        return native_u32_ok(v.length as u32);
+    }
+}
+pub fn native_heap_text_replace_scalars(t:*mut NativeHeapText,start:u32,end:u32,data:*const u8,length:usize)->NativeU32Result {
+    if start>end {return native_u32_error(7,start as usize);}
+    let first:u32=native_heap_text_scalar_offset(t,start)?;let last:u32=native_heap_text_scalar_offset(t,end)?;
+    return native_heap_text_replace(t,first as usize,last as usize,data,length);
+}
+pub fn native_heap_text_append(t:*mut NativeHeapText,data:*const u8,length:usize)->NativeU32Result {
+    if !heap_text_shape(t) {return native_u32_error(7,0);}
+    let v:*const NativeVector=heap_text_vector(t);let end:usize=unsafe{v.length};return native_heap_text_replace(t,end,end,data,length);
+}
+pub fn native_heap_text_append_from(t:*mut NativeHeapText,source:*const NativeHeapText)->NativeU32Result {
+    native_heap_text_check(source)?;let v:*const NativeVector=heap_text_vector(source);
+    return native_heap_text_append(t,native_heap_address(unsafe{v.storage}),unsafe{v.length});
+}
+pub fn native_heap_text_insert_scalar(t:*mut NativeHeapText,index:u32,value:u32)->NativeU32Result {
+    let mut encoded:[u8;4]=0;let data:*mut u8=unsafe{encoded as *mut u8};
+    let mut buffer:NativeUtf8Buffer=native_utf8_buffer_open(data,4);
+    let length:u32=native_utf8_buffer_append_scalar(unsafe{(&mut buffer) as *mut NativeUtf8Buffer},value)?;
+    return native_heap_text_replace_scalars(t,index,index,data,length as usize);
+}
+pub fn native_heap_text_remove_scalar(t:*mut NativeHeapText,index:u32)->NativeU32Result {
+    let value:u32=native_heap_text_scalar_at(t,index)?;
+    native_heap_text_replace_scalars(t,index,index+1,null,0)?;return native_u32_ok(value);
+}
+pub fn native_heap_text_append_u64(t:*mut NativeHeapText,value:u64)->NativeU32Result {
+    let mut digits:[u8;20]=0;let mut remaining:u64=value;let mut at:usize=20;
+    while true {at-=1;digits[at]=(48+(remaining%10)) as u8;remaining/=10;if remaining==0 {break;}}
+    let data:*const u8=unsafe{digits as *const u8};return native_heap_text_append(t,data+at,20-at);
+}
+pub fn native_heap_text_append_i64(t:*mut NativeHeapText,value:i64)->NativeU32Result {
+    let mut digits:[u8;21]=0;let mut magnitude:u64=value as u64;let mut at:usize=21;
+    if value<0 {magnitude=(0 as u64)-magnitude;}
+    while true {at-=1;digits[at]=(48+(magnitude%10)) as u8;magnitude/=10;if magnitude==0 {break;}}
+    if value<0 {at-=1;digits[at]=45;}
+    let data:*const u8=unsafe{digits as *const u8};return native_heap_text_append(t,data+at,21-at);
+}
+pub fn native_heap_text_shrink(t:*mut NativeHeapText)->NativeU32Result {
+    native_heap_text_check(t)?;
+    let mutable:*mut NativeVector=heap_text_mut(t);
+    if unsafe{mutable.revision}==18446744073709551615 {return native_u32_error(7,0);}
+    if !native_vector_shrink(mutable) {return native_u32_error(10,0);}
+    let v:*const NativeVector=heap_text_vector(t);return native_u32_ok(unsafe{v.length} as u32);
+}
+pub fn native_heap_text_close(t:*mut NativeHeapText)->bool {
+    if t==null {return false;}return native_vector_close(heap_text_mut(t));
+}

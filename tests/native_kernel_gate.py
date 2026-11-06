@@ -42,7 +42,9 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
         if heap or collections:
             for name in ('managed','heap','kernel_heap'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
-        if collections:shutil.copyfile(ROOT/'runtime/native/vector.sotlas',runtime/'vector.sotlas')
+        if collections:
+            for name in ('vector','results','text','unicode','utf8_buffer','heap_text'):
+                shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
         shutil.copyfile(ROOT/('examples/'+example+'/main.sotlas'),project/'src/main.sotlas')
         run([compiler,'--check-build',project/'src',project/'src/main.sotlas'])
         run([compiler,'--build-obj',project/'kernel.o',project/'src',project/'src/main.sotlas'])
@@ -75,7 +77,8 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
             if memory:args+=['-initrd','boot-module.bin']
             result=subprocess.run(args,cwd=project,capture_output=True,timeout=15)
             assert result.returncode==85,(ram,result.returncode,result.stdout,result.stderr)
-            markers=(b'SOTLAS: dynamic words and checked views OK\n',b'SOTLAS: collections IRQ and heap reclamation OK\n') if collections else (
+            markers=(b'SOTLAS: dynamic words and checked views OK\n',b'SOTLAS: collections IRQ and heap reclamation OK\n',
+                     b'SOTLAS: growing UTF-8 report OK\n','Sotlas: é events=2000 min=-9223372036854775808\n'.encode('utf-8')) if collections else (
                      b'SOTLAS: heap resize and failure preservation OK\n',b'SOTLAS: heap IRQ allocation and exhaustion OK\n',
                      b'SOTLAS: heap pages returned and stale handles rejected\n') if heap else (
                      b'SOTLAS: page allocation and reuse OK\n',b'SOTLAS: memory map and exhaustion OK\n',

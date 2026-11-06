@@ -70,6 +70,11 @@ interrupts between serialized operations, checks its values and returns all
 pages. Resource-bearing generics and automatic container cleanup are separate
 language-level work; this delivery does not mark those parity items complete.
 
+[Growing heap-backed UTF-8 text](native_heap_text.md) adds scalar-boundary
+editing, checked slices, self-edits and atomic u64/i64 formatting over those
+vectors. Hosted programs and the kernel use the same module. This is an
+explicit library owner; builtin string parity and automatic cleanup remain open.
+
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable
 capabilities, not helper count or unweighted checkbox percentages; the requested

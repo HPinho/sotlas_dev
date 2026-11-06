@@ -137,3 +137,13 @@ if vector.length!=length || !native_vector_read(native_vector_view(v,0,length),0
 let mut j:usize=0;while j<length{if actual[j]!=expected[j]{return 5;}j+=1;}step+=1;
 }
 if !native_vector_close(v) || heap.used!=0{return 6;}return 42;''')
+
+    def test_replace_preserves_pod_stride_and_snapshots_overlapping_elements(self):
+        self.program('vector_word_splice','''let mut input:[u64;4]=[10,20,30,40];
+let input_words:*const u64=unsafe{input as *const u64};let input_address:usize=unsafe{input_words as usize};
+if !native_vector_append(v,unsafe{input_address as *const u8},4){return 1;}
+let source:*mut u8=native_heap_address(vector.storage);
+if !native_vector_replace(v,1,2,source+16,2) || vector.length!=4{return 2;}
+let mut output:[u64;4]=0;let out_words:*mut u64=unsafe{output as *mut u64};let out_address:usize=unsafe{out_words as usize};
+if !native_vector_read(native_vector_view(v,0,4),0,unsafe{out_address as *mut u8},4)
+|| output[0]!=10 || output[1]!=30 || output[2]!=40 || output[3]!=40{return 3;}return 42;''',8,8)

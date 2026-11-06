@@ -54,7 +54,9 @@ if [[ $heap == true ]]; then
     done
 fi
 if [[ $collections == true ]]; then
-    cp "$repository/runtime/native/vector.sotlas" "$output/src/sotlas/runtime/vector.sotlas"
+    for module in vector results text unicode utf8_buffer heap_text; do
+        cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
+    done
 fi
 if [[ $memory == true ]]; then
     printf 'SOTLAS-MODULE-RESERVED\n42' > "$output/boot-module.bin"
@@ -83,6 +85,8 @@ if [[ -n "$qemu" ]]; then
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
     if [[ $collections == true ]]; then
         grep -Fxq 'SOTLAS: dynamic words and checked views OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: growing UTF-8 report OK' "$output/serial.log"
+        grep -Fxq 'Sotlas: é events=2000 min=-9223372036854775808' "$output/serial.log"
         grep -Fxq 'SOTLAS: collections IRQ and heap reclamation OK' "$output/serial.log"
         echo 'Kernel collections verified: growing POD vector, checked views, interrupt serialization and reclamation.'
     elif [[ $heap == true ]]; then

@@ -87,15 +87,17 @@ pub fn native_vector_read(view:NativeVectorView,offset:usize,destination:*mut u8
         return native_heap_read(p.storage,(view.first+offset)*p.stride,destination,count*p.stride);}
 }
 
-// Self-insertion snapshots only initialized elements before resizing/shifting.
+// Self-replacement snapshots initialized elements before resizing/shifting.
 // A snapshot or capacity failure leaves contents, handle and revision unchanged.
-pub fn native_vector_insert(mut p:*mut NativeVector,index:usize,source:*const u8,count:usize)->bool {
+pub fn native_vector_replace(mut p:*mut NativeVector,index:usize,removed:usize,source:*const u8,count:usize)->bool {
     if !vector_mutable(p) {return false;}
     unsafe {
-        if index>p.length || count>(18446744073709551615/p.stride)-p.length {return false;}
-        if count==0 {return true;}
+        if index>p.length || removed>p.length-index {return false;}
+        let retained:usize=p.length-removed;
+        if count>(18446744073709551615/p.stride)-retained {return false;}
+        if count==0 && removed==0 {return true;}
         let size:usize=count*p.stride;let address:usize=source as usize;
-        if address==0 || size>18446744073709551615-address {return false;}
+        if size!=0 && (address==0 || size>18446744073709551615-address) {return false;}
         let mut input:*const u8=source;let mut snapshot:NativeHeapHandle=native_heap_invalid();
         let data:*mut u8=native_heap_address(p.storage);let base:usize=data as usize;
         if vector_overlap(address,size,base,p.capacity*p.stride) {
@@ -105,27 +107,24 @@ pub fn native_vector_insert(mut p:*mut NativeVector,index:usize,source:*const u8
             if !native_heap_write(snapshot,0,source,size) {native_heap_release(snapshot,false);return false;}
             input=native_heap_address(snapshot);
         }
-        if !vector_reserve(p,p.length+count) {
+        if !vector_reserve(p,retained+count) {
             if snapshot.owner!=null {native_heap_release(snapshot,false);}return false;
         }
         let output:*mut u8=native_heap_address(p.storage);
-        native_memory_move(output+(index+count)*p.stride,output+index*p.stride,(p.length-index)*p.stride);
+        native_memory_move(output+(index+count)*p.stride,output+(index+removed)*p.stride,(p.length-index-removed)*p.stride);
         native_memory_move(output+index*p.stride,input,size);
         if snapshot.owner!=null {native_heap_release(snapshot,false);}
-        p.length+=count;p.revision+=1;return true;
+        p.length=retained+count;p.revision+=1;return true;
     }
+}
+pub fn native_vector_insert(p:*mut NativeVector,index:usize,source:*const u8,count:usize)->bool {
+    return native_vector_replace(p,index,0,source,count);
 }
 pub fn native_vector_append(p:*mut NativeVector,source:*const u8,count:usize)->bool {
     if !native_vector_shape(p) {return false;}return native_vector_insert(p,unsafe{p.length},source,count);
 }
-pub fn native_vector_remove(mut p:*mut NativeVector,index:usize,count:usize)->bool {
-    if !vector_mutable(p) {return false;}
-    unsafe {
-        if index>p.length || count>p.length-index {return false;}if count==0 {return true;}
-        let data:*mut u8=native_heap_address(p.storage);let tail:usize=p.length-index-count;
-        native_memory_move(data+index*p.stride,data+(index+count)*p.stride,tail*p.stride);
-        p.length-=count;p.revision+=1;return true;
-    }
+pub fn native_vector_remove(p:*mut NativeVector,index:usize,count:usize)->bool {
+    return native_vector_replace(p,index,count,null,0);
 }
 pub fn native_vector_set(mut p:*mut NativeVector,index:usize,source:*const u8)->bool {
     if !vector_mutable(p) {return false;}
