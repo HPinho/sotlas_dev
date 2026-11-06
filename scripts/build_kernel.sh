@@ -67,13 +67,16 @@ native "$compiler" --link-kernel "$output/kernel.o" "$output/kernel.elf" kernel_
 echo "Kernel image: $output/kernel.elf"
 if [[ -n "$qemu" ]]; then
     module_args=()
-    if [[ $memory == true ]]; then module_args=(-initrd "$output/boot-module.bin"); fi
+    # QEMU parses Multiboot -initrd values as module command lines, including
+    # whitespace/comma separators. Shell quoting does not protect filenames
+    # inside that parser. Use a fixed relative basename from the build directory.
+    if [[ $memory == true ]]; then module_args=(-initrd boot-module.bin); fi
     set +e
     # Do not use -no-shutdown: QEMU 10.2 implements debug-exit as shutdown.
-    "$timeout_tool" 15s "$qemu" -machine pc -accel tcg -cpu qemu64 -m 64M \
+    (cd "$output" && "$timeout_tool" 15s "$qemu" -machine pc -accel tcg -cpu qemu64 -m 64M \
         -kernel "$output/kernel.elf" "${module_args[@]}" -display none -serial stdio -monitor none \
         -no-reboot -device isa-debug-exit,iobase=0xf4,iosize=0x04 \
-        > "$output/serial.log" 2>&1
+        > "$output/serial.log" 2>&1)
     status=$?
     set -e
     cat "$output/serial.log"

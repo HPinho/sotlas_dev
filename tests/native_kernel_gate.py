@@ -70,8 +70,10 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
                   '-m',ram,'-kernel',str(project/'kernel.elf'),
                   '-display','none','-serial','stdio','-monitor','none','-no-reboot',
                   '-device','isa-debug-exit,iobase=0xf4,iosize=0x04']
-            if memory:args+=['-initrd',str(project/'boot-module.bin')]
-            result=subprocess.run(args,capture_output=True,timeout=15)
+            # Multiboot module filenames are parsed again inside QEMU. Keep
+            # that filename free of separators even when project has spaces.
+            if memory:args+=['-initrd','boot-module.bin']
+            result=subprocess.run(args,cwd=project,capture_output=True,timeout=15)
             assert result.returncode==85,(ram,result.returncode,result.stdout,result.stderr)
             markers=(b'SOTLAS: dynamic words and checked views OK\n',b'SOTLAS: collections IRQ and heap reclamation OK\n') if collections else (
                      b'SOTLAS: heap resize and failure preservation OK\n',b'SOTLAS: heap IRQ allocation and exhaustion OK\n',
