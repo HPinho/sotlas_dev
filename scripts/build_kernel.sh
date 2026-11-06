@@ -54,7 +54,7 @@ if [[ $heap == true ]]; then
     done
 fi
 if [[ $collections == true ]]; then
-    for module in vector results text unicode utf8_buffer heap_text; do
+    for module in vector results text unicode utf8_buffer heap_text word_map; do
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
     done
 fi
@@ -86,6 +86,7 @@ if [[ -n "$qemu" ]]; then
     if [[ $collections == true ]]; then
         grep -Fxq 'SOTLAS: dynamic words and checked views OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: growing UTF-8 report OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: dynamic map histogram OK' "$output/serial.log"
         grep -Fxq 'Sotlas: é events=2000 min=-9223372036854775808' "$output/serial.log"
         grep -Fxq 'SOTLAS: collections IRQ and heap reclamation OK' "$output/serial.log"
         echo 'Kernel collections verified: growing POD vector, checked views, interrupt serialization and reclamation.'

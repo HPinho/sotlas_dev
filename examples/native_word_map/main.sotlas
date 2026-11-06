@@ -1,0 +1,24 @@
+module examples::native_word_map;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::word_map::*;
+
+// Count 5000 numeric tokens, then verify every frequency and the total.
+pub fn main_entry()->u32 {
+    let mut memory:[u64;1024]=0;let words:*mut u64=unsafe{memory as *mut u64};
+    let address:usize=unsafe{words as usize};let data:*mut u8=unsafe{address as *mut u8};
+    let mut metadata:[u64;128]=0;let raw:*mut u64=unsafe{metadata as *mut u64};
+    let metadata_address:usize=unsafe{raw as usize};let slots:*mut NativeHeapSlot=unsafe{metadata_address as *mut NativeHeapSlot};
+    let mut heap:NativeHeap=native_heap_empty();let h:*mut NativeHeap=unsafe{(&mut heap) as *mut NativeHeap};
+    let mut map:NativeWordMap=native_word_map_empty();let p:*mut NativeWordMap=unsafe{(&mut map) as *mut NativeWordMap};
+    if !native_heap_open(h,data,8192,slots,32) || !native_word_map_open(p,h){return 1;}
+    let mut i:u64=0;while i<5000 {if !native_word_map_add(p,i%61,1){return 2;}i+=1;}
+    if map.count!=61 {return 3;}
+    let mut cursor:NativeWordCursor=native_word_map_cursor(p);let mut sum:u64=0;let mut count:usize=0;
+    while true {
+        let item:NativeWordItem=native_word_map_next(cursor);if !item.valid{return 4;}if item.done{break;}
+        let mut expected:u64=81;if item.key<59{expected=82;}
+        if item.key>=61 || item.value!=expected{return 5;}sum+=item.value;count+=1;cursor=item.next;
+    }
+    if sum!=5000 || count!=61 || !native_word_map_close(p) || heap.used!=0 || !native_heap_close(h){return 6;}
+    return 42;
+}

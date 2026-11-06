@@ -1,5 +1,10 @@
 # Native frontend and ownership closure
 
+Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
+lookup/update, checked counters, collision-safe removal and failure-preserving
+rehash. Hosted/kernel histograms cover explicit cleanup and cursor lifetimes.
+Generic keys/values and automatic ownership integration remain open.
+
 Implemented capability: [heap-owned UTF-8 text](native_heap_text.md) adds
 failure-preserving growth/replacement, scalar edits, checked views and 64-bit
 decimal formatting. It runs in hosted programs and the native kernel; builtin
