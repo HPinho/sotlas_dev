@@ -917,6 +917,8 @@ module syscall_probe;
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1')
         verify_kernel_image(native_stage3,self.directory / "kernel interrupt cases",
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',interrupts=True)
+        # Preserve spaces: QEMU's Multiboot module parser must receive a safe
+        # basename from the build directory, not a whitespace-delimited path.
         verify_kernel_image(native_stage3,self.directory / "kernel memory cases",
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',memory=True)
         verify_kernel_image(native_stage3,self.directory / "kernel heap cases",

@@ -91,5 +91,10 @@ integration in this profile.
 for alignment, fragmentation, reservations, generations, metadata overlap,
 map extensions, interval overflow and malformed maps. `tests/native_kernel_gate.py`
 connects the runtime to the original-source Stage 3 fixtures and QEMU boots.
+The fixture deliberately keeps spaces in its temporary build path. QEMU's
+Multiboot module parser interprets whitespace inside `-initrd` values, even
+when the shell passes one quoted argument. Both the build script and additional
+RAM-size checks therefore launch QEMU from the build directory and pass the
+fixed `boot-module.bin` basename. Image paths remain absolute.
 Local Windows/Linux rebuilds retain strict Stage 2/3 identity; platform CI is
 still required before certifying the new commit.
