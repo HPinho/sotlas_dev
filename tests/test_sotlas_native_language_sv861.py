@@ -50,6 +50,28 @@ if early()!=22{return 1;}return unsafe{trace};''', '''static mut trace:u32=0;
 fn mark(n:u32)->void{unsafe{trace+=n;}return;}
 fn early()->u32{for n in 22..=22{defer mark(n);return n;}return 0;}''')
 
+    def test_range_literal_adopts_usize_bound_type(self):
+        self.program('range_usize_context','''let count:usize=7;let mut sum:usize=0;
+for n in 0..count{sum+=n;}
+for limit in 0..measure(){for n in 0..limit{sum+=1;}}
+if unsafe{calls}!=1{return 1;}return sum as u32;''',
+                     '''static mut calls:u32=0;
+fn measure()->usize{unsafe{calls+=1;}return 7;}''')
+
+    def test_inclusive_literal_endpoint_uses_narrow_bound_type(self):
+        self.program('range_byte_context','''let first:u8=254;let mut sum:u32=0;
+for n in first..=255{let byte:u8=n;sum+=21;}return sum;''')
+
+    def test_signed_literal_start_uses_typed_end(self):
+        self.program('range_signed_context','''let end:i16=1;let mut sum:i16=0;let mut count:u32=0;
+for n in -1..=end{sum+=n;count+=14;}if sum!=0{return 1;}return count;''')
+
+    def test_contextual_bounds_still_check_range_and_explicit_types(self):
+        for index, bounds in enumerate(('256..=bound', 'bound..=256', '-1..bound',
+                                       '(0 as u16)..bound', '0.5..bound', 'true..bound')):
+            self.compile('range_context_bad_'+str(index),
+                         'pub fn main_entry()->u32{let bound:u8=2;for n in '+bounds+'{}return 42;}', success=False)
+
     def test_implicit_enum_discriminants_begin_at_zero(self):
         self.program('implicit_enum','let c:Code=Code::Answer;match c{Code::Zero=>return 1;Code::Answer=>return 42;Code::Next=>return 2;}','enum Code{Zero,Answer=42,Next}')
 

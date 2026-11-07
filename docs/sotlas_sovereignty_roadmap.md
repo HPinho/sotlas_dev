@@ -7,8 +7,8 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-Current green baseline: `523ce47`, reported by the maintainer before this
-delivery. The last directly inspected successful run remains
+The maintainer reported green CI for `490458e` before this delivery.
+The last directly inspected successful run remains
 [CI #1345](https://github.com/HPinho/sotlas_dev/actions/runs/41648523027)
 for `9084cf8`. The kernel/Mach-O/bootstrap compatibility repair in `e786c0c`
 is retained; subsequent workflow results are supplied by the maintainer.
@@ -82,7 +82,9 @@ POD library ownership; generic resource-bearing maps and automatic drop are open
 
 The Sotlas-written native frontend accepts inclusive integer `for` ranges
 with `..=`. The final item runs with the existing scoped cleanup rules, even
-at the maximum of the bound type. See [native iteration](native_array_iteration.md).
+at the maximum of the bound type. Literal bounds can take the type of the
+other bound, so loops such as `0..count` work with `usize` counts.
+See [native iteration](native_array_iteration.md).
 
 The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
 the existing roadmap and its closure criteria. Delivery is measured by runnable

@@ -2263,7 +2263,8 @@ no jump targeting that loop. Other value-returning functions still need a
 return after a potentially exiting loop. General divergence proofs remain open.
 
 For ranges use `..` for exclusive bounds and `..=` for inclusive bounds, with
-matching integer types. Unsuffixed literals retain the U32 default. The bounds
+matching integer types. A literal adopts the inferred integer type of its
+peer and must fit that type. Two untyped bounds default to U32. The bounds
 are evaluated once, from left to right. A mutable index changes the current
 item copy. The hidden cursor advances before the body so `continue` proceeds
 to the next item. Descending ranges have no
