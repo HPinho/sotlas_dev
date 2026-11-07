@@ -1,7 +1,7 @@
 # Native fixed-array iteration
 
 The Sotlas-written native frontend accepts by-value iteration over supported
-plain fixed arrays, in addition to its existing half-open numeric ranges:
+plain fixed arrays, alongside half-open and inclusive integer ranges.
 
 ```sotlas
 fn total(values: [u32; 3]) -> u32 {
@@ -38,6 +38,14 @@ snapshots do not establish general pointer or borrowed-reference lifetimes.
 
 ## Control flow and cleanup
 
+Numeric `for` loops use `start..end` for a half-open range and `start..=end`
+to include the final value. Bounds use matching integer types and are evaluated
+once, in source order. A descending range is empty. Equal inclusive bounds
+produce one iteration. The cursor records exhaustion at the inclusive endpoint
+before the user body, so `continue` runs cleanup and exits even at the maximum
+integer value. Nested loops keep independent cursor state. The inclusive syntax
+is available through the native compiler profile.
+
 The frontend normalizes the construct to scoped bindings and the production
 structured while CFG. Source-backed reserved keyword spellings give its hidden
 bindings lexical hygiene. The item is captured before the cursor advances;
@@ -62,7 +70,8 @@ fails closed on the unsupported internal length node.
 The [batch example](../examples/native_array_iteration/main.sotlas) combines
 record arrays, named dimensions, explicit payload tags, `?`, mutable item copies,
 `continue` and deferred observation. It checks the source records remain intact,
-counts cleanup on success/error paths and exits with 42. Native platform rebuild
+counts cleanup on success/error paths and checks an inclusive singleton at
+`U32_MAX`. It exits with 42. Native platform rebuild
 gates include original-source check/build, host execution and ELF/PE/Mach-O output.
 
 `tests/test_sotlas_native_array_iteration.py` covers snapshot independence,
@@ -70,13 +79,13 @@ one-time calls, scalar widths, records/enums, fields/parameters, nested range an
 array loops, scope/shadowing, all structured exits, result propagation and bounds,
 plus invalid source/ownership/resource cases. Full remote CI is still required.
 
-Local native validation passed 181 focused tests per Windows/Linux producer,
+The original fixed-array validation passed 181 focused tests per Windows/Linux producer,
 including 21 iteration tests plus array assignment/ABI, ownership, payloads,
 record fields, tagged/status results and named dimensions. Hosted focused runs
 passed 137 iteration/CFG/ownership/result tests and 40 AST/inventory/contract
 tests. The generated phase matrix remained consistent.
 
-The batch example passed check, object/direct build and host execution with
+The original batch example passed check, object/direct build and host execution with
 exit 42 on both systems. Its object, ELF, PE and Mach-O outputs matched byte for
 byte across the two native producers. Original-source reconstruction used no
 host build tools on PATH and retained strict Stage 2/3 identity:
@@ -84,4 +93,8 @@ host build tools on PATH and retained strict Stage 2/3 identity:
 - Windows SHA-256: `803bd85909644c5ccae6e1aa553b192b27e2310b507d6fd503f8d8eac7bfdc53`
 - Linux SHA-256: `0f3557a4464481e4c267323a79c7502134285226e1da23f3d1b9486d148643d2`
 
-Actual Intel macOS execution and the new full CI remain pending for this package.
+The inclusive-range extension passed 72 control-flow, array iteration and
+error-composition tests per rebuilt Windows/Linux compiler. The updated
+example executed with exit 42 and its object, ELF, PE and Mach-O output matched
+across both hosts. Stage 2 and Stage 3 matched byte for byte on each host.
+The new full platform CI remains pending.

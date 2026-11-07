@@ -2262,15 +2262,14 @@ body is proven only when its body returns on all represented paths and contains
 no jump targeting that loop. Other value-returning functions still need a
 return after a potentially exiting loop. General divergence proofs remain open.
 
-For ranges use exclusive bounds and matching integer types. Unsuffixed literals
-retain the existing U32 default. Start is evaluated before end; both are
-captured once. The public index is a per-iteration value. An explicit mut/var
-index changes that copy; it does not steer the hidden cursor. The cursor advances
-before the body, so continue advances correctly. Empty/descending ranges have
-no iterations; increments cannot exceed the captured exclusive bound. Hidden
-bindings use reserved keyword spellings inaccessible as source identifiers,
-and nested scopes restore the outer bindings. Arrays/iterators, steps and
-inclusive ranges are not implemented by this syntax.
+For ranges use `..` for exclusive bounds and `..=` for inclusive bounds, with
+matching integer types. Unsuffixed literals retain the U32 default. The bounds
+are evaluated once, from left to right. A mutable index changes the current
+item copy. The hidden cursor advances before the body so `continue` proceeds
+to the next item. Descending ranges have no
+iterations. Equal inclusive bounds run once, and the last item marks exhaustion
+without incrementing the upper bound. Hidden bindings use reserved source tokens
+inaccessible as user identifiers, and nested scopes restore the outer bindings.
 
 - [ ] Align the reference C11 range emitter with this native contract before
   claiming backend equivalence. Its current size_t counter and repeated end
@@ -4961,9 +4960,9 @@ per-iteration copy; the hidden cursor remains independent. Loop/range jumps
 run the existing lexical defer cleanup. Returning loop bodies have a bounded
 all-path proof; a loop that can break does not prove a function return.
 
-Array/iterator for loops, inclusive/stepped ranges, payload enums and signed
-enum backing types remain outside this new profile. Gate:
-`test_sotlas_native_language_sv861`.
+The current native iteration contract includes fixed arrays and inclusive
+integer ranges. The range gate is `test_sotlas_native_language_sv861`.
+See [native iteration](native_array_iteration.md).
 
 ## 14. Standard library API contracts
 
