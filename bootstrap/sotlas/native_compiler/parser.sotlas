@@ -604,6 +604,9 @@ impl Parser {
             return self.array_for_statement(keyword,name,separator,start,mutable);
         }
         self.expect(TokenKind::DotDot);
+        let inclusive: bool = self.match_token(TokenKind::Equal);
+        let inclusive_marker: Token = self.current();
+        if inclusive { self.advance(); }
         let finish:usize=self.parse_expression();
         if start == 0 || finish == 0 || self.error_count != 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
         let user_body:usize=self.parse_block();if user_body == 0 { return 0; }
@@ -619,6 +622,7 @@ impl Parser {
         unsafe{(*(self.nodes+cursor)).int_value=1;(*(self.nodes+repeating)).int_value=1;
             if mutable { (*(self.nodes+binding)).int_value=1; }}
         let mut compare:Token=keyword;compare.kind=TokenKind::Lt;
+        if inclusive { compare.kind=TokenKind::LtEq; }
         let condition_left:usize=self.name_expression(keyword);let condition_right:usize=self.name_expression(separator);
         let condition:usize=self.make_binary(condition_left,compare,condition_right);
         let mut plus:Token=keyword;plus.kind=TokenKind::Plus;
@@ -628,10 +632,48 @@ impl Parser {
             || !self.append_child(cursor,start) || !self.append_child(limit,finish)
             || !self.append_child(binding,self.name_expression(keyword))
             || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
-            || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)
+            || !self.append_child(outer,cursor) || !self.append_child(outer,limit) { return 0; }
+        if inclusive {
+            if !self.inclusive_range_body(outer,body,binding,increment,keyword,separator,inclusive_marker) { return 0; }
+        } else if !self.append_child(body,binding) || !self.append_child(body,increment) { return 0; }
+        if !self.append_child(body,user_body)
             || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
-            || !self.append_child(outer,cursor) || !self.append_child(outer,limit) || !self.append_child(outer,repeating) { return 0; }
+            || !self.append_child(outer,repeating) { return 0; }
         return outer;
+    }
+
+    pub fn inclusive_range_body(mut self: &mut Self, outer: usize, body: usize,
+        binding: usize, increment: usize, cursor: Token, limit: Token, marker: Token) -> bool {
+        let finished: usize = self.alloc_text_node(AstKind::LetStmt,marker);
+        if finished == 0 { return false; }
+        unsafe { (*(self.nodes+finished)).int_value=1; }
+        if !self.append_child(finished,self.generated_integer(marker.span,0))
+            || !self.append_child(outer,finished) { return false; }
+
+        // Test exhaustion before binding an item or entering the user's scope.
+        let guard: usize = self.alloc_node(AstKind::IfStmt,marker.span);
+        let stop: usize = self.alloc_node(AstKind::Block,marker.span);
+        let mut unequal: Token = marker;
+        unequal.kind=TokenKind::BangEq;
+        let done: usize = self.make_binary(self.name_expression(marker),unequal,self.generated_integer(marker.span,0));
+        if !self.append_child(stop,self.alloc_node(AstKind::BreakStmt,marker.span))
+            || !self.append_child(guard,done) || !self.append_child(guard,stop)
+            || !self.append_child(body,guard) || !self.append_child(body,binding) { return false; }
+
+        // Advance before the user body so continue observes the next item.
+        // At the last item, record exhaustion instead of incrementing the bound.
+        let advance: usize = self.alloc_node(AstKind::IfStmt,marker.span);
+        let last: usize = self.alloc_node(AstKind::Block,marker.span);
+        let more: usize = self.alloc_node(AstKind::Block,marker.span);
+        let mark: usize = self.alloc_node(AstKind::AssignStmt,marker.span);
+        let mut equal: Token = marker;
+        equal.kind=TokenKind::EqEq;
+        let at_end: usize = self.make_binary(self.name_expression(cursor),equal,self.name_expression(limit));
+        return self.append_child(mark,self.name_expression(marker))
+            && self.append_child(mark,self.generated_integer(marker.span,1))
+            && self.append_child(last,mark) && self.append_child(more,increment)
+            && self.append_child(advance,at_end) && self.append_child(advance,last)
+            && self.append_child(advance,more) && self.append_child(body,advance);
     }
 
     pub fn array_for_statement(mut self: &mut Self, keyword: Token, name: Token,

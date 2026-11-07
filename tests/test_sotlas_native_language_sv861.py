@@ -18,6 +18,38 @@ class NativeLanguageSV861Tests(unittest.TestCase):
     def test_for_range_iterates_exclusive_integer_bounds(self):
         self.program('native_for','let mut total:u32=0;for i in 0..7{total+=i;}return total*2;')
 
+    def test_inclusive_range_runs_both_ends_and_evaluates_bounds_once(self):
+        self.program('inclusive_bounds','''let mut sum:u32=0;
+for n in first()..=last(){sum+=n;}for n in 9..=8{return 1;}
+if unsafe{calls}!=12{return 2;}return sum;''',
+                     '''static mut calls:u32=0;
+fn first()->u32{unsafe{calls=calls*10+1;}return 13;}
+fn last()->u32{unsafe{calls=calls*10+2;}return 15;}''')
+
+    def test_inclusive_maximum_with_continue_and_defer(self):
+        self.program('inclusive_maximum','''let low:u64=18446744073709551614;
+let high:u64=18446744073709551615;let mut count:u32=0;
+for n in low..=high{defer mark(21);count+=1;if n==high{continue;}}
+if count!=2{return 1;}return unsafe{trace};''',
+                     '''static mut trace:u32=0;
+fn mark(n:u32)->void{unsafe{trace+=n;}return;}''')
+
+    def test_inclusive_signed_maximum_and_nested_mutable_items(self):
+        self.program('inclusive_signed','''let low:i32=2147483646;let high:i32=2147483647;let mut count:u32=0;
+for mut n in low..=high{n=0;for i in 1..=1{count+=21;}if n!=0{return 1;}}
+return count;''')
+
+    def test_inclusive_invalid_bounds_fail_closed(self):
+        for index, bounds in enumerate(('0.0..=1.0', '1..=', 'true..=true', '(0 as i32)..=(2 as u32)')):
+            self.compile('inclusive_bad_'+str(index),
+                         'pub fn main_entry()->u32{for n in '+bounds+'{}return 42;}', success=False)
+
+    def test_inclusive_break_and_early_return_run_current_cleanup(self):
+        self.program('inclusive_cleanup', '''for n in 20..=22{defer mark(n);break;}
+if early()!=22{return 1;}return unsafe{trace};''', '''static mut trace:u32=0;
+fn mark(n:u32)->void{unsafe{trace+=n;}return;}
+fn early()->u32{for n in 22..=22{defer mark(n);return n;}return 0;}''')
+
     def test_implicit_enum_discriminants_begin_at_zero(self):
         self.program('implicit_enum','let c:Code=Code::Answer;match c{Code::Zero=>return 1;Code::Answer=>return 42;Code::Next=>return 2;}','enum Code{Zero,Answer=42,Next}')
 
