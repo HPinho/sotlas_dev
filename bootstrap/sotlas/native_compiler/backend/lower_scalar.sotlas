@@ -7603,6 +7603,31 @@ impl ScalarLowering {
         return true;
     }
 
+    pub fn range_literal_context(self: &Self, index: usize, first_parameter: usize, parameter_count: usize) -> TargetTypeTag {
+        let binding: AstNode = unsafe { *(self.nodes+index) };
+        if binding.parent == 0 || binding.parent >= self.node_count { return TargetTypeTag::Invalid; }
+        let scope: AstNode = unsafe { *(self.nodes+binding.parent) };
+        if scope.kind != AstKind::Block || scope.int_value != 1 || scope.first_child == 0
+            || scope.first_child >= self.node_count { return TargetTypeTag::Invalid; }
+        let start: AstNode = unsafe { *(self.nodes+scope.first_child) };
+        if start.next_sibling == 0 || start.next_sibling >= self.node_count { return TargetTypeTag::Invalid; }
+        let end: AstNode = unsafe { *(self.nodes+start.next_sibling) };
+        if index != scope.first_child && index != start.next_sibling { return TargetTypeTag::Invalid; }
+
+        let mut literal: AstNode = unsafe { *(self.nodes+binding.first_child) };
+        if literal.kind == AstKind::ExprUnary && (literal.int_value == 80 || literal.int_value == 81) {
+            if literal.first_child == 0 || literal.first_child >= self.node_count { return TargetTypeTag::Invalid; }
+            literal = unsafe { *(self.nodes+literal.first_child) };
+        }
+        if literal.kind != AstKind::ExprLiteral { return TargetTypeTag::Invalid; }
+
+        let mut peer: usize = start.first_child;
+        if index == scope.first_child { peer = end.first_child; }
+        let typ: TargetTypeTag = self.condition_expression_type(peer,first_parameter,parameter_count);
+        if target_type_is_integer(typ) { return typ; }
+        return TargetTypeTag::Invalid;
+    }
+
     pub fn cfg_simple(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> bool {
         let stmt: AstNode = unsafe { *(self.nodes + index) };
         if stmt.kind == AstKind::LetStmt {
@@ -7768,6 +7793,7 @@ impl ScalarLowering {
                 }
                 if typ == TargetTypeTag::Invalid {
                     typ = self.condition_expression_type(value_index, first_parameter, parameter_count);
+                    if typ == TargetTypeTag::Invalid { typ = self.range_literal_context(index,first_parameter,parameter_count); }
                     if typ == TargetTypeTag::Invalid { typ = TargetTypeTag::U32; }
                 }
                 value = self.lower_expression(value_index, typ, first_parameter, parameter_count);

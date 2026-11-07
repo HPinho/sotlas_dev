@@ -39,8 +39,12 @@ snapshots do not establish general pointer or borrowed-reference lifetimes.
 ## Control flow and cleanup
 
 Numeric `for` loops use `start..end` for a half-open range and `start..=end`
-to include the final value. Bounds use matching integer types and are evaluated
-once, in source order. A descending range is empty. Equal inclusive bounds
+to include the final value. A literal bound, optionally signed, takes the
+inferred integer type of the other bound. For example, `0..count` binds a
+`usize` index when `count` is `usize`. Two untyped bounds default to `u32`.
+Literals must fit the selected type, and explicitly typed bounds must match.
+Bounds are evaluated once, in source order. A descending range is empty.
+Equal inclusive bounds
 produce one iteration. The cursor records exhaustion at the inclusive endpoint
 before the user body, so `continue` runs cleanup and exits even at the maximum
 integer value. Nested loops keep independent cursor state. The inclusive syntax
@@ -71,8 +75,9 @@ The [batch example](../examples/native_array_iteration/main.sotlas) combines
 record arrays, named dimensions, explicit payload tags, `?`, mutable item copies,
 `continue` and deferred observation. It checks the source records remain intact,
 counts cleanup on success/error paths and checks an inclusive singleton at
-`U32_MAX`. It exits with 42. Native platform rebuild
-gates include original-source check/build, host execution and ELF/PE/Mach-O output.
+`U64_MAX` with a typed start and a literal end. It exits with 42. Native
+platform rebuild gates include original-source check/build, host execution
+and ELF/PE/Mach-O output.
 
 `tests/test_sotlas_native_array_iteration.py` covers snapshot independence,
 one-time calls, scalar widths, records/enums, fields/parameters, nested range and
@@ -93,8 +98,13 @@ host build tools on PATH and retained strict Stage 2/3 identity:
 - Windows SHA-256: `803bd85909644c5ccae6e1aa553b192b27e2310b507d6fd503f8d8eac7bfdc53`
 - Linux SHA-256: `0f3557a4464481e4c267323a79c7502134285226e1da23f3d1b9486d148643d2`
 
-The inclusive-range extension passed 72 control-flow, array iteration and
+The initial inclusive-range extension passed 72 control-flow, array iteration and
 error-composition tests per rebuilt Windows/Linux compiler. The updated
 example executed with exit 42 and its object, ELF, PE and Mach-O output matched
 across both hosts. Stage 2 and Stage 3 matched byte for byte on each host.
-The new full platform CI remains pending.
+
+Contextual bounds passed 76 tests per rebuilt compiler, covering typed calls,
+nested loops, signed literals, narrow endpoints and rejected overflow. The
+current batch example produced identical objects and executable formats across
+Windows and Linux. Stage 2 and Stage 3 also matched on both hosts. The new full
+platform CI remains pending.

@@ -49,8 +49,8 @@ pub fn main_entry() -> u32 {
         Batch::Err(error) => error.kind == 3 && error.offset == 1,
     };
     if !failed || unsafe { visited } != 3 || unsafe { completed } != 2 { return 3; }
-    let maximum: u32 = 4294967295;
-    for value in maximum..=maximum {
+    let maximum: u64 = 18446744073709551615;
+    for value in maximum..=18446744073709551615 {
         if value != maximum { return 4; }
         defer observe();
         continue;

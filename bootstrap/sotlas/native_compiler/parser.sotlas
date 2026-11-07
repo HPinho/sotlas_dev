@@ -619,7 +619,8 @@ impl Parser {
         let binding:usize=self.alloc_text_node(AstKind::LetStmt,name);
         let increment:usize=self.alloc_node(AstKind::AssignStmt,keyword.span);
         if outer == 0 || cursor == 0 || limit == 0 || repeating == 0 || body == 0 || binding == 0 || increment == 0 { return 0; }
-        unsafe{(*(self.nodes+cursor)).int_value=1;(*(self.nodes+repeating)).int_value=1;
+        // The first two bindings of a generated range scope are its bounds.
+        unsafe{(*(self.nodes+outer)).int_value=1;(*(self.nodes+cursor)).int_value=1;(*(self.nodes+repeating)).int_value=1;
             if mutable { (*(self.nodes+binding)).int_value=1; }}
         let mut compare:Token=keyword;compare.kind=TokenKind::Lt;
         if inclusive { compare.kind=TokenKind::LtEq; }
