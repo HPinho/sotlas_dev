@@ -18,6 +18,13 @@ IRQ_DECLARATIONS='''@extern(C) fn sotlas_x86_irq_save()->i64;
 @extern(C) fn sotlas_x86_load_ds(selector:u16)->i64;
 @extern(C) fn sotlas_x86_wait_irq()->i64;
 '''
+VM_OPERATIONS=(
+    ('sotlas_x86_read_cr2','','',b'\x0f\x20\xd0'),
+    ('sotlas_x86_read_cr3','','',b'\x0f\x20\xd8'),
+    ('sotlas_x86_load_cr3','address:usize','4096',b'\x0f\x22\xd8'),
+    ('sotlas_x86_invlpg','address:usize','4096',b'\x0f\x01\x38'),
+    ('sotlas_x86_enable_page_protection','','',b'\x0f\x32'),
+)
 
 
 class NativeKernelTests(unittest.TestCase):
@@ -26,6 +33,28 @@ class NativeKernelTests(unittest.TestCase):
     compile=previous.NativeI32Tests.compile
     link_image=previous.NativeI32Tests.link_image
     execute=previous.NativeI32Tests.execute
+
+    def test_virtual_memory_operations_are_native_and_privileged(self):
+        for name,params,args,opcode in VM_OPERATIONS:
+            declaration=f'@extern(C) fn {name}({params})->i64;'
+            call=f'{name}({args})'
+            with self.subTest(operation=name):
+                obj=self.compile(name,declaration+f'pub fn main_entry()->u32{{unsafe{{{call};}}return 42;}}')
+                data=obj.read_bytes()
+                self.assertEqual(struct.unpack_from('<I',data,48)[0],4)
+                self.assertIn(opcode,data)
+                self.compile(name+'_safe',declaration+f'pub fn main_entry()->u32{{{call};return 42;}}',False)
+                self.compile(name+'_wrong',declaration.replace('->i64','->u32')+
+                             f'pub fn main_entry()->u32{{unsafe{{{call};}}return 42;}}',False)
+                if params:
+                    self.compile(name+'_wrong_arg',declaration.replace(':usize',':u32')+
+                                 f'pub fn main_entry()->u32{{unsafe{{{call};}}return 42;}}',False)
+                for mode in ('--link-exe','--link-pe','--link-macho'):
+                    output=obj.with_suffix('.'+mode[2:])
+                    result=subprocess.run([str(self.producer),mode,str(obj),str(output),'main_entry'],
+                                          capture_output=True,timeout=30)
+                    self.assertNotEqual(result.returncode,0,result.stderr)
+                    self.assertFalse(output.exists())
 
     def test_privileged_instructions_have_bare_object_flag(self):
         source=DECLARATIONS+'''pub fn kernel_main(magic:u32,info:u32)->u32{unsafe{

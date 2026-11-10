@@ -3139,7 +3139,7 @@ pub fn emit_elf64_module_object(
                         return false;
                     }
                 } else if instruction.opcode == TargetOpcode::SystemOp {
-                    if instruction.immediate_bits>=32 && instruction.immediate_bits<=41 {
+                    if instruction.immediate_bits>=32 && instruction.immediate_bits<=46 {
                         platform_flags=platform_flags | 4;
                         let operation:u64=instruction.immediate_bits;
                         let expected:u32=target_bare_operand_count(operation);
@@ -3154,7 +3154,41 @@ pub fn emit_elf64_module_object(
                                 || !append_object_byte(output,capacity,&mut code,194)) { return false; } // mov edx,eax
                             argument_index=argument_index+1;
                         }
-                        if operation>=36 {
+                        if operation>=42 {
+                            if operation==42 || operation==43 {
+                                let mut modrm:u8=208; // mov rax,cr2
+                                if operation==43 { modrm=216; }
+                                if !append_object_byte(output,capacity,&mut code,15)
+                                    || !append_object_byte(output,capacity,&mut code,32)
+                                    || !append_object_byte(output,capacity,&mut code,modrm) { return false; }
+                            } else if operation==44 || operation==45 {
+                                let mut opcode:u32=825753871; // invlpg [rax]; xor eax,eax
+                                if operation==44 { opcode=836248079; }
+                                if !append_object_u32(output,capacity,&mut code,opcode)
+                                    || !append_object_byte(output,capacity,&mut code,192) { return false; }
+                            } else {
+                                // Preserve RBX around CPUID. If extended CPUID advertises NX,
+                                // set EFER.NXE and CR0.WP, returning 1. Otherwise return 0.
+                                if !append_object_u32(output,capacity,&mut code,47187)
+                                    || !append_object_u32(output,capacity,&mut code,2718924800)
+                                    || !append_object_u32(output,capacity,&mut code,317)
+                                    || !append_object_u32(output,capacity,&mut code,3089986176)
+                                    || !append_object_u32(output,capacity,&mut code,2147483649)
+                                    || !append_object_u32(output,capacity,&mut code,3121586703)
+                                    || !append_object_u32(output,capacity,&mut code,544412898)
+                                    || !append_object_u32(output,capacity,&mut code,32953)
+                                    || !append_object_u32(output,capacity,&mut code,221384640)
+                                    || !append_object_u32(output,capacity,&mut code,2048)
+                                    || !append_object_u32(output,capacity,&mut code,537866255)
+                                    || !append_object_u32(output,capacity,&mut code,3520)
+                                    || !append_object_u32(output,capacity,&mut code,571408385)
+                                    || !append_object_u32(output,capacity,&mut code,112832)
+                                    || !append_object_u32(output,capacity,&mut code,48955392)
+                                    || !append_object_byte(output,capacity,&mut code,49)
+                                    || !append_object_byte(output,capacity,&mut code,192)
+                                    || !append_object_byte(output,capacity,&mut code,91) { return false; }
+                            }
+                        } else if operation>=36 {
                             // IRQ save returns the original RFLAGS with IF disabled.
                             if operation==36 {
                                 if !append_object_byte(output,capacity,&mut code,156)

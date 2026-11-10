@@ -1,0 +1,125 @@
+barecore;
+module examples::native_kernel_vm;
+import sotlas::runtime::kernel_vm::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::pages::*;
+import sotlas::runtime::kernel_x86::*;
+
+static mut phase:u32=0;
+static mut resume:u64=0;
+static mut frame_address:usize=0;
+
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    unsafe {
+        if frame==null || *(frame+1)!=8 { return native_kernel_qemu_exit(10); }
+        if vector==3 && error==0 && phase==2 {
+            resume=*frame;
+            *frame=NATIVE_VM_BASE as u64;
+            return 0;
+        }
+        if vector==3 && error==0 && phase==3 {
+            if *frame==(NATIVE_VM_BASE as u64)+2 {
+                *frame=resume;phase=4;return 0;
+            }
+            resume=*frame;*frame=(NATIVE_VM_BASE as u64)+1;return 0;
+        }
+        if vector==14 && sotlas_x86_read_cr2() as usize==NATIVE_VM_BASE {
+            if phase==1 && error==3 && native_kernel_vm_protect(NATIVE_VM_BASE,NATIVE_VM_WRITE) {
+                phase=2;return 0;
+            }
+            if phase==2 && error==17 && resume!=0 && *frame==(NATIVE_VM_BASE as u64) {
+                *frame=resume;phase=3;return 0;
+            }
+            if phase==5 && error==0 && native_kernel_vm_map(NATIVE_VM_BASE,frame_address,NATIVE_VM_READ) {
+                phase=6;return 0;
+            }
+        }
+    }
+    return native_kernel_qemu_exit(11);
+}
+
+fn table_allocation_failure(physical:usize)->bool {
+    let before:usize=native_kernel_pages_free();
+    let mut count:usize=before;
+    let mut used:usize=0;
+    let mut saved:[u64;256]=0;
+    let words:*mut u64=unsafe{saved as *mut u64};
+    let spans:*mut NativePageSpan=unsafe{(words as usize) as *mut NativePageSpan};
+    while count!=0 && used<64 {
+        let span:NativePageSpan=native_kernel_pages_allocate(count,1,false);
+        if span.owner==null { count=count/2; }
+        else { unsafe{*(spans+used)=span;}used+=1; }
+    }
+    let last:usize=NATIVE_VM_END-4096;
+    let rejected:bool=native_kernel_pages_free()==0
+        && !native_kernel_vm_map(last,physical,NATIVE_VM_READ)
+        && native_kernel_vm_physical(last)==0 && native_kernel_vm_physical(NATIVE_VM_BASE)==physical;
+    while used!=0 {
+        used-=1;
+        let span:NativePageSpan=unsafe{*(spans+used)};
+        if !native_kernel_pages_release(span) { return false; }
+    }
+    return rejected && native_kernel_pages_free()==before;
+}
+
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() || !native_kernel_interrupts_install()
+        || !native_kernel_pages_init(magic,info) { return native_kernel_qemu_exit(1); }
+    let free:usize=native_kernel_pages_free();
+    if native_kernel_vm_map(NATIVE_VM_BASE,4096,NATIVE_VM_READ) { return native_kernel_qemu_exit(2); }
+    if !native_kernel_vm_init() {
+        if native_kernel_pages_free()!=free { return native_kernel_qemu_exit(3); }
+        native_kernel_serial_write("SOTLAS: NX unavailable; allocator unchanged\n",44);
+        return native_kernel_qemu_exit(43);
+    }
+    if native_kernel_vm_init() || native_kernel_pages_free()!=free-3 { return native_kernel_qemu_exit(4); }
+    let span:NativePageSpan=native_kernel_pages_allocate(1,1,true);
+    let physical:usize=native_kernel_page_address(span);
+    let alias:*mut u8=unsafe{NATIVE_VM_BASE as *mut u8};
+    let direct:*const u8=unsafe{physical as *const u8};
+    if physical==0 || !native_kernel_vm_map(NATIVE_VM_BASE,physical,NATIVE_VM_READ)
+        || native_kernel_vm_map(NATIVE_VM_BASE,physical,NATIVE_VM_WRITE)
+        || native_kernel_vm_map(NATIVE_VM_BASE+1,physical,NATIVE_VM_READ)
+        || native_kernel_vm_map(NATIVE_VM_END,physical,NATIVE_VM_READ)
+        || native_kernel_vm_map(NATIVE_VM_BASE+4096,physical+1,NATIVE_VM_READ)
+        || native_kernel_vm_map(NATIVE_VM_BASE+4096,physical,0)
+        || native_kernel_vm_physical(NATIVE_VM_BASE+25)!=physical+25 { return native_kernel_qemu_exit(5); }
+    unsafe {
+        if *alias!=0 { return native_kernel_qemu_exit(6); }
+        phase=1;
+        *alias=42; // #PF: supervisor write to a present read-only page
+        if phase!=2 || *direct!=42 { return native_kernel_qemu_exit(6); }
+        *(alias+1)=204; // INT3, executed only after installing an RX mapping
+        sotlas_x86_int3(); // redirect the exception return to the NX alias
+        if phase!=3 { return native_kernel_qemu_exit(7); }
+    }
+    if !native_kernel_vm_protect(NATIVE_VM_BASE,NATIVE_VM_EXECUTE) { return native_kernel_qemu_exit(7); }
+    unsafe{sotlas_x86_int3();if phase!=4 { return native_kernel_qemu_exit(7); }}
+    native_kernel_serial_write("SOTLAS: read-only and NX faults verified\n",41);
+
+    let last:usize=NATIVE_VM_END-4096;
+    let neighbor:usize=NATIVE_VM_BASE+4096;
+    if !table_allocation_failure(physical)
+        || !native_kernel_vm_map(neighbor,physical,NATIVE_VM_READ)
+        || native_kernel_pages_free()!=free-5
+        || native_kernel_vm_unmap(neighbor)!=physical || native_kernel_pages_free()!=free-5
+        || native_kernel_vm_map(last,physical,NATIVE_VM_MMIO)
+        || !native_kernel_vm_map(last,4276092928,NATIVE_VM_MMIO)
+        || native_kernel_pages_free()!=free-6
+        || native_kernel_vm_protect(last,NATIVE_VM_EXECUTE)
+        || native_kernel_vm_physical(last+32)!=4276092960
+        || native_kernel_vm_unmap(last)!=4276092928
+        || native_kernel_pages_free()!=free-5 { return native_kernel_qemu_exit(8); }
+    if native_kernel_vm_unmap(NATIVE_VM_BASE)!=physical
+        || native_kernel_vm_unmap(NATIVE_VM_BASE)!=0
+        || native_kernel_vm_physical(NATIVE_VM_BASE)!=0
+        || native_kernel_pages_free()!=free-4 { return native_kernel_qemu_exit(9); }
+    unsafe {
+        frame_address=physical;phase=5;
+        if *alias!=42 || phase!=6 { return native_kernel_qemu_exit(12); }
+    }
+    if native_kernel_vm_unmap(NATIVE_VM_BASE)!=physical || !native_kernel_pages_release(span)
+        || native_kernel_pages_free()!=free-3 { return native_kernel_qemu_exit(13); }
+    native_kernel_serial_write("SOTLAS: unmap and remap verified\n",33);
+    return native_kernel_qemu_exit(42);
+}
