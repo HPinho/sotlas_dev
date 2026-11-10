@@ -35,10 +35,10 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     if baseline<32 || !native_kernel_vm_init()
         || native_kernel_pages_free()!=baseline-3 {return native_kernel_qemu_exit(2);}
 
-    let module:NativeBootModule=native_kernel_boot_module(0);
-    if !module.valid || native_kernel_boot_module(1).valid {return native_kernel_qemu_exit(3);}
-    let file:NativeArchiveFile=native_initramfs_find(module.data,module.length,"etc/boot.cfg",12);
-    let missing:NativeArchiveFile=native_initramfs_find(module.data,module.length,"absent",6);
+    let boot_module:NativeBootModule=native_kernel_boot_module(0);
+    if !boot_module.valid || native_kernel_boot_module(1).valid {return native_kernel_qemu_exit(3);}
+    let file:NativeArchiveFile=native_initramfs_find(boot_module.data,boot_module.length,"etc/boot.cfg",12);
+    let missing:NativeArchiveFile=native_initramfs_find(boot_module.data,boot_module.length,"absent",6);
     if !file.valid || !file.found || file.length!=25 || !missing.valid || missing.found {
         return native_kernel_qemu_exit(4);
     }
@@ -75,7 +75,9 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     let mut sequence:NativeVector=native_vector_empty();
     let v:*mut NativeVector=unsafe{(&mut sequence) as *mut NativeVector};
     let values:[u64;4]=[12,30,42,99];
-    if !native_vector_open(v,q,8,8) || !native_vector_append(v,unsafe{values as *const u8},4) {
+    let value_words:*const u64=unsafe{values as *const u64};
+    let value_address:usize=unsafe{value_words as usize};
+    if !native_vector_open(v,q,8,8) || !native_vector_append(v,unsafe{value_address as *const u8},4) {
         return native_kernel_qemu_exit(10);
     }
     let mut dictionary:NativeWordMap=native_word_map_empty();
@@ -105,7 +107,9 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
         // the timer callback is free to allocate between those sections.
         let flags:u64=native_kernel_interrupts_disable();
         let added:bool=native_word_map_add(map,i%4,1);
-        let inserted:bool=native_vector_append(v,unsafe{(&mut i) as *const u8},1);
+        let item:*mut u64=unsafe{(&mut i) as *mut u64};
+        let item_address:usize=unsafe{item as usize};
+        let inserted:bool=native_vector_append(v,unsafe{item_address as *const u8},1);
         native_kernel_interrupts_restore(flags);
         if !added || !inserted {return native_kernel_qemu_exit(16);}
         i+=1;
@@ -139,7 +143,7 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
         return native_kernel_qemu_exit(20);
     }
     let again:NativeBootModule=native_kernel_boot_module(0);
-    if !again.valid || again.length!=module.length {
+    if !again.valid || again.length!=boot_module.length {
         return native_kernel_qemu_exit(21);
     }
     native_kernel_serial_write("SOTLAS: foundation reclaim and ownership OK\n",44);

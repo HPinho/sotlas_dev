@@ -34,6 +34,15 @@ class NativeKernelTests(unittest.TestCase):
     link_image=previous.NativeI32Tests.link_image
     execute=previous.NativeI32Tests.execute
 
+    def test_record_capacity_executes_the_last_layout_and_rejects_overflow(self):
+        records=''.join(f'struct Record{i}{{pub value:u32;}}' for i in range(64))
+        source=records+'''fn identity(item:Record63)->Record63{return item;}
+pub fn main_entry()->u32{
+let item:Record63=identity(Record63{value:42});return item.value;}'''
+        self.execute(self.compile('kernel_record_capacity',source))
+        self.compile('kernel_record_overflow',
+                     records+'struct Overflow{pub value:u32;}pub fn main_entry()->u32{return 42;}',False)
+
     def test_virtual_memory_operations_are_native_and_privileged(self):
         for name,params,args,opcode in VM_OPERATIONS:
             declaration=f'@extern(C) fn {name}({params})->i64;'

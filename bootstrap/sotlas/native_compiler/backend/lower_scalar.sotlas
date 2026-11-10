@@ -83,16 +83,16 @@ pub struct ScalarLowering {
     pub cfg_current: u32;
     pub cfg_first_instruction: usize;
     pub local_count: usize;
-    pub struct_name_offsets: [usize; 32];
-    pub struct_name_lens: [usize; 32];
-    pub struct_sizes: [u32; 32];
-    pub struct_alignments: [u32; 32];
-    pub struct_field_starts: [u32; 32];
-    pub struct_field_counts: [u32; 32];
+    pub struct_name_offsets: [usize; 64];
+    pub struct_name_lens: [usize; 64];
+    pub struct_sizes: [u32; 64];
+    pub struct_alignments: [u32; 64];
+    pub struct_field_starts: [u32; 64];
+    pub struct_field_counts: [u32; 64];
     pub struct_count: usize;
-    pub array_pattern_types: [usize;32];
-    pub array_pattern_rests: [i64;32];
-    pub array_subject_types: [usize;32];
+    pub array_pattern_types: [usize;64];
+    pub array_pattern_rests: [i64;64];
+    pub array_subject_types: [usize;64];
     pub field_name_offsets: [usize; 256];
     pub field_name_lens: [usize; 256];
     pub field_offsets: [u32; 256];
@@ -1131,16 +1131,16 @@ impl ScalarLowering {
             cfg_current: 0,
             cfg_first_instruction: 0,
             local_count: 0,
-            struct_name_offsets: [0; 32],
-            struct_name_lens: [0; 32],
-            struct_sizes: [0; 32],
-            struct_alignments: [0; 32],
-            struct_field_starts: [0; 32],
-            struct_field_counts: [0; 32],
+            struct_name_offsets: [0; 64],
+            struct_name_lens: [0; 64],
+            struct_sizes: [0; 64],
+            struct_alignments: [0; 64],
+            struct_field_starts: [0; 64],
+            struct_field_counts: [0; 64],
             struct_count: 0,
-            array_pattern_types: [0;32],
-            array_pattern_rests: [0;32],
-            array_subject_types: [0;32],
+            array_pattern_types: [0;64],
+            array_pattern_rests: [0;64],
+            array_subject_types: [0;64],
             field_name_offsets: [0; 256],
             field_name_lens: [0; 256],
             field_offsets: [0; 256],
@@ -6519,7 +6519,7 @@ impl ScalarLowering {
 
     pub fn register_record_layout(mut self: &mut Self, struct_scan_index: usize) -> bool {
         let decl_node: AstNode = unsafe{*(self.nodes+struct_scan_index)};
-        if self.struct_count >= 32 { return self.reject(struct_scan_index); }
+        if self.struct_count >= 64 { return self.reject(struct_scan_index); }
         let s_id: usize = self.struct_count;
         self.struct_name_offsets[s_id] = decl_node.str_offset;
         self.struct_name_lens[s_id] = decl_node.str_len;
@@ -6683,7 +6683,7 @@ impl ScalarLowering {
             variant=variant+1;
         }
         if has_payload {
-            if self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(self.variant_nodes[start]); }
+            if self.struct_count >= 64 || self.field_total_count >= 256 { return self.reject(self.variant_nodes[start]); }
             let record: usize = self.struct_count;
             self.enum_record_ids[enumeration]=record as u32+1;
             self.struct_name_offsets[record]=self.enum_name_offsets[enumeration];
@@ -8563,7 +8563,7 @@ impl ScalarLowering {
                         || element == TargetTypeTag::Pointer || element == TargetTypeTag::Aggregate { return self.reject(node.first_child); }
                     let maximum: usize = 4096;
                     if count == 0 || count > 256 || stride == 0 || count > maximum/(stride as usize)
-                        || self.struct_count >= 32 || self.field_total_count >= 256 { return self.reject(node.first_child); }
+                        || self.struct_count >= 64 || self.field_total_count >= 256 { return self.reject(node.first_child); }
                     let layout: usize = self.struct_count;let field: usize = self.field_total_count;
                     self.array_subject_types[layout]=typ;
                     self.struct_field_starts[layout]=field as u32;self.struct_field_counts[layout]=1;
@@ -8664,7 +8664,7 @@ impl ScalarLowering {
                     || node.int_value < -1 || node.int_value > explicit as i64 { return self.reject(pattern); }
                 if self.array_pattern_record(pattern) == 0 {
                     let field_limit: usize = 256;
-                    if self.struct_count >= 32 || explicit > field_limit-self.field_total_count { return self.reject(pattern); }
+                    if self.struct_count >= 64 || explicit > field_limit-self.field_total_count { return self.reject(pattern); }
                     let layout: usize = self.struct_count;
                     self.array_pattern_types[layout]=typ;self.array_pattern_rests[layout]=node.int_value;
                     self.struct_sizes[layout]=count as u32*stride;self.struct_alignments[layout]=alignment;

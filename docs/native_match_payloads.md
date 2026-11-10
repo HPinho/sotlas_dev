@@ -50,7 +50,7 @@ cleanup still require their general runtime implementation; they remain rejected
 
 ## Bounds and exclusions
 
-The existing 32 record layouts, 32 enum tables, 256 total variants/fields,
+The existing 64 record layouts, 32 enum tables, 256 total variants/fields,
 128 local slots and 64 match-arm limits apply. A payload enum consumes one private
 record layout. Its complete padded storage must fit within 4096 bytes.
 [Dependency-ordered layouts](native_composed_values.md) now support forward
