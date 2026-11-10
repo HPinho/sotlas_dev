@@ -39,6 +39,8 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
         if memory or heap or collections:
             for name in ('pages','kernel_memory'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
+        if memory:
+            shutil.copyfile(ROOT/'runtime/native/initramfs.sotlas',runtime/'initramfs.sotlas')
         if heap or collections:
             for name in ('managed','heap','kernel_heap'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))

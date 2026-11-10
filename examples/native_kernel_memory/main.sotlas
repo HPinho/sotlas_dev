@@ -3,6 +3,7 @@ module examples::native_kernel_memory;
 import sotlas::runtime::kernel_x86::*;
 import sotlas::runtime::kernel_memory::*;
 import sotlas::runtime::pages::*;
+import sotlas::runtime::initramfs::*;
 
 static mut interrupt_allocations:u64=0;
 pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
@@ -17,21 +18,23 @@ pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
 }
 
 fn read32(address:usize)->u32 {let p:*const u32=unsafe{address as *const u32};return unsafe{*p};}
-fn module_preserved(info:u32)->bool {
-    let header:usize=info as usize;
-    if (read32(header)&8)==0 || read32(header+20)!=1 {return false;}
-    let table:usize=read32(header+24) as usize;
-    let start:usize=read32(table) as usize;let end:usize=read32(table+4) as usize;
-    if end-start!=25 {return false;}
+fn module_preserved()->bool {
+    let boot:NativeBootModule=native_kernel_boot_module(0);
+    if !boot.valid || native_kernel_boot_module(1).valid { return false; }
+    let config:NativeArchiveFile=native_initramfs_find(boot.data,boot.length,"etc/boot.cfg",12);
+    let empty:NativeArchiveFile=native_initramfs_find(boot.data,boot.length,"empty",5);
+    let missing:NativeArchiveFile=native_initramfs_find(boot.data,boot.length,"absent",6);
+    if !config.valid || !config.found || config.length!=25 || !empty.valid || !empty.found
+        || empty.length!=0 || !missing.valid || missing.found { return false; }
     let expected:*const u8="SOTLAS-MODULE-RESERVED\n42";
-    let actual:*const u8=unsafe{start as *const u8};let mut i:usize=0;
+    let actual:*const u8=config.data;let mut i:usize=0;
     unsafe{while i<25 {if *(actual+i)!=*(expected+i) {return false;}i+=1;}}return true;
 }
 pub fn kernel_main(magic:u32,info:u32)->u32 {
     if native_kernel_pages_init(0,info) || native_kernel_pages_init(magic,0)
         || native_kernel_pages_allocate(1,1,false).owner!=null {return native_kernel_qemu_exit(18);}
     if !native_kernel_serial_init() || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
-    if native_kernel_pages_init(magic,info) || !module_preserved(info) {return native_kernel_qemu_exit(2);}
+    if native_kernel_pages_init(magic,info) || !module_preserved() {return native_kernel_qemu_exit(2);}
     let initial:usize=native_kernel_pages_free();if initial<1024 {return native_kernel_qemu_exit(3);}
     if !native_kernel_interrupts_install() || !native_kernel_timer_start(1000)
         || native_kernel_timer_wait(2)<2 {return native_kernel_qemu_exit(15);}
@@ -65,7 +68,7 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     let last:NativePageSpan=native_kernel_pages_allocate(1,1,false);
     if last.first!=first.first || native_kernel_pages_release(first) || native_kernel_pages_free()!=0 {return native_kernel_qemu_exit(13);}
     native_kernel_serial_write("SOTLAS: memory map and exhaustion OK\n",37);
-    if !module_preserved(info) {return native_kernel_qemu_exit(14);}
+    if !module_preserved() {return native_kernel_qemu_exit(14);}
     native_kernel_serial_write("SOTLAS: boot module preserved\n",30);
     let flags:u64=native_kernel_interrupts_disable();
     if (flags&512)==0 {return native_kernel_qemu_exit(19);}native_kernel_interrupts_restore(flags);

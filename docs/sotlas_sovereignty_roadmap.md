@@ -52,9 +52,10 @@ work during timer delivery. Its full platform CI remains pending.
 The kernel now has [physical page allocation](native_kernel_memory.md): a
 validated Multiboot map, explicit reservations for the image and boot modules,
 aligned spans, zeroing, stale-handle checks and IRQ-safe metadata on one CPU.
-The same guest exhausts usable RAM under QEMU with 32, 64 and 128 MiB while
-preserving its boot module. This is a physical allocator, not a general heap
-or virtual-memory subsystem. The new delivery still requires platform CI.
+The same guest reads files directly from a reserved Multiboot initramfs
+before and after exhausting usable RAM under QEMU with 32, 64 and 128 MiB.
+The Sotlas reader validates a bounded CPIO archive before exposing file
+bytes. Platform CI is pending for this change.
 
 A [page-backed kernel heap](native_kernel_heap.md) now provides variable-sized
 aligned buffers, checked copies, failure-preserving resize, individual release

@@ -8,6 +8,25 @@ static mut kernel_page_states:[u8;262144]=0;
 static mut kernel_page_tags:[u64;262144]=0;
 static mut kernel_page_control:[u64;16]=0;
 static mut kernel_pages_ready:bool=false;
+static mut kernel_module_table:usize=0;
+static mut kernel_module_count:usize=0;
+
+pub struct NativeBootModule {
+    pub valid:bool;
+    pub data:*const u8;
+    pub length:usize;
+}
+
+// The bootloader's reserved table and payload remain immutable after handoff.
+pub fn native_kernel_boot_module(index:usize)->NativeBootModule {
+    let missing:NativeBootModule=NativeBootModule{valid:false,data:null,length:0};
+    if !unsafe{kernel_pages_ready} || index>=unsafe{kernel_module_count} { return missing; }
+    let entry:usize=unsafe{kernel_module_table}+index*16;
+    let start:usize=kernel_memory_read32(entry) as usize;
+    let end:usize=kernel_memory_read32(entry+4) as usize;
+    if end<start || !kernel_memory_range(start,end-start) { return missing; }
+    return NativeBootModule{valid:true,data:unsafe{start as *const u8},length:end-start};
+}
 
 fn kernel_pages_context()->*mut NativePages {
     let words:*mut u64=unsafe{kernel_page_control as *mut u64};
@@ -89,7 +108,12 @@ fn kernel_pages_initialize(magic:u32,info:u32)->bool {
         if text!=0 {native_pages_configure(p,text,text+kernel_memory_string_length(text),false);}i+=1;
     }
     if unsafe{p.free}==0 || !native_pages_seal(p) {return false;}
-    unsafe{kernel_pages_ready=true;}return true;
+    unsafe {
+        kernel_module_table=table;
+        kernel_module_count=modules;
+        kernel_pages_ready=true;
+    }
+    return true;
 }
 
 // Handles are allocation identities; callers must serialize access to their

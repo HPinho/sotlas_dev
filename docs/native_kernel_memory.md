@@ -16,7 +16,8 @@ bash scripts/build_kernel.sh build/native/sotlas-native build/kernel-memory --me
 Choose a fresh output directory. The script checks the imported project,
 emits its object, links the boot image and boots QEMU TCG with 64 MiB RAM.
 Compiler commands run with host tools absent from PATH. The script supplies a
-small boot module so the guest can verify that allocation never overwrites it.
+small initramfs as a boot module so the guest can verify that allocation never
+overwrites it.
 An explicit guest success exit and all four serial markers are required.
 
 The [example](../examples/native_kernel_memory/main.sotlas) exercises:
@@ -25,7 +26,8 @@ The [example](../examples/native_kernel_memory/main.sotlas) exercises:
 - exact-span release, double-release rejection and generation checks;
 - allocation from a timer handler while the main kernel also uses the allocator;
 - exhaustion, failed allocation and reuse after exhaustion;
-- writes to every allocated page while retaining the boot module unchanged.
+- reads a configuration file, an empty file and a missing path before and
+  after writing to every allocated page.
 
 The integration gate repeats the same image with 32 and 128 MiB RAM. It also
 checks image structure, deterministic linking and rejection of incorrect entry
@@ -85,11 +87,31 @@ bootstrap processor: payload aliases remain the caller's responsibility and
 there is no SMP lock, general heap, virtual-memory mapper or automatic drop
 integration in this profile.
 
+## Read files from a boot module
+
+`native_kernel_boot_module(index)` returns a read-only view of a reserved
+Multiboot module after memory initialization. An invalid index or an
+uninitialized allocator yields an invalid view.
+
+`native_initramfs_find(data, length, path, path_length)` validates the whole
+archive before returning a view of a file. Check `valid` first, then `found`
+to distinguish an absent file from an empty one. The returned bytes borrow
+the archive storage. The caller must keep both input ranges readable for the
+lookup and keep the archive immutable for as long as it uses the file view.
+
+The reader accepts one uncompressed [CPIO `newc` archive](https://docs.kernel.org/driver-api/early-userspace/buffer-format.html)
+with a trailer and zero padding. Limits are 16 MiB, 1023 member records and
+1023 bytes per path. Members can be regular files with one link or directories.
+Use relative paths with nonempty components and omit `.` and `..`. A
+duplicate regular file for the requested path invalidates the lookup.
+
 ## Verification
 
 `tests/test_sotlas_native_pages.py` executes native positive and negative cases
 for alignment, fragmentation, reservations, generations, metadata overlap,
-map extensions, interval overflow and malformed maps. `tests/native_kernel_gate.py`
+map extensions, interval overflow and malformed maps.
+`tests/test_sotlas_native_initramfs.py` executes binary and empty file lookups
+and checks that malformed archives publish no file. `tests/native_kernel_gate.py`
 connects the runtime to the original-source Stage 3 fixtures and QEMU boots.
 The fixture deliberately keeps spaces in its temporary build path. QEMU's
 Multiboot module parser interprets whitespace inside `-initrd` values, even
