@@ -1,0 +1,147 @@
+barecore;
+module examples::native_kernel_foundation;
+import sotlas::runtime::kernel_x86::*;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::kernel_vm::*;
+import sotlas::runtime::kernel_heap::*;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::vector::*;
+import sotlas::runtime::word_map::*;
+import sotlas::runtime::heap_text::*;
+import sotlas::runtime::initramfs::*;
+import sotlas::runtime::results::*;
+
+// Integrated ring-0 workload: a mapped RAM page, a page-backed heap,
+// persistent collections, a boot module and IRQ-time allocation coexist.
+// All heap/collection access follows the single-BSP interrupt contract.
+static mut foundation_heap:*mut NativeKernelHeap=null;
+static mut foundation_ticks:u64=0;
+pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
+    if vector!=32 || error!=0 || frame==null {return native_kernel_qemu_exit(30);}
+    let p:*mut NativeKernelHeap=unsafe{foundation_heap};
+    if p!=null {
+        let temporary:NativeHeapHandle=native_kernel_heap_allocate(p,24,8,true);
+        if temporary.owner==null || !native_kernel_heap_write(p,temporary,0,"IRQ",3)
+            || !native_kernel_heap_release(p,temporary,true) {return native_kernel_qemu_exit(31);}
+    }
+    if !native_kernel_timer_interrupt(vector,error) {return native_kernel_qemu_exit(32);}
+    unsafe{foundation_ticks+=1;}
+    return 0;
+}
+pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if !native_kernel_serial_init() || !native_kernel_interrupts_install()
+        || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
+    let baseline:usize=native_kernel_pages_free();
+    if baseline<32 || !native_kernel_vm_init()
+        || native_kernel_pages_free()!=baseline-3 {return native_kernel_qemu_exit(2);}
+
+    let module:NativeBootModule=native_kernel_boot_module(0);
+    if !module.valid || native_kernel_boot_module(1).valid {return native_kernel_qemu_exit(3);}
+    let file:NativeArchiveFile=native_initramfs_find(module.data,module.length,"etc/boot.cfg",12);
+    let missing:NativeArchiveFile=native_initramfs_find(module.data,module.length,"absent",6);
+    if !file.valid || !file.found || file.length!=25 || !missing.valid || missing.found {
+        return native_kernel_qemu_exit(4);
+    }
+    let answer:NativeU32Result=native_parse_u32(unsafe{file.data+23},2);
+    if answer.status!=0 || answer.value!=42 {return native_kernel_qemu_exit(5);}
+
+    // Map a *live allocated* RAM frame, not an unowned physical address.
+    let frame:NativePageSpan=native_kernel_pages_allocate(1,1,true);
+    let physical:usize=native_kernel_page_address(frame);
+    if physical==0 || !native_kernel_vm_map(NATIVE_VM_BASE,physical,NATIVE_VM_WRITE)
+        || native_kernel_vm_map(NATIVE_VM_BASE,physical,NATIVE_VM_READ)
+        || native_kernel_vm_physical(NATIVE_VM_BASE+4095)!=physical+4095 {
+        return native_kernel_qemu_exit(6);
+    }
+    let alias:*mut u8=unsafe{NATIVE_VM_BASE as *mut u8};
+    let direct:*const u8=unsafe{physical as *const u8};
+    unsafe{*alias=42;*(alias+4095)=99;}
+    if unsafe{*direct}!=42 || !native_kernel_vm_protect(NATIVE_VM_BASE,NATIVE_VM_READ)
+        || unsafe{*alias}!=42 || native_kernel_vm_physical(NATIVE_VM_BASE)!=physical {
+        return native_kernel_qemu_exit(7);
+    }
+    native_kernel_serial_write("SOTLAS: foundation initramfs and VM OK\n",39);
+
+    let mut metadata:[u64;512]=0;
+    let words:*mut u64=unsafe{metadata as *mut u64};
+    let metadata_address:usize=unsafe{words as usize};
+    let slots:*mut NativeHeapSlot=unsafe{metadata_address as *mut NativeHeapSlot};
+    let mut heap:NativeKernelHeap=native_kernel_heap_empty();
+    let p:*mut NativeKernelHeap=unsafe{(&mut heap) as *mut NativeKernelHeap};
+    if !native_kernel_heap_open(p,slots,128,8) {return native_kernel_qemu_exit(8);}
+    let q:*mut NativeHeap=native_kernel_heap_borrow(p);
+    if q==null {return native_kernel_qemu_exit(9);}
+
+    let mut sequence:NativeVector=native_vector_empty();
+    let v:*mut NativeVector=unsafe{(&mut sequence) as *mut NativeVector};
+    let values:[u64;4]=[12,30,42,99];
+    if !native_vector_open(v,q,8,8) || !native_vector_append(v,unsafe{values as *const u8},4) {
+        return native_kernel_qemu_exit(10);
+    }
+    let mut dictionary:NativeWordMap=native_word_map_empty();
+    let map:*mut NativeWordMap=unsafe{(&mut dictionary) as *mut NativeWordMap};
+    if !native_word_map_open(map,q) || !native_word_map_set(map,42,answer.value as u64) {
+        return native_kernel_qemu_exit(11);
+    }
+    let mut report:NativeHeapText=native_heap_text_empty();
+    let text:*mut NativeHeapText=unsafe{(&mut report) as *mut NativeHeapText};
+    if !native_heap_text_open(text,q) || native_heap_text_append(text,"entry=",6).status!=0
+        || native_heap_text_append(text,unsafe{file.data+23},2).status!=0 {
+        return native_kernel_qemu_exit(12);
+    }
+    let stale:NativeVectorView=native_heap_text_view(text);
+    if native_heap_text_append(text,"!",1).status!=0 || native_vector_view_current(stale)
+        || native_heap_text_check(text).value!=9 {return native_kernel_qemu_exit(13);}
+
+    unsafe{foundation_heap=p;}
+    if !native_kernel_timer_start(1000) || native_kernel_timer_wait(2)<2 {
+        return native_kernel_qemu_exit(14);
+    }
+    unsafe{sotlas_x86_sti();}
+    if native_kernel_heap_borrow(p)!=null {return native_kernel_qemu_exit(15);}
+    let mut i:u64=0;
+    while i<64 {
+        // Enter a no-IRQ critical section for raw heap-backed collections;
+        // the timer callback is free to allocate between those sections.
+        let flags:u64=native_kernel_interrupts_disable();
+        let added:bool=native_word_map_add(map,i%4,1);
+        let inserted:bool=native_vector_append(v,unsafe{(&mut i) as *const u8},1);
+        native_kernel_interrupts_restore(flags);
+        if !added || !inserted {return native_kernel_qemu_exit(16);}
+        i+=1;
+    }
+    let saved:u64=native_kernel_interrupts_disable();
+    if (saved&512)==0 || unsafe{foundation_ticks}==0 || sequence.length!=68
+        || !native_word_map_get(map,42).found || native_word_map_get(map,42).value!=42
+        || native_word_map_get(map,0).value!=16 || native_word_map_get(map,3).value!=16
+        || native_kernel_heap_close(p) {return native_kernel_qemu_exit(17);}
+    let view:NativeVectorView=native_heap_text_view(text);
+    let mut output:[u8;16]=0;
+    if !native_vector_read(view,0,unsafe{output as *mut u8},9)
+        || output[0]!=101 || output[6]!=52 || output[7]!=50 || output[8]!=33 {
+        return native_kernel_qemu_exit(18);
+    }
+    if !native_word_map_close(map) || !native_vector_close(v)
+        || !native_heap_text_close(text) || native_vector_view_current(view) {
+        return native_kernel_qemu_exit(19);
+    }
+    native_kernel_timer_stop();
+    unsafe{foundation_heap=null;}
+    native_kernel_interrupts_restore(saved);
+    native_kernel_serial_write("SOTLAS: foundation IRQ and data OK\n",35);
+
+    if !native_kernel_heap_close(p)
+        || native_kernel_vm_unmap(NATIVE_VM_BASE)!=physical
+        || native_kernel_vm_physical(NATIVE_VM_BASE)!=0
+        || !native_kernel_pages_release(frame)
+        || native_kernel_pages_release(frame)
+        || native_kernel_pages_free()!=baseline-3 {
+        return native_kernel_qemu_exit(20);
+    }
+    let again:NativeBootModule=native_kernel_boot_module(0);
+    if !again.valid || again.length!=module.length {
+        return native_kernel_qemu_exit(21);
+    }
+    native_kernel_serial_write("SOTLAS: foundation reclaim and ownership OK\n",44);
+    return native_kernel_qemu_exit(42);
+}

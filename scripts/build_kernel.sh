@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 4 ]]; then
-    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap|--collections|--vm]' >&2
+    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap|--collections|--vm|--foundation]' >&2
     exit 1
 fi
 run=false
@@ -11,6 +11,7 @@ memory=false
 heap=false
 collections=false
 vm=false
+foundation=false
 for option in "${@:3}"; do
     case "$option" in
         --run) [[ $run == false ]] || exit 1; run=true ;;
@@ -19,6 +20,7 @@ for option in "${@:3}"; do
         --heap) [[ $heap == false ]] || exit 1; heap=true ;;
         --collections) [[ $collections == false ]] || exit 1; collections=true ;;
         --vm) [[ $vm == false ]] || exit 1; vm=true ;;
+        --foundation) [[ $foundation == false ]] || exit 1; foundation=true ;;
         *) echo "Unknown kernel option: $option" >&2; exit 1 ;;
     esac
 done
@@ -26,6 +28,7 @@ done
 [[ $heap == false || ( $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 [[ $collections == false || ( $heap == false && $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 [[ $vm == false || ( $collections == false && $heap == false && $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
+[[ $foundation == false || ( $memory == false && $heap == false && $collections == false && $vm == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 if [[ $collections == true ]]; then heap=true; fi
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compiler="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
@@ -46,26 +49,27 @@ if [[ $memory == true ]]; then example=native_kernel_memory; fi
 if [[ $heap == true ]]; then example=native_kernel_heap; fi
 if [[ $collections == true ]]; then example=native_kernel_collections; fi
 if [[ $vm == true ]]; then example=native_kernel_vm; fi
+if [[ $foundation == true ]]; then example=native_kernel_foundation; fi
 cp "$repository/examples/$example/main.sotlas" "$output/src/main.sotlas"
 cp "$repository/runtime/native/kernel_x86.sotlas" "$output/src/sotlas/runtime/kernel_x86.sotlas"
-if [[ $memory == true || $heap == true || $vm == true ]]; then
+if [[ $memory == true || $heap == true || $vm == true || $foundation == true ]]; then
     cp "$repository/runtime/native/pages.sotlas" "$output/src/sotlas/runtime/pages.sotlas"
     cp "$repository/runtime/native/kernel_memory.sotlas" "$output/src/sotlas/runtime/kernel_memory.sotlas"
 fi
-if [[ $vm == true ]]; then
+if [[ $vm == true || $foundation == true ]]; then
     cp "$repository/runtime/native/kernel_vm.sotlas" "$output/src/sotlas/runtime/kernel_vm.sotlas"
 fi
-if [[ $heap == true ]]; then
+if [[ $heap == true || $foundation == true ]]; then
     for module in managed heap kernel_heap; do
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
     done
 fi
-if [[ $collections == true ]]; then
+if [[ $collections == true || $foundation == true ]]; then
     for module in vector results text unicode utf8_buffer heap_text word_map; do
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
     done
 fi
-if [[ $memory == true ]]; then
+if [[ $memory == true || $foundation == true ]]; then
     cp "$repository/runtime/native/initramfs.sotlas" "$output/src/sotlas/runtime/initramfs.sotlas"
     newc_member() {
         local name="$1" mode="$2" content="$3" inode="$4"
@@ -97,7 +101,7 @@ if [[ -n "$qemu" ]]; then
     # QEMU parses Multiboot -initrd values as module command lines, including
     # whitespace/comma separators. Shell quoting does not protect filenames
     # inside that parser. Use a fixed relative basename from the build directory.
-    if [[ $memory == true ]]; then module_args=(-initrd boot-module.bin); fi
+    if [[ $memory == true || $foundation == true ]]; then module_args=(-initrd boot-module.bin); fi
     set +e
     # Do not use -no-shutdown: QEMU 10.2 implements debug-exit as shutdown.
     (cd "$output" && "$timeout_tool" 15s "$qemu" -machine pc -accel tcg -cpu qemu64 -m 64M \
@@ -108,7 +112,12 @@ if [[ -n "$qemu" ]]; then
     set -e
     cat "$output/serial.log"
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
-    if [[ $vm == true ]]; then
+    if [[ $foundation == true ]]; then
+        grep -Fxq 'SOTLAS: foundation initramfs and VM OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: foundation IRQ and data OK' "$output/serial.log"
+        grep -Fxq 'SOTLAS: foundation reclaim and ownership OK' "$output/serial.log"
+        echo 'Kernel foundation verified: VM, boot module, IRQ, heap collections and page reclamation.'
+    elif [[ $vm == true ]]; then
         grep -Fxq 'SOTLAS: read-only and NX faults verified' "$output/serial.log"
         grep -Fxq 'SOTLAS: unmap and remap verified' "$output/serial.log"
     elif [[ $collections == true ]]; then
