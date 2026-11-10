@@ -49,6 +49,8 @@
 
 [Native kernel virtual memory and page protection](docs/native_kernel_vm.md)
 
+[Integrated Bare Metal foundation: boot, VM, IRQ, heap and initramfs](examples/native_kernel_foundation/README.md)
+
 [Native kernel heap and resizable buffers](examples/native_kernel_heap/README.md)
 
 [Dynamic collections on the native kernel heap](examples/native_kernel_collections/README.md)

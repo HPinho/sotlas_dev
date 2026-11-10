@@ -7,11 +7,25 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
-The maintainer reported green CI for `490458e` before this delivery.
-The last directly inspected successful run remains
-[CI #1345](https://github.com/HPinho/sotlas_dev/actions/runs/41648523027)
-for `9084cf8`. The kernel/Mach-O/bootstrap compatibility repair in `e786c0c`
-is retained; subsequent workflow results are supplied by the maintainer.
+The last directly inspected successful baseline is
+`a25653517a9ce1dff27712ba71e836cfb94edabd` /
+[CI #42850078780](https://github.com/HPinho/sotlas_dev/actions/runs/42850078780)
+(19/19 jobs successful across Linux, Windows and Intel macOS).
+This supersedes the older historical CI reference. The native x86-64 VM
+profile is therefore certified for its declared bounded contract.
+
+The current **Bare Metal foundation integration candidate** combines the
+existing [boot memory map](native_kernel_memory.md),
+[virtual mappings](native_kernel_vm.md),
+[page-backed heap](native_kernel_heap.md),
+[dynamic containers](native_vector.md) and
+[initramfs](native_kernel_memory.md) with a PIT interrupt dispatcher in
+[one executable](native_kernel_foundation.md).
+It requires successful Stage 3 native builds and original source reconstruction,
+ELF rejection checks, and an actual QEMU boot at 32, 64 and 128 MiB.
+The candidate is **not** a new green baseline until its own CI succeeds.
+After certification, focus returns to native frontend/ownership closure,
+not broadening kernel features without a dependency on language development.
 
 The native profile includes
 [layout queries and packed records](native_layout_queries.md), checked

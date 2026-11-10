@@ -130,3 +130,11 @@ bits. The kernel integration gate rejects both Linux and Darwin syscall inputs.
 - CI now requires the emulator boot in the Linux matrix's native Stage 3
   fixture; Windows and Intel macOS validate image generation and rejection.
   Full CI certification of this commit is pending.
+
+## Integrated reference kernel
+
+For a single binary that checks boot module ownership, virtual mappings,
+interrupt-driven allocation, persistent containers and page reclamation, see
+[the native foundation profile](native_kernel_foundation.md).
+This integration is a bounded certification target, not an extension of
+Multiboot support to UEFI, a scheduler or userspace.

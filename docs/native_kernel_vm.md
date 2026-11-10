@@ -65,3 +65,12 @@ The Linux QEMU gate boots with 32, 64 and 128 MiB RAM. It also boots with NX
 hidden and checks that initialization fails without consuming physical pages.
 The Windows and Intel macOS gates build and inspect the image and exercise
 link-time rejection.
+
+## Integrated foundation exercise
+
+The [foundation kernel](native_kernel_foundation.md) combines this bounded
+VM profile with actual reserved boot-module reads, page-backed heap owners,
+collections and interrupt-time allocation in the same native executable.
+It verifies a writable alias becomes read-only, then unmaps it **before**
+freeing its physical frame and checks page-table reclamation. The dedicated
+VM exception and NX-failure gates above remain required.

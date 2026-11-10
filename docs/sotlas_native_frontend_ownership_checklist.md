@@ -1,5 +1,18 @@
 # Native frontend and ownership closure
 
+Current integrated Bare Metal candidate: [kernel foundation](native_kernel_foundation.md)
+connects executable Multiboot/initramfs reading, 4-KiB VM aliases, a
+page-backed heap, persistent POD/vector/text containers, IRQ-time allocation
+and deterministic page reclamation. Full QEMU and platform CI are mandatory
+before upgrading the green baseline. The candidate deliberately leaves
+system-wide W^X, compiler-proven resource lifetimes, userspace, SMP and
+automatic ARC/drop open.
+
+Certified baseline: `a2565351` / [CI 42850078780](https://github.com/HPinho/sotlas_dev/actions/runs/42850078780).
+Next focus after the combined gate: source-to-native ownership/escape checks
+for heap-backed resources, with negative semantic tests and Stage 2/3 equality.
+
+
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving
 rehash. Hosted/kernel histograms cover explicit cleanup and cursor lifetimes.
