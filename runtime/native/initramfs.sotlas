@@ -1,0 +1,121 @@
+module sotlas::runtime::initramfs;
+
+// A successful lookup borrows immutable bytes from the archive.
+pub struct NativeArchiveFile {
+    pub valid:bool;
+    pub found:bool;
+    pub data:*const u8;
+    pub length:usize;
+}
+
+fn archive_equal(left:*const u8,right:*const u8,length:usize)->bool {
+    let mut i:usize=0;
+    unsafe {
+        while i<length {
+            if *(left+i)!=*(right+i) { return false; }
+            i+=1;
+        }
+    }
+    return true;
+}
+
+fn archive_zero(data:*const u8,length:usize)->bool {
+    let mut i:usize=0;
+    unsafe {
+        while i<length {
+            if *(data+i)!=0 { return false; }
+            i+=1;
+        }
+    }
+    return true;
+}
+
+fn archive_hex(data:*const u8)->u64 {
+    let mut value:u64=0;
+    let mut i:usize=0;
+    unsafe {
+        while i<8 {
+            let byte:u8=*(data+i);
+            let mut digit:u64=0;
+            if byte>=48 && byte<=57 { digit=(byte-48) as u64; }
+            else if byte>=97 && byte<=102 { digit=(byte-87) as u64; }
+            else if byte>=65 && byte<=70 { digit=(byte-55) as u64; }
+            else { return 4294967296; }
+            value=value*16+digit;
+            i+=1;
+        }
+    }
+    return value;
+}
+
+fn archive_path(data:*const u8,length:usize)->bool {
+    let address:usize=unsafe{data as usize};
+    if address==0 || length==0 || length>1023 || length>18446744073709551615-address { return false; }
+    let mut start:usize=0;
+    let mut i:usize=0;
+    unsafe {
+        while i<=length {
+            if i==length || *(data+i)==47 {
+                if i==start || (i-start==1 && *(data+start)==46)
+                    || (i-start==2 && *(data+start)==46 && *(data+start+1)==46) { return false; }
+                start=i+1;
+            } else {
+                let byte:u8=*(data+i);
+                if byte<32 || byte==127 || byte==92 { return false; }
+            }
+            i+=1;
+        }
+    }
+    return true;
+}
+
+// Single uncompressed newc archive, with a trailer and zero padding.
+// Validate the complete archive before publishing a matching file.
+pub fn native_initramfs_find(data:*const u8,length:usize,path:*const u8,path_length:usize)->NativeArchiveFile {
+    let invalid:NativeArchiveFile=NativeArchiveFile{valid:false,found:false,data:null,length:0};
+    let address:usize=unsafe{data as usize};
+    if address==0 || length>16777216 || length>18446744073709551615-address
+        || !archive_path(path,path_length) { return invalid; }
+    let mut match_data:*const u8=null;
+    let mut match_length:usize=0;
+    let mut at:usize=0;
+    let mut records:u32=0;
+    while length-at>=110 && records<1024 {
+        if !archive_equal(data+at,"070701",6) { return invalid; }
+        let mut fields:[u64;13]=0;
+        let mut field:usize=0;
+        while field<13 {
+            fields[field]=archive_hex(data+at+6+field*8);
+            if fields[field]>4294967295 { return invalid; }
+            field+=1;
+        }
+        let name_start:usize=at+110;
+        let name_size:usize=fields[11] as usize;
+        let size:usize=fields[6] as usize;
+        if name_size<2 || name_size>1024 || name_size>length-name_start || fields[12]!=0 { return invalid; }
+        let name_end:usize=name_start+name_size;
+        let payload:usize=(name_end+3)&18446744073709551612;
+        if payload>length || size>length-payload || unsafe{*(data+name_end-1)}!=0
+            || !archive_zero(data+name_end,payload-name_end) { return invalid; }
+        if name_size==11 && archive_equal(data+name_start,"TRAILER!!!",10) {
+            if size!=0 || !archive_zero(data+payload,length-payload) { return invalid; }
+            return NativeArchiveFile{valid:true,found:match_data!=null,data:match_data,length:match_length};
+        }
+        if !archive_path(data+name_start,name_size-1) { return invalid; }
+        let file_type:u64=fields[1]&61440;
+        if file_type==32768 {
+            if fields[4]!=1 { return invalid; }
+            if name_size-1==path_length && archive_equal(data+name_start,path,path_length) {
+                if match_data!=null { return invalid; }
+                match_data=data+payload;
+                match_length=size;
+            }
+        } else if file_type!=16384 || size!=0 || fields[4]==0 { return invalid; }
+        let payload_end:usize=payload+size;
+        let next:usize=(payload_end+3)&18446744073709551612;
+        if next>length || !archive_zero(data+payload_end,next-payload_end) { return invalid; }
+        at=next;
+        records+=1;
+    }
+    return invalid;
+}

@@ -59,7 +59,25 @@ if [[ $collections == true ]]; then
     done
 fi
 if [[ $memory == true ]]; then
-    printf 'SOTLAS-MODULE-RESERVED\n42' > "$output/boot-module.bin"
+    cp "$repository/runtime/native/initramfs.sotlas" "$output/src/sotlas/runtime/initramfs.sotlas"
+    newc_member() {
+        local name="$1" mode="$2" content="$3" inode="$4"
+        local namesize=$(( ${#name} + 1 ))
+        local size=${#content}
+        local padding
+        printf '070701'
+        printf '%08x' "$inode" "$mode" 0 0 1 0 "$size" 0 0 0 0 "$namesize" 0
+        printf '%s\0' "$name"
+        for ((padding=(4-(110+namesize)%4)%4; padding>0; padding--)); do printf '\0'; done
+        printf '%s' "$content"
+        for ((padding=(4-size%4)%4; padding>0; padding--)); do printf '\0'; done
+    }
+    {
+        newc_member etc 16877 '' 1
+        newc_member etc/boot.cfg 33188 $'SOTLAS-MODULE-RESERVED\n42' 2
+        newc_member empty 33188 '' 3
+        newc_member 'TRAILER!!!' 0 '' 0
+    } > "$output/boot-module.bin"
 fi
 environment="$(command -v env)"
 native() { "$environment" PATH="$output/no-host-tools" "$@"; }
