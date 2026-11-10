@@ -406,6 +406,13 @@
       "verification": "tests/test_sotlas_native_heap.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-kernel-vm",
+      "document": "docs/native_kernel_vm.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_kernel_vm/main.sotlas",
+      "verification": "tests/test_sotlas_native_kernel.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-kernel-collections",
       "document": "docs/native_vector.md",
       "status": "EXPERIMENTAL",

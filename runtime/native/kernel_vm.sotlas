@@ -1,0 +1,189 @@
+module sotlas::runtime::kernel_vm;
+import sotlas::runtime::kernel_memory::*;
+import sotlas::runtime::pages::*;
+import sotlas::runtime::kernel_x86::*;
+
+@extern(C) pub fn sotlas_x86_read_cr2()->i64;
+@extern(C) fn sotlas_x86_read_cr3()->i64;
+@extern(C) fn sotlas_x86_load_cr3(address:usize)->i64;
+@extern(C) fn sotlas_x86_invlpg(address:usize)->i64;
+@extern(C) fn sotlas_x86_enable_page_protection()->i64;
+
+pub const NATIVE_VM_BASE:usize=1073741824;
+pub const NATIVE_VM_END:usize=2147483648;
+pub const NATIVE_VM_READ:u32=1;
+pub const NATIVE_VM_WRITE:u32=2;
+pub const NATIVE_VM_EXECUTE:u32=3;
+pub const NATIVE_VM_MMIO:u32=4;
+
+const VM_FRAME_MASK:u64=4503599627366400;
+const VM_NX:u64=9223372036854775808;
+static mut vm_root:usize=0;
+// 512 NativePageSpan records in naturally aligned, zeroed kernel BSS.
+static mut vm_table_handles:[u64;2048]=0;
+
+// Retain the bootstrap low identity map in the new root so the running
+// kernel, stack, interrupt tables and physical allocator stay addressable.
+pub fn native_kernel_vm_init()->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let ready:bool=vm_initialize();
+    native_kernel_interrupts_restore(flags);
+    return ready;
+}
+
+fn vm_initialize()->bool {
+    if unsafe{vm_root}!=0 || span_of::<NativePageSpan>()!=32 || align_of::<NativePageSpan>()>8 { return false; }
+    let previous:usize=unsafe{sotlas_x86_read_cr3()} as usize;
+    if previous==0 || previous>=NATIVE_VM_BASE || previous%4096!=0 { return false; }
+    let root:*const u64=unsafe{previous as *const u64};
+    let entry:u64=unsafe{*root};
+    let directory:usize=(entry&VM_FRAME_MASK) as usize;
+    if (entry&1)==0 || directory==0 || directory>=NATIVE_VM_BASE { return false; }
+    let old_directory:*const u64=unsafe{directory as *const u64};
+    let identity:u64=unsafe{*old_directory};
+    if (identity&129)!=1 || (identity&VM_FRAME_MASK)==0 || (identity&VM_FRAME_MASK)>=(NATIVE_VM_BASE as u64) { return false; }
+
+    let tables:NativePageSpan=native_kernel_pages_allocate(3,1,true);
+    let address:usize=native_kernel_page_address(tables);
+    if address==0 { return false; }
+    if unsafe{sotlas_x86_enable_page_protection()}!=1 {
+        native_kernel_pages_release(tables);
+        return false;
+    }
+    unsafe {
+        let pml4:*mut u64=address as *mut u64;
+        let pdpt:*mut u64=(address+4096) as *mut u64;
+        *pml4=((address+4096) as u64)|3;
+        *pdpt=identity;
+        *(pdpt+1)=((address+8192) as u64)|3;
+        sotlas_x86_load_cr3(address);
+        vm_root=address;
+    }
+    return true;
+}
+
+fn vm_directory_slot(address:usize)->*mut u64 {
+    let root:usize=unsafe{vm_root};
+    if root==0 || address<NATIVE_VM_BASE || address>=NATIVE_VM_END || address%4096!=0 { return null; }
+    let directory:*mut u64=unsafe{(root+8192) as *mut u64};
+    return directory+(address-NATIVE_VM_BASE)/2097152;
+}
+
+fn vm_table_handle(address:usize)->*mut NativePageSpan {
+    let words:*mut u64=unsafe{vm_table_handles as *mut u64};
+    let at:usize=unsafe{words as usize};
+    let handles:*mut NativePageSpan=unsafe{at as *mut NativePageSpan};
+    return handles+(address-NATIVE_VM_BASE)/2097152;
+}
+
+fn vm_slot(address:usize)->*mut u64 {
+    let entry:*mut u64=vm_directory_slot(address);
+    if entry==null || unsafe{*entry}==0 { return null; }
+    let table:usize=(unsafe{*entry}&VM_FRAME_MASK) as usize;
+    let pages:*mut u64=unsafe{table as *mut u64};
+    return pages+(address%2097152)/4096;
+}
+
+fn vm_ram_flags(access:u32)->u64 {
+    if access==NATIVE_VM_READ { return VM_NX|1; }
+    if access==NATIVE_VM_WRITE { return VM_NX|3; }
+    if access==NATIVE_VM_EXECUTE { return 1; }
+    return 0;
+}
+
+// Caller owns the RAM frame or has verified the device range. Keep RAM
+// allocated until unmap and never create conflicting cache aliases.
+pub fn native_kernel_vm_map(address:usize,physical:usize,access:u32)->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let mapped:bool=vm_map(address,physical,access);
+    native_kernel_interrupts_restore(flags);
+    return mapped;
+}
+
+fn vm_map(address:usize,physical:usize,access:u32)->bool {
+    let entry:*mut u64=vm_directory_slot(address);
+    if entry==null || physical==0 || physical%4096!=0 { return false; }
+    let mut bits:u64=vm_ram_flags(access);
+    if access==NATIVE_VM_MMIO {
+        // Avoid cache-type aliases with the low identity map. Use the
+        // bootstrap PAT's uncacheable PCD+PWT entry for device pages.
+        if physical<NATIVE_VM_BASE || physical>=4294967296 { return false; }
+        bits=VM_NX|27;
+    } else {
+        let root:usize=unsafe{vm_root};
+        if bits==0 || physical>=NATIVE_VM_BASE || (physical>=root && physical<root+12288) { return false; }
+    }
+    if unsafe{*entry}==0 {
+        let span:NativePageSpan=native_kernel_pages_allocate(1,1,true);
+        let table:usize=native_kernel_page_address(span);
+        if table==0 { return false; }
+        let handle:*mut NativePageSpan=vm_table_handle(address);
+        unsafe{*handle=span;*entry=(table as u64)|3;}
+    }
+    let slot:*mut u64=vm_slot(address);
+    unsafe {
+        if *slot!=0 { return false; }
+        *slot=(physical as u64)|bits;
+        sotlas_x86_invlpg(address);
+    }
+    return true;
+}
+
+pub fn native_kernel_vm_protect(address:usize,access:u32)->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let slot:*mut u64=vm_slot(address);
+    let bits:u64=vm_ram_flags(access);
+    let mut changed:bool=false;
+    unsafe {
+        if slot!=null && bits!=0 && (*slot&25)==1 {
+            *slot=(*slot&(VM_FRAME_MASK|96))|bits;
+            sotlas_x86_invlpg(address);
+            changed=true;
+        }
+    }
+    native_kernel_interrupts_restore(flags);
+    return changed;
+}
+
+pub fn native_kernel_vm_physical(address:usize)->usize {
+    let flags:u64=native_kernel_interrupts_disable();
+    let offset:usize=address%4096;
+    let slot:*mut u64=vm_slot(address-offset);
+    let mut physical:usize=0;
+    unsafe { if slot!=null && (*slot&1)!=0 { physical=((*slot&VM_FRAME_MASK) as usize)+offset; } }
+    native_kernel_interrupts_restore(flags);
+    return physical;
+}
+
+// Unmapping invalidates the local TLB before returning the borrowed frame.
+pub fn native_kernel_vm_unmap(address:usize)->usize {
+    let flags:u64=native_kernel_interrupts_disable();
+    let slot:*mut u64=vm_slot(address);
+    let mut physical:usize=0;
+    unsafe {
+        if slot!=null && (*slot&1)!=0 {
+            physical=(*slot&VM_FRAME_MASK) as usize;
+            *slot=0;
+            vm_reclaim_table(address);
+        }
+    }
+    native_kernel_interrupts_restore(flags);
+    return physical;
+}
+
+fn vm_reclaim_table(address:usize)->u32 {
+    let entry:*mut u64=vm_directory_slot(address);
+    unsafe {
+        let table:*const u64=((*entry&VM_FRAME_MASK) as usize) as *const u64;
+        let mut index:usize=0;
+        while index<512 {
+            if *(table+index)!=0 { sotlas_x86_invlpg(address);return 0; }
+            index+=1;
+        }
+        let handle:*mut NativePageSpan=vm_table_handle(address);
+        *entry=0;
+        sotlas_x86_invlpg(address);
+        native_kernel_pages_release(*handle);
+    }
+    return 0;
+}

@@ -925,6 +925,8 @@ module syscall_probe;
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',heap=True)
         verify_kernel_image(native_stage3,self.directory / "kernel collection cases",
                             run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',collections=True)
+        verify_kernel_image(native_stage3,self.directory / "kernel virtual memory cases",
+                            run_qemu=os.environ.get('SOTLAS_REQUIRE_KERNEL_BOOT')=='1',vm=True)
         from native_numeric_gate import verify_heap_text
         verify_heap_text(native_stage3,self.directory / "heap text cases")
         from native_numeric_gate import verify_word_map

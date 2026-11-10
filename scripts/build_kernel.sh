@@ -2,7 +2,7 @@
 set -euo pipefail
 
 if [[ $# -lt 1 || $# -gt 4 ]]; then
-    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap|--collections]' >&2
+    echo 'Usage: bash scripts/build_kernel.sh NATIVE_COMPILER [FRESH_OUTPUT_DIRECTORY] [--run] [--interrupts|--memory|--heap|--collections|--vm]' >&2
     exit 1
 fi
 run=false
@@ -10,6 +10,7 @@ interrupts=false
 memory=false
 heap=false
 collections=false
+vm=false
 for option in "${@:3}"; do
     case "$option" in
         --run) [[ $run == false ]] || exit 1; run=true ;;
@@ -17,12 +18,14 @@ for option in "${@:3}"; do
         --memory) [[ $memory == false ]] || exit 1; memory=true ;;
         --heap) [[ $heap == false ]] || exit 1; heap=true ;;
         --collections) [[ $collections == false ]] || exit 1; collections=true ;;
+        --vm) [[ $vm == false ]] || exit 1; vm=true ;;
         *) echo "Unknown kernel option: $option" >&2; exit 1 ;;
     esac
 done
 [[ $memory == false || $interrupts == false ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 [[ $heap == false || ( $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 [[ $collections == false || ( $heap == false && $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
+[[ $vm == false || ( $collections == false && $heap == false && $memory == false && $interrupts == false ) ]] || { echo 'Choose one kernel profile.' >&2; exit 1; }
 if [[ $collections == true ]]; then heap=true; fi
 repository="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 compiler="$(cd "$(dirname "$1")" && pwd)/$(basename "$1")"
@@ -42,11 +45,15 @@ if [[ $interrupts == true ]]; then example=native_kernel_interrupts; fi
 if [[ $memory == true ]]; then example=native_kernel_memory; fi
 if [[ $heap == true ]]; then example=native_kernel_heap; fi
 if [[ $collections == true ]]; then example=native_kernel_collections; fi
+if [[ $vm == true ]]; then example=native_kernel_vm; fi
 cp "$repository/examples/$example/main.sotlas" "$output/src/main.sotlas"
 cp "$repository/runtime/native/kernel_x86.sotlas" "$output/src/sotlas/runtime/kernel_x86.sotlas"
-if [[ $memory == true || $heap == true ]]; then
+if [[ $memory == true || $heap == true || $vm == true ]]; then
     cp "$repository/runtime/native/pages.sotlas" "$output/src/sotlas/runtime/pages.sotlas"
     cp "$repository/runtime/native/kernel_memory.sotlas" "$output/src/sotlas/runtime/kernel_memory.sotlas"
+fi
+if [[ $vm == true ]]; then
+    cp "$repository/runtime/native/kernel_vm.sotlas" "$output/src/sotlas/runtime/kernel_vm.sotlas"
 fi
 if [[ $heap == true ]]; then
     for module in managed heap kernel_heap; do
@@ -101,7 +108,10 @@ if [[ -n "$qemu" ]]; then
     set -e
     cat "$output/serial.log"
     [[ $status -eq 85 ]] || { echo "Kernel boot failed: QEMU exit $status, expected 85." >&2; exit 1; }
-    if [[ $collections == true ]]; then
+    if [[ $vm == true ]]; then
+        grep -Fxq 'SOTLAS: read-only and NX faults verified' "$output/serial.log"
+        grep -Fxq 'SOTLAS: unmap and remap verified' "$output/serial.log"
+    elif [[ $collections == true ]]; then
         grep -Fxq 'SOTLAS: dynamic words and checked views OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: growing UTF-8 report OK' "$output/serial.log"
         grep -Fxq 'SOTLAS: dynamic map histogram OK' "$output/serial.log"

@@ -47,6 +47,8 @@
 
 [Native kernel physical pages and boot memory map](examples/native_kernel_memory/README.md)
 
+[Native kernel virtual memory and page protection](docs/native_kernel_vm.md)
+
 [Native kernel heap and resizable buffers](examples/native_kernel_heap/README.md)
 
 [Dynamic collections on the native kernel heap](examples/native_kernel_collections/README.md)

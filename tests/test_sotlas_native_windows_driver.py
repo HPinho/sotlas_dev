@@ -389,6 +389,7 @@ class NativeWindowsDriverTests(unittest.TestCase):
         verify_kernel_image(stage3,self.directory / "kernel memory cases",memory=True)
         verify_kernel_image(stage3,self.directory / "kernel heap cases",heap=True)
         verify_kernel_image(stage3,self.directory / "kernel collection cases",collections=True)
+        verify_kernel_image(stage3,self.directory / "kernel virtual memory cases",vm=True)
         from native_numeric_gate import verify_heap_text
         verify_heap_text(stage3,self.directory / "heap text cases")
         from native_numeric_gate import verify_word_map

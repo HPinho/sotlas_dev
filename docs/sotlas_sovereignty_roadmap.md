@@ -57,6 +57,12 @@ before and after exhausting usable RAM under QEMU with 32, 64 and 128 MiB.
 The Sotlas reader validates a bounded CPIO archive before exposing file
 bytes. Platform CI is pending for this change.
 
+[Kernel virtual memory](native_kernel_vm.md) adds a kernel-installed page
+root, 4 KiB mappings, supervisor write and execute protection, local TLB
+invalidation, and page-table reclamation. The QEMU profile exercises real
+page faults and checks clean rejection without NX. User address spaces and
+SMP remain separate.
+
 A [page-backed kernel heap](native_kernel_heap.md) now provides variable-sized
 aligned buffers, checked copies, failure-preserving resize, individual release
 and page reclamation on close. A QEMU workload combines those operations with

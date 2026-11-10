@@ -9,8 +9,8 @@ import sys
 ROOT=Path(__file__).resolve().parents[1]
 
 
-def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=False,heap=False,collections=False):
-    assert sum((interrupts,memory,heap,collections))<=1, 'Choose one kernel profile'
+def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=False,heap=False,collections=False,vm=False):
+    assert sum((interrupts,memory,heap,collections,vm))<=1, 'Choose one kernel profile'
     compiler=Path(compiler).resolve();output=Path(output).resolve()
     environment={'PATH':str(output/'no-host-tools')}
     if os.name=='nt':environment['SystemRoot']=os.environ.get('SystemRoot','C:\\Windows')
@@ -22,13 +22,14 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
         return result
 
     project=output/'project'
-    example='native_kernel_collections' if collections else 'native_kernel_heap' if heap else 'native_kernel_memory' if memory else 'native_kernel_interrupts' if interrupts else 'native_kernel_boot'
+    example='native_kernel_vm' if vm else 'native_kernel_collections' if collections else 'native_kernel_heap' if heap else 'native_kernel_memory' if memory else 'native_kernel_interrupts' if interrupts else 'native_kernel_boot'
     if run_qemu:
         arguments=['bash',str(ROOT/'scripts/build_kernel.sh'),str(compiler),str(project),'--run']
         if interrupts:arguments.append('--interrupts')
         if memory:arguments.append('--memory')
         if heap:arguments.append('--heap')
         if collections:arguments.append('--collections')
+        if vm:arguments.append('--vm')
         result=subprocess.run(arguments,
                               cwd=ROOT,capture_output=True,timeout=45)
         if result.returncode:raise AssertionError(f'{result.stdout!r}\n{result.stderr!r}')
@@ -36,11 +37,13 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
     else:
         runtime=project/'src/sotlas/runtime';runtime.mkdir(parents=True,exist_ok=True)
         shutil.copyfile(ROOT/'runtime/native/kernel_x86.sotlas',runtime/'kernel_x86.sotlas')
-        if memory or heap or collections:
+        if memory or heap or collections or vm:
             for name in ('pages','kernel_memory'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
         if memory:
             shutil.copyfile(ROOT/'runtime/native/initramfs.sotlas',runtime/'initramfs.sotlas')
+        if vm:
+            shutil.copyfile(ROOT/'runtime/native/kernel_vm.sotlas',runtime/'kernel_vm.sotlas')
         if heap or collections:
             for name in ('managed','heap','kernel_heap'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
@@ -58,7 +61,7 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
     assert struct.unpack_from('<H',image,44)[0]==2
     magic,flags,checksum=struct.unpack_from('<III',image,4096)
     assert magic==0x1badb002 and flags==3 and (magic+flags+checksum)&0xffffffff==0
-    has_interrupts=interrupts or memory or heap or collections
+    has_interrupts=interrupts or memory or heap or collections or vm
     prefix=36864 if has_interrupts else 8192
     boot_size=32768 if has_interrupts else 4096
     assert struct.unpack_from('<IIIIIIII',image,52)==(1,4096,0x100000,0x100000,boot_size,0x20000,7,4096)
@@ -67,7 +70,7 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
     assert second[4]==len(image)-prefix and second[5]>=second[4] and second[6:]==(7,4096)
     assert struct.unpack_from('<Q',image,4656)[0]==struct.unpack_from('<Q',image,prefix+24)[0]
     assert struct.unpack_from('<IIQQQ',image,4928)==(0x314d454d,1,0x400000,0x400000+second[5],1<<30)
-    if (memory or heap or collections) and run_qemu:
+    if (memory or heap or collections or vm) and run_qemu:
         # One image must discover available RAM rather than assume QEMU's size.
         for ram in ('32M','128M'):
             args=['qemu-system-x86_64','-machine','pc','-accel','tcg','-cpu','qemu64',
@@ -79,7 +82,8 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
             if memory:args+=['-initrd','boot-module.bin']
             result=subprocess.run(args,cwd=project,capture_output=True,timeout=15)
             assert result.returncode==85,(ram,result.returncode,result.stdout,result.stderr)
-            markers=(b'SOTLAS: dynamic words and checked views OK\n',b'SOTLAS: collections IRQ and heap reclamation OK\n',
+            markers=(b'SOTLAS: read-only and NX faults verified\n',b'SOTLAS: unmap and remap verified\n') if vm else (
+                     b'SOTLAS: dynamic words and checked views OK\n',b'SOTLAS: collections IRQ and heap reclamation OK\n',
                      b'SOTLAS: growing UTF-8 report OK\n',b'SOTLAS: dynamic map histogram OK\n',
                      'Sotlas: é events=2000 min=-9223372036854775808\n'.encode('utf-8')) if collections else (
                      b'SOTLAS: heap resize and failure preservation OK\n',b'SOTLAS: heap IRQ allocation and exhaustion OK\n',
@@ -88,7 +92,16 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
                      b'SOTLAS: boot module preserved\n',b'SOTLAS: IRQ-safe page metadata OK\n')
             for marker in markers:
                 assert marker in result.stdout,(ram,result.stdout,result.stderr)
-            print('Kernel '+('collections' if collections else 'heap' if heap else 'memory')+' boot verified with '+ram+' RAM.')
+            print('Kernel '+('VM' if vm else 'collections' if collections else 'heap' if heap else 'memory')+' boot verified with '+ram+' RAM.')
+    if vm and run_qemu:
+        result=subprocess.run(
+            ['qemu-system-x86_64','-machine','pc','-accel','tcg','-cpu','qemu64,-nx',
+             '-m','64M','-kernel',str(project/'kernel.elf'),'-display','none','-serial','stdio',
+             '-monitor','none','-no-reboot','-device','isa-debug-exit,iobase=0xf4,iosize=0x04'],
+            cwd=project,capture_output=True,timeout=15,
+        )
+        assert result.returncode==87 and b'SOTLAS: NX unavailable; allocator unchanged\n' in result.stdout,(
+            result.returncode,result.stdout,result.stderr)
     if has_interrupts:
         assert struct.unpack_from('<HQ',image,4896)==(4095,0x104000)
         assert image[4912:4916]==b'IRQ1'
@@ -145,5 +158,5 @@ pub fn kernel_main(magic:u32,info:u32)->u32{let code:i64=sotlas_'''+platform+'''
 
 
 if __name__=='__main__':
-    verify_kernel_image(sys.argv[1],sys.argv[2],'--run' in sys.argv[3:],'--interrupts' in sys.argv[3:],'--memory' in sys.argv[3:],'--heap' in sys.argv[3:],'--collections' in sys.argv[3:])
+    verify_kernel_image(sys.argv[1],sys.argv[2],'--run' in sys.argv[3:],'--interrupts' in sys.argv[3:],'--memory' in sys.argv[3:],'--heap' in sys.argv[3:],'--collections' in sys.argv[3:],'--vm' in sys.argv[3:])
     print('Native kernel image and rejection contracts verified.'+(' QEMU boot verified.' if '--run' in sys.argv[3:] else ''))
