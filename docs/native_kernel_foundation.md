@@ -41,6 +41,11 @@ uses `whisper` byte access and verifies deferred reclamation across ordinary
 return, early return and loop exits. The original page count must be restored
 after each probe.
 
+The heap probes also use [owned buffers](native_owned_buffers.md). They
+transfer claims through growth, shrinking and a failed resize, check that
+deferred cleanup restores the used-byte count, and repeat with timer
+interrupts allocating from the same heap.
+
 1. Initialize COM1, the IDT/PIC and boot memory allocator; install a
    new 4-KiB page-table root. A CPU without NX is rejected by this profile;
    the dedicated `--vm` gate verifies the unchanged allocation state.

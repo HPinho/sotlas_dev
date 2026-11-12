@@ -64,6 +64,9 @@ if [[ $heap == true || $foundation == true ]]; then
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"
     done
 fi
+if [[ $foundation == true ]]; then
+    cp "$repository/runtime/native/kernel_owned_heap.sotlas" "$output/src/sotlas/runtime/kernel_owned_heap.sotlas"
+fi
 if [[ $collections == true || $foundation == true ]]; then
     for module in vector results text unicode utf8_buffer heap_text word_map; do
         cp "$repository/runtime/native/$module.sotlas" "$output/src/sotlas/runtime/$module.sotlas"

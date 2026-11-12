@@ -17,6 +17,10 @@ The [owned page delivery](native_owned_pages.md) applies `sole` transfer and
 can take ownership, reserve their backing locals, and release pages on
 structured exits. Raw pointer escapes and automatic aggregate drop remain open.
 
+[Owned heap buffers](native_owned_buffers.md) add consuming resize and
+cleanup over the page-backed kernel heap, with `whisper` read/write access
+and failure preservation. The issuing heap must outlive its claims.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving
