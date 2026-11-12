@@ -1482,7 +1482,7 @@ pub fn main_entry() -> u32 {{
 """, 0)
 
     def test_metadata_capacity_exhaustion_rejects_unused_declarations(self):
-        for count, fields in ((1, 257), (33, 1)):
+        for count, fields in ((1, 257), (65, 1)):
             declarations = "\n".join(
                 f"struct Group{group} {{ " + " ".join(f"f{i}: u32;" for i in range(fields)) + " }"
                 for group in range(count))
