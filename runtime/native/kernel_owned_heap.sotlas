@@ -1,0 +1,86 @@
+module sotlas::runtime::kernel_owned_heap;
+import sotlas::runtime::heap::*;
+import sotlas::runtime::kernel_heap::*;
+import sotlas::runtime::kernel_x86::*;
+
+// A scalar allocation claim. Keep its issuing heap descriptor at a stable
+// address until the claim closes. Treat all identity fields as opaque.
+pub struct NativeOwnedBuffer {
+    pub heap:usize;
+    pub index:u32;
+    pub generation:u64;
+    pub succeeded:bool;
+}
+
+fn owned_buffer_heap(owner:whisper NativeOwnedBuffer)->*mut NativeKernelHeap {
+    let identity:usize=owner.heap;
+    return unsafe{identity as *mut NativeKernelHeap};
+}
+
+fn owned_buffer_handle(owner:whisper NativeOwnedBuffer)->NativeHeapHandle {
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    if p==null { return native_heap_invalid(); }
+    let identity:usize=unsafe{p as usize}+field_offset!(NativeKernelHeap,heap);
+    let heap:*mut NativeHeap=unsafe{identity as *mut NativeHeap};
+    return NativeHeapHandle{owner:heap,index:owner.index,generation:owner.generation};
+}
+
+pub fn native_kernel_buffer_acquire(p:*mut NativeKernelHeap,size:usize,alignment:usize,zero:bool)->sole NativeOwnedBuffer {
+    let handle:NativeHeapHandle=native_kernel_heap_allocate(p,size,alignment,zero);
+    let identity:usize=unsafe{p as usize};
+    return NativeOwnedBuffer{heap:identity,index:handle.index,generation:handle.generation,succeeded:handle.owner!=null};
+}
+
+pub fn native_kernel_buffer_succeeded(owner:whisper NativeOwnedBuffer)->bool {
+    return owner.succeeded;
+}
+
+pub fn native_kernel_buffer_length(owner:whisper NativeOwnedBuffer)->usize {
+    let flags:u64=native_kernel_interrupts_disable();
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    let mut length:usize=0;
+    if native_kernel_heap_address(p,handle)!=null { length=native_heap_length(handle); }
+    native_kernel_interrupts_restore(flags);
+    return length;
+}
+
+// Resize transfers the claim. On failure the returned owner retains the
+// original allocation and bytes, with succeeded=false. Never discard it.
+pub fn native_kernel_buffer_resize(owner:sole NativeOwnedBuffer,size:usize,alignment:usize,zero_tail:bool)->sole NativeOwnedBuffer {
+    let flags:u64=native_kernel_interrupts_disable();
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    let next:NativeHeapHandle=native_kernel_heap_resize(p,handle,size,alignment,zero_tail);
+    let mut index:u32=owner.index;
+    let mut generation:u64=owner.generation;
+    if next.owner!=null { index=next.index;generation=next.generation; }
+    let identity:usize=owner.heap;
+    native_kernel_interrupts_restore(flags);
+    return NativeOwnedBuffer{heap:identity,index:index,generation:generation,succeeded:next.owner!=null};
+}
+
+pub fn native_kernel_buffer_write(owner:whisper NativeOwnedBuffer,offset:usize,source:*const u8,length:usize)->bool {
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    return native_kernel_heap_write(p,handle,offset,source,length);
+}
+
+pub fn native_kernel_buffer_read(owner:whisper NativeOwnedBuffer,offset:usize,destination:*mut u8,length:usize)->bool {
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    return native_kernel_heap_read(p,handle,offset,destination,length);
+}
+
+pub fn native_kernel_buffer_release(owner:sole NativeOwnedBuffer,clear:bool)->bool {
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    return native_kernel_heap_release(p,handle,clear);
+}
+
+pub fn native_kernel_buffer_close(owner:sole NativeOwnedBuffer)->void {
+    let p:*mut NativeKernelHeap=owned_buffer_heap(owner);
+    let handle:NativeHeapHandle=owned_buffer_handle(owner);
+    if handle.generation!=0 { native_kernel_heap_release(p,handle,true); }
+    return;
+}

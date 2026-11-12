@@ -48,6 +48,8 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
         if heap or collections or foundation:
             for name in ('managed','heap','kernel_heap'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
+        if foundation:
+            shutil.copyfile(ROOT/'runtime/native/kernel_owned_heap.sotlas',runtime/'kernel_owned_heap.sotlas')
         if collections or foundation:
             for name in ('vector','results','text','unicode','utf8_buffer','heap_text','word_map'):
                 shutil.copyfile(ROOT/f'runtime/native/{name}.sotlas',runtime/(name+'.sotlas'))
@@ -66,10 +68,18 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
             'defer native_kernel_owned_pages_close(owner);return native_kernel_owned_pages_load(owner,0);',
             'let mut owner:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);'
             'defer native_kernel_owned_pages_close(owner);owner=native_kernel_pages_acquire(1,1,true);return 42;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'native_kernel_buffer_release(owner,true);return native_kernel_buffer_length(owner) as u32;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'let resized:sole NativeOwnedBuffer=native_kernel_buffer_resize(owner,16,8,true);'
+            'return native_kernel_buffer_length(owner) as u32;',
+            'let mut owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'defer native_kernel_buffer_close(owner);owner=native_kernel_buffer_acquire(null,8,8,true);return 42;',
         )
         for index,body in enumerate(cases):
             source=project/'src'/f'reject_owned_pages_{index}.sotlas'
             source.write_text('barecore;module reject_owned_pages;import sotlas::runtime::kernel_memory::*;'
+                              +'import sotlas::runtime::kernel_owned_heap::*;'
                               +'pub fn main_entry()->u32{'+body+'}',encoding='utf-8')
             run([compiler,'--check-build',project/'src',source],False)
             rejected=project/f'reject_owned_pages_{index}.o'

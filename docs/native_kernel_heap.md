@@ -1,5 +1,8 @@
 # A page-backed heap in Sotlas
 
+The [owned buffer API](native_owned_buffers.md) adds `sole` claims,
+consuming resize and deferred cleanup over the allocations described here.
+
 The native kernel can allocate variable-sized buffers from a physical page
 reservation, resize them while preserving their bytes, release them individually
 and return the reservation to the page allocator when the heap closes.

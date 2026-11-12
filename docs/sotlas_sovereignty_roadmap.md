@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Owned heap buffers](native_owned_buffers.md) now extend the scalar claim
+contract to variable-sized kernel allocations. Resize consumes its input,
+returns a claim on success or failure, and preserves the allocation when
+growth fails. The integrated kernel tests deferred cleanup with PIT activity.
+Heap descriptor lifetimes remain a caller contract. Platform CI is pending.
+
 The current ownership delivery adds [owned kernel pages](native_owned_pages.md)
 and transfer to direct deferred `void` cleanup. Native sema reserves consumed
 bindings until cleanup and rejects subsequent use or reassignment. The
