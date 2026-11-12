@@ -5421,6 +5421,29 @@ impl NativeOwnershipCheck {
         }
         return true;
     }
+    // A direct void cleanup can take ownership at registration. Lowering keeps
+    // the local storage until the deferred call runs, so reserve that storage
+    // against reassignment as well as further reads and transfers.
+    pub fn deferred_void_cleanup(self: &Self, index: usize) -> bool {
+        let call: AstNode = unsafe { *(self.nodes+index) };
+        if call.kind != AstKind::ExprCall || call.first_child == 0
+            || call.first_child >= self.node_count
+            || unsafe { (*(self.nodes+call.first_child)).kind } != AstKind::ExprIdent { return false; }
+        let sem: Sema = Sema::new();
+        let function: usize = sem.ownership_called_function(self.nodes,self.node_count,index,self.source,self.source_len);
+        if function == 0 || function >= self.node_count { return false; }
+        let mut child: usize = unsafe { (*(self.nodes+function)).first_child };
+        while child != 0 && child < self.node_count {
+            let node: AstNode = unsafe { *(self.nodes+child) };
+            if node.kind == AstKind::TypeRef {
+                return node.int_value == 0 && sem.source_slice_equals(
+                    self.source,self.source_len,node.str_offset,node.str_len,"void",4);
+            }
+            child=node.next_sibling;
+        }
+        return false;
+    }
+
     pub fn sequence(mut self: &mut Self, first: usize, depth: usize) -> i64 {
         let mut reservations: [u8;256] = 0; let mut slot: usize = 0;
         while slot < self.count { reservations[slot] = self.deferred[slot]; slot = slot+1; }
@@ -5450,9 +5473,14 @@ impl NativeOwnershipCheck {
                         let mut before: [u8;256] = 0; let mut slot: usize = 0;
                         while slot < self.count { before[slot] = self.states[slot]; slot = slot+1; }
                         if !self.expression(node.first_child,false,0) { return 0; }
+                        let consuming: bool = self.deferred_void_cleanup(node.first_child);
                         slot = 0;
                         while slot < self.count {
-                            if before[slot] != self.states[slot] { self.fail_reason(index,5); return 0; }
+                            if before[slot] != self.states[slot]
+                                && !(consuming && self.domains[slot] == 1
+                                    && before[slot] == 1 && self.states[slot] == 2) {
+                                self.fail_reason(index,5); return 0;
+                            }
                             slot = slot+1;
                         }
                         if !self.reserve_defer_roots(node.first_child,0) { return 0; }
@@ -5722,6 +5750,7 @@ impl NativeOwnershipCheck {
                 if self.contains_borrow(left, 0) { self.fail_reason(left,3); return 0; }
                 let owner: usize = self.slot(left);
                 if target_node.kind == AstKind::ExprIdent && owner < self.count && self.domains[owner] != 0 {
+                    if self.deferred[owner] != 0 { self.fail_reason(index,5); return 0; }
                     if self.states[owner] == 1 { self.error_node = index; return 0; }
                     let sem: Sema = Sema::new();
                     let typ: usize = sem.binding_type_ref(self.nodes,self.node_count,self.bindings[owner]);

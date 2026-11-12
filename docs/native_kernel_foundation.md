@@ -35,6 +35,12 @@ SOTLAS: foundation reclaim and ownership OK
 
 ## Bounded execution contract
 
+Before installing the VM root, the workload checks
+[owned page claims](native_owned_pages.md). It forwards `sole` claims,
+uses `whisper` byte access and verifies deferred reclamation across ordinary
+return, early return and loop exits. The original page count must be restored
+after each probe.
+
 1. Initialize COM1, the IDT/PIC and boot memory allocator; install a
    new 4-KiB page-table root. A CPU without NX is rejected by this profile;
    the dedicated `--vm` gate verifies the unchanged allocation state.

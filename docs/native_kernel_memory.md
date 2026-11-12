@@ -36,6 +36,9 @@ the same profile; guest execution runs in Linux QEMU.
 
 ## Allocation contract
 
+The [owned-page API](native_owned_pages.md) adds `sole` claims, `whisper`
+access and consuming deferred cleanup over this allocator.
+
 `runtime/native/pages.sotlas` manages caller-provided metadata. `NativePages`
 must start as `native_pages_empty()` at a stable address. State bytes and
 generation words must be writable, disjoint from the control record, and remain

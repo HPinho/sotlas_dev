@@ -143,3 +143,65 @@ pub fn native_kernel_pages_free()->usize {
     let mut count:usize=0;if unsafe{kernel_pages_ready} {count=unsafe{p.free};}
     native_kernel_interrupts_restore(flags);return count;
 }
+
+// A scalar descriptor lets the native ownership checker track a page claim.
+// Treat these fields as opaque. A hand-constructed descriptor conveys no
+// allocation authority and must not duplicate a live claim.
+pub struct NativeOwnedPages {
+    pub first:usize;
+    pub count:usize;
+    pub generation:u64;
+}
+
+pub fn native_kernel_pages_acquire(count:usize,alignment:usize,zero:bool)->sole NativeOwnedPages {
+    let span:NativePageSpan=native_kernel_pages_allocate(count,alignment,zero);
+    return NativeOwnedPages{first:span.first,count:span.count,generation:span.generation};
+}
+
+fn kernel_owned_span(first:usize,count:usize,generation:u64)->NativePageSpan {
+    return NativePageSpan{owner:kernel_pages_context(),first:first,count:count,generation:generation};
+}
+
+pub fn native_kernel_owned_pages_address(owner:whisper NativeOwnedPages)->usize {
+    let span:NativePageSpan=kernel_owned_span(owner.first,owner.count,owner.generation);
+    return native_kernel_page_address(span);
+}
+
+pub fn native_kernel_owned_pages_release(owner:sole NativeOwnedPages)->bool {
+    let span:NativePageSpan=kernel_owned_span(owner.first,owner.count,owner.generation);
+    return native_kernel_pages_release(span);
+}
+
+// Deferred calls reserve their owner until cleanup and consume it once.
+pub fn native_kernel_owned_pages_close(owner:sole NativeOwnedPages)->void {
+    let span:NativePageSpan=kernel_owned_span(owner.first,owner.count,owner.generation);
+    if span.generation!=0 { native_kernel_pages_release(span); }
+    return;
+}
+
+// Checked byte access holds IF clear through validation and the access.
+pub fn native_kernel_owned_pages_store(owner:whisper NativeOwnedPages,offset:usize,value:u8)->bool {
+    let flags:u64=native_kernel_interrupts_disable();
+    let address:usize=native_kernel_owned_pages_address(owner);
+    let mut okay:bool=false;
+    if address!=0 && offset<owner.count*4096 {
+        let data:*mut u8=unsafe{address as *mut u8};
+        unsafe{*(data+offset)=value;}
+        okay=true;
+    }
+    native_kernel_interrupts_restore(flags);
+    return okay;
+}
+
+// Return 256 for an invalid claim or offset; valid bytes are 0 through 255.
+pub fn native_kernel_owned_pages_load(owner:whisper NativeOwnedPages,offset:usize)->u32 {
+    let flags:u64=native_kernel_interrupts_disable();
+    let address:usize=native_kernel_owned_pages_address(owner);
+    let mut value:u32=256;
+    if address!=0 && offset<owner.count*4096 {
+        let data:*const u8=unsafe{address as *const u8};
+        value=unsafe{*(data+offset)} as u32;
+    }
+    native_kernel_interrupts_restore(flags);
+    return value;
+}

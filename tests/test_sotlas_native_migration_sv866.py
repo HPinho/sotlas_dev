@@ -205,7 +205,7 @@ if !native_managed_scope_push(m,pa)
 if native_managed_scope_push(m,pa) || manager.used!=0{return 3;}
 return 42;''')
 
-    def test_native_frontend_still_rejects_move_after_use_and_defer_consume(self):
+    def test_native_frontend_rejects_use_after_move_and_deferred_transfer(self):
         cases=(
             '''struct Token{pub value:u32;}
 fn take(x:sole Token)->u32{return x.value;}
@@ -214,7 +214,7 @@ let x:sole Token=Token{value:42};let v:u32=take(x);return v+x.value;}''',
             '''struct Token{pub value:u32;}
 fn take(x:sole Token)->void{return;}
 pub fn main_entry()->u32{
-let x:sole Token=Token{value:42};defer take(x);return 42;}''',
+let x:sole Token=Token{value:42};defer take(x);take(x);return 42;}''',
         )
         for i,source in enumerate(cases):
             with self.subTest(case=i):
