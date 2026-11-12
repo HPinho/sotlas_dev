@@ -247,9 +247,10 @@ return match b.event{E::Empty=>0,E::Data(a,b)=>RESULT};}'''.replace('TYPE',typ).
             self.compile('composed_unknown_'+str(index),source+'pub fn main_entry()->u32{return 42;}',False)
 
     def test_layout_and_variant_capacity_boundaries(self):
-        records=''.join('struct R'+str(i)+'{}' for i in range(31))
-        self.program('composed_layout_32',records+'enum E{Value(u32),}pub fn main_entry()->u32{return 42;}')
-        self.compile('composed_layout_33',records+'struct Extra{}enum E{Value(u32),}pub fn main_entry()->u32{return 42;}',False)
+        records=''.join('struct R'+str(i)+'{}' for i in range(63))
+        self.program('composed_layout_64',records+'''enum E{Value(u32),}
+pub fn main_entry()->u32{let value:E=E::Value(42);return match value{E::Value(n)=>n};}''')
+        self.compile('composed_layout_65',records+'struct Extra{}enum E{Value(u32),}pub fn main_entry()->u32{return 42;}',False)
         variants=','.join('V'+str(i) for i in range(255))
         self.program('composed_variants_256','enum E{'+variants+',Data(u32)}pub fn main_entry()->u32{return 42;}')
         self.compile('composed_variants_257','enum E{'+variants+',Data(u32),Extra}pub fn main_entry()->u32{return 42;}',False)
