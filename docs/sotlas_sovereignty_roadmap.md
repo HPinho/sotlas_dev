@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+The current ownership delivery adds [owned kernel pages](native_owned_pages.md)
+and transfer to direct deferred `void` cleanup. Native sema reserves consumed
+bindings until cleanup and rejects subsequent use or reassignment. The
+integrated kernel checks physical reclamation on structured exits.
+Platform CI for this delivery is pending.
+
 The last directly inspected successful baseline is
 `a25653517a9ce1dff27712ba71e836cfb94edabd` /
 [CI #42850078780](https://github.com/HPinho/sotlas_dev/actions/runs/42850078780)

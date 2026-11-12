@@ -56,6 +56,25 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
         run([compiler,'--build-obj',project/'kernel.o',project/'src',project/'src/main.sotlas'])
         run([compiler,'--link-kernel',project/'kernel.o',project/'kernel.elf','kernel_main'])
     image=(project/'kernel.elf').read_bytes()
+    if foundation:
+        # Exercise the production resource API through both normal frontend
+        # entry points. These programs must fail before publishing an object.
+        cases=(
+            'let owner:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);'
+            'native_kernel_owned_pages_release(owner);return native_kernel_owned_pages_address(owner) as u32;',
+            'let owner:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);'
+            'defer native_kernel_owned_pages_close(owner);return native_kernel_owned_pages_load(owner,0);',
+            'let mut owner:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);'
+            'defer native_kernel_owned_pages_close(owner);owner=native_kernel_pages_acquire(1,1,true);return 42;',
+        )
+        for index,body in enumerate(cases):
+            source=project/'src'/f'reject_owned_pages_{index}.sotlas'
+            source.write_text('barecore;module reject_owned_pages;import sotlas::runtime::kernel_memory::*;'
+                              +'pub fn main_entry()->u32{'+body+'}',encoding='utf-8')
+            run([compiler,'--check-build',project/'src',source],False)
+            rejected=project/f'reject_owned_pages_{index}.o'
+            run([compiler,'--build-obj',rejected,project/'src',source],False)
+            assert not rejected.exists()
     assert image[:7]==b'\x7fELF\x01\x01\x01'
     assert struct.unpack_from('<HHI',image,16)==(2,3,1)
     assert struct.unpack_from('<I',image,24)[0]==0x100010

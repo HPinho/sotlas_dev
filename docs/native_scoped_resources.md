@@ -77,7 +77,7 @@ out-of-range marks, stale-entry transactional failure, recovery by
 detachment, claim-preserving transfers, full destination rejection,
 64-bit capacity handling, cloned strong claims, weak generation
 invalidation, lexical deferred cleanup on early return and loop jumps,
-and native rejection of owner use-after-move/deferred consumption.
+and native rejection of owner use after move or deferred capture.
 
 Actual tests run the Sotlas-written runtime in machine code produced by
 the same owned frontend, object writer and linker as the certified
