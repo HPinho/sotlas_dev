@@ -49,6 +49,39 @@ if unsafe{trace}!=12{return 2;}return 42;}
 """
         self.execute(self.compile("deferred_owner_pair", source))
 
+    def test_cleanup_blocks_observe_then_consume_in_order_and_follow_lifo(self):
+        source = PREFIX + """
+fn observe(value:whisper Token)->void{unsafe{trace=trace*10+value.value;}return;}
+fn work(early:bool)->u32{
+let a:sole Token=Token{value:1};let b:sole Token=Token{value:2};
+let c:sole Token=Token{value:3};defer close(c);
+defer{observe(a);close(a);close(b);}
+if unsafe{trace}!=0{return 1;}if early{return 7;}return 9;}
+pub fn main_entry()->u32{
+if work(true)!=7 || unsafe{trace}!=1123{return 1;}
+unsafe{trace=0;}if work(false)!=9 || unsafe{trace}!=1123{return 2;}return 42;}
+"""
+        self.execute(self.compile("deferred_block_lifo", source))
+
+    def test_consuming_blocks_on_backedge_continue_and_break(self):
+        source = PREFIX + """
+pub fn main_entry()->u32{
+let mut i:u32=0;while i<5{
+i+=1;let owner:sole Token=Token{value:i};defer{close(owner);}
+if i==1{continue;}if i==3{break;}}
+if unsafe{trace}!=123{return 1;}return 42;}
+"""
+        self.execute(self.compile("deferred_block_loop", source))
+
+    def test_completed_inner_cleanup_allows_a_new_owner_in_the_same_binding(self):
+        source = PREFIX + """
+fn work()->void{
+let mut owner:sole Token=Token{value:1};{defer{close(owner);}}
+owner=Token{value:2};defer{close(owner);}return;}
+pub fn main_entry()->u32{work();if unsafe{trace}!=12{return 1;}return 42;}
+"""
+        self.execute(self.compile("deferred_block_rebind", source))
+
     def test_reserved_owner_cannot_be_read_moved_reassigned_or_closed_twice(self):
         bodies = (
             "defer close(owner);return read(owner);",
@@ -68,7 +101,13 @@ if unsafe{trace}!=12{return 2;}return 42;}
         cases = (
             "defer observe(owner);defer close(owner);",
             "defer take(owner);",
-            "defer {close(owner);}",
+            "defer {close(owner);close(owner);}",
+            "defer {close(owner);observe(owner);}",
+            "defer {close(owner);}owner=Token{value:9};",
+            "if true{defer{close(owner);}}return read(owner);",
+            "defer {observe(owner);take(owner);}",
+            "defer {if true{close(owner);}}",
+            "defer {let inner:sole Token=Token{value:2};close(inner);}",
             "defer close(identity(owner));",
         )
         helpers = """fn observe(value:whisper Token)->void{return;}

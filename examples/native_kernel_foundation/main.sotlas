@@ -18,6 +18,48 @@ import sotlas::runtime::results::*;
 static mut foundation_heap:*mut NativeKernelHeap=null;
 static mut foundation_ticks:u64=0;
 
+fn check_grouped_resources(pages:whisper NativeOwnedPages,buffer:whisper NativeOwnedBuffer)->void {
+    if native_kernel_owned_pages_load(pages,0)!=42 || native_kernel_buffer_length(buffer)!=8 {
+        native_kernel_qemu_exit(25);
+    }
+    return;
+}
+
+fn owned_resource_group(p:*mut NativeKernelHeap,early:bool)->u32 {
+    let pages:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);
+    let buffer:sole NativeOwnedBuffer=native_kernel_buffer_acquire(p,8,8,true);
+    if !native_kernel_owned_pages_store(pages,0,42) || !native_kernel_buffer_succeeded(buffer) {
+        native_kernel_buffer_close(buffer);native_kernel_owned_pages_close(pages);return 1;
+    }
+    defer {
+        check_grouped_resources(pages,buffer);
+        native_kernel_buffer_close(buffer);
+        native_kernel_owned_pages_close(pages);
+    }
+    if early { return 42; }
+    return 42;
+}
+
+fn owned_resource_groups_loop(p:*mut NativeKernelHeap)->u32 {
+    let mut index:u32=0;
+    while index<4 {
+        let pages:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);
+        let buffer:sole NativeOwnedBuffer=native_kernel_buffer_acquire(p,8,8,true);
+        if !native_kernel_owned_pages_store(pages,0,42) || !native_kernel_buffer_succeeded(buffer) {
+            native_kernel_buffer_close(buffer);native_kernel_owned_pages_close(pages);return 1;
+        }
+        defer {
+            check_grouped_resources(pages,buffer);
+            native_kernel_buffer_close(buffer);
+            native_kernel_owned_pages_close(pages);
+        }
+        index+=1;
+        if index==1 { continue; }
+        if index==3 { break; }
+    }
+    return 42;
+}
+
 fn owned_buffer_probe(p:*mut NativeKernelHeap,early:bool)->u32 {
     let first:sole NativeOwnedBuffer=native_kernel_buffer_acquire(p,8,8,true);
     if !native_kernel_buffer_succeeded(first) || native_kernel_buffer_length(first)!=8
@@ -172,6 +214,13 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     let mut heap:NativeKernelHeap=native_kernel_heap_empty();
     let p:*mut NativeKernelHeap=unsafe{(&mut heap) as *mut NativeKernelHeap};
     if !native_kernel_heap_open(p,slots,128,8) {return native_kernel_qemu_exit(8);}
+    let grouped_free:usize=native_kernel_pages_free();
+    if owned_resource_group(p,false)!=42 || native_kernel_heap_used(p)!=0
+        || native_kernel_pages_free()!=grouped_free
+        || owned_resource_group(p,true)!=42 || native_kernel_heap_used(p)!=0
+        || native_kernel_pages_free()!=grouped_free
+        || owned_resource_groups_loop(p)!=42 || native_kernel_heap_used(p)!=0
+        || native_kernel_pages_free()!=grouped_free { return native_kernel_qemu_exit(26); }
     if owned_buffer_probe(p,false)!=42 || native_kernel_heap_used(p)!=0
         || owned_buffer_probe(p,true)!=42 || native_kernel_heap_used(p)!=0
         || owned_buffer_loop(p)!=42 || native_kernel_heap_used(p)!=0 {
@@ -209,6 +258,10 @@ pub fn kernel_main(magic:u32,info:u32)->u32 {
     }
     unsafe{sotlas_x86_sti();}
     let before_owned:usize=native_kernel_heap_used(p);
+    let irq_grouped_free:usize=native_kernel_pages_free();
+    if owned_resource_group(p,true)!=42 || native_kernel_heap_used(p)!=before_owned
+        || owned_resource_groups_loop(p)!=42 || native_kernel_heap_used(p)!=before_owned
+        || native_kernel_pages_free()!=irq_grouped_free { return native_kernel_qemu_exit(27); }
     if owned_buffer_probe(p,true)!=42 || native_kernel_heap_used(p)!=before_owned
         || owned_buffer_loop(p)!=42 || native_kernel_heap_used(p)!=before_owned {
         return native_kernel_qemu_exit(24);

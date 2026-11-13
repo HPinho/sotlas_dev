@@ -49,6 +49,8 @@ The compiler rejects use of the original binding after resize or release.
 Registering `defer native_kernel_buffer_close(owner)` transfers the owner
 into cleanup and makes the binding unavailable immediately. Cleanup follows
 the [native deferred ownership contract](native_owned_pages.md).
+[Cleanup call blocks](native_cleanup_blocks.md) can group release with
+page cleanup and validation calls in a defined order.
 
 ## Heap lifetime
 

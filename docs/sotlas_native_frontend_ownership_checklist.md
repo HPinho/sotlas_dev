@@ -21,6 +21,10 @@ structured exits. Raw pointer escapes and automatic aggregate drop remain open.
 cleanup over the page-backed kernel heap, with `whisper` read/write access
 and failure preservation. The issuing heap must outlive its claims.
 
+[Consuming cleanup blocks](native_cleanup_blocks.md) extend the native
+frontend to ordered observer/consumer call sequences, with capture checks
+and existing structured cleanup lowering.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving

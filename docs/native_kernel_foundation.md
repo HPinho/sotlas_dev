@@ -46,6 +46,11 @@ transfer claims through growth, shrinking and a failed resize, check that
 deferred cleanup restores the used-byte count, and repeat with timer
 interrupts allocating from the same heap.
 
+[Consuming cleanup blocks](native_cleanup_blocks.md) group physical page and
+heap buffer claims. An observer checks both resources before their release.
+The workload verifies restored page and heap counts after normal return,
+early return and loop exits, with and without timer delivery.
+
 1. Initialize COM1, the IDT/PIC and boot memory allocator; install a
    new 4-KiB page-table root. A CPU without NX is rejected by this profile;
    the dedicated `--vm` gate verifies the unchanged allocation state.
