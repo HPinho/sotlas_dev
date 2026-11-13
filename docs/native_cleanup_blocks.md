@@ -33,14 +33,16 @@ ordinary scope exit, return, loop backedge, `break` and `continue`.
 
 ## Accepted block contents
 
-Owner-capturing blocks contain at most 128 call statements. A call that
+Owner-capturing blocks contain call statements, nested blocks and
+[checked conditionals](native_conditional_cleanup.md), with at most 128
+statements per block. A call that
 consumes an owner must be a resolved call returning `void`. Direct calls,
 [consuming methods and associated functions](native_consuming_methods.md) are
 accepted. Borrowing
 observers retain their existing result and receiver contracts.
 
 The existing checks for argument effects still apply. Assignments, local
-declarations, nested control flow, nested defers and
+declarations, loops, nested defers and
 consuming calls returning a value are rejected in owner-capturing blocks.
 These rules allow cleanup sequencing without introducing general closures.
 

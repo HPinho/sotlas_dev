@@ -106,7 +106,7 @@ pub fn main_entry()->u32{work();if unsafe{trace}!=12{return 1;}return 42;}
             "defer {close(owner);}owner=Token{value:9};",
             "if true{defer{close(owner);}}return read(owner);",
             "defer {observe(owner);take(owner);}",
-            "defer {if true{close(owner);}}",
+            "defer {while true{close(owner);}}",
             "defer {let inner:sole Token=Token{value:2};close(inner);}",
             "defer close(identity(owner));",
         )
