@@ -81,6 +81,12 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
             'defer{native_kernel_owned_pages_close(owner);native_kernel_owned_pages_close(owner);}return 42;',
             'let mut owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
             'defer{native_kernel_buffer_close(owner);}owner=native_kernel_buffer_acquire(null,8,8,true);return 42;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'defer owner.close();return owner.length() as u32;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'let next:sole NativeOwnedBuffer=owner.resize(16,8,true);return owner.length() as u32;',
+            'let owner:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);'
+            'defer{owner.close();owner.load(0);}return 42;',
         )
         for index,body in enumerate(cases):
             source=project/'src'/f'reject_owned_pages_{index}.sotlas'

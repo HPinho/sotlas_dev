@@ -153,6 +153,16 @@ pub struct NativeOwnedPages {
     pub generation:u64;
 }
 
+impl NativeOwnedPages {
+    pub fn load(self:whisper Self,offset:usize)->u32 {
+        return native_kernel_owned_pages_load(self,offset);
+    }
+    pub fn close(self:sole Self)->void {
+        native_kernel_owned_pages_close(self);
+        return;
+    }
+}
+
 pub fn native_kernel_pages_acquire(count:usize,alignment:usize,zero:bool)->sole NativeOwnedPages {
     let span:NativePageSpan=native_kernel_pages_allocate(count,alignment,zero);
     return NativeOwnedPages{first:span.first,count:span.count,generation:span.generation};

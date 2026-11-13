@@ -406,6 +406,13 @@
       "verification": "tests/test_sotlas_native_heap.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-consuming-methods",
+      "document": "docs/native_consuming_methods.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_kernel_foundation/main.sotlas",
+      "verification": "tests/test_sotlas_native_consuming_methods.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-cleanup-blocks",
       "document": "docs/native_cleanup_blocks.md",
       "status": "EXPERIMENTAL",

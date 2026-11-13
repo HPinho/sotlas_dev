@@ -12,6 +12,19 @@ pub struct NativeOwnedBuffer {
     pub succeeded:bool;
 }
 
+impl NativeOwnedBuffer {
+    pub fn length(self:whisper Self)->usize {
+        return native_kernel_buffer_length(self);
+    }
+    pub fn resize(self:sole Self,size:usize,alignment:usize,zero_tail:bool)->sole Self {
+        return native_kernel_buffer_resize(self,size,alignment,zero_tail);
+    }
+    pub fn close(self:sole Self)->void {
+        native_kernel_buffer_close(self);
+        return;
+    }
+}
+
 fn owned_buffer_heap(owner:whisper NativeOwnedBuffer)->*mut NativeKernelHeap {
     let identity:usize=owner.heap;
     return unsafe{identity as *mut NativeKernelHeap};

@@ -51,6 +51,8 @@ into cleanup and makes the binding unavailable immediately. Cleanup follows
 the [native deferred ownership contract](native_owned_pages.md).
 [Cleanup call blocks](native_cleanup_blocks.md) can group release with
 page cleanup and validation calls in a defined order.
+[Consuming methods](native_consuming_methods.md) also expose `length()`,
+`resize(...)` and `close()` on the owner.
 
 ## Heap lifetime
 
