@@ -7,6 +7,11 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+The native compiler now supports [consuming cleanup call blocks](native_cleanup_blocks.md).
+It validates reads and transfers in source order and reserves captured
+bindings until cleanup. Mixed page/buffer groups execute in the kernel,
+including early returns and loop exits under PIT activity. Platform CI is pending.
+
 [Owned heap buffers](native_owned_buffers.md) now extend the scalar claim
 contract to variable-sized kernel allocations. Resize consumes its input,
 returns a claim on success or failure, and preserves the allocation when
