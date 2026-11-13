@@ -126,7 +126,7 @@ fn consume(value:sole Token)->u32{return value.value;}'''
             'defer{observe(value);}let other:sole Token=value;return 42;',
             'defer{observe(value);}return consume(value);',
             'defer{consume(value);}return 42;',
-            'defer{if true{observe(value);}}return 42;',
+            'defer{while true{observe(value);}}return 42;',
             'defer{observe(value);defer observe(value);}return 42;',
             'defer{let copy:Token=value;}return 42;',
         )

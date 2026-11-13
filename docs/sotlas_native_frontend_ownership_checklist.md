@@ -28,6 +28,10 @@ and existing structured cleanup lowering.
 [Consuming methods](native_consuming_methods.md) extend the native frontend
 and lowering to `sole` receivers, owned results and method-based cleanup.
 
+[Conditional cleanup](native_conditional_cleanup.md) adds branch-sensitive
+capture analysis for `if`/`else` and nested cleanup blocks, with pure
+conditions and the existing structured lowering.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving

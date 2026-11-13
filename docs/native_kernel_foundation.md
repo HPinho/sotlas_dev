@@ -52,6 +52,9 @@ The workload verifies restored page and heap counts after normal return,
 early return and loop exits, with and without timer delivery.
 [Consuming receivers](native_consuming_methods.md) now drive buffer resize
 and deferred page/buffer close through the same production native compiler.
+[Conditional cleanup](native_conditional_cleanup.md) selects the page/buffer
+release order and checks the ownership merge for each branch. Loop probes use
+an else-if chain and evaluate their condition at cleanup time.
 
 1. Initialize COM1, the IDT/PIC and boot memory allocator; install a
    new 4-KiB page-table root. A CPU without NX is rejected by this profile;

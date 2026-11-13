@@ -569,7 +569,7 @@ impl Sema {
                 if owns {
                     let mut analysis: NativeOwnershipCheck = NativeOwnershipCheck {
                         nodes:nodes,node_count:node_count,source:source,source_len:source_len,
-                        bindings:[0;256],states:[0;256],domains:[0;256],deferred:[0;256],mixed_break_states:[0;256],loop_entry_states:[0;256],loop_scope:0,loop_depth:0,count:0,error_node:0,error_reason:0,return_domain:0,match_take:false
+                        bindings:[0;256],states:[0;256],domains:[0;256],deferred:[0;256],mixed_break_states:[0;256],loop_entry_states:[0;256],loop_scope:0,loop_depth:0,count:0,error_node:0,error_reason:0,return_domain:0,match_take:false,checking_cleanup:false
                     };
                     let mut child: usize = function.first_child; let mut body: usize = 0;
                     while child != 0 {
@@ -4758,6 +4758,7 @@ pub struct NativeOwnershipCheck {
     pub error_reason: u32;
     pub return_domain: i64;
     pub match_take: bool;
+    pub checking_cleanup: bool;
 }
 
 impl NativeOwnershipCheck {
@@ -5173,51 +5174,44 @@ impl NativeOwnershipCheck {
         return true;
     }
 
-    // Simulate the cleanup's call order before reserving its roots. A read
-    // followed by a void consumer is valid inside one block; a read after
-    // consumption is rejected. Statements that change control flow or storage
-    // need a separate capture contract.
-    pub fn reserve_defer_call_block(mut self: &mut Self, block: usize) -> bool {
-        if block == 0 || block >= self.node_count { return self.fail_reason(block,5); }
-        let payload: AstNode = unsafe { *(self.nodes + block) };
-        if payload.kind != AstKind::Block || payload.first_child == 0 {
-            return self.fail_reason(block,5);
+    // Keep cleanup control flow within the existing structured ownership
+    // analysis. Conditions must be effect-free; calls keep argument checks.
+    pub fn deferred_shape_valid(self: &Self, index: usize, depth: usize) -> bool {
+        if index == 0 || index >= self.node_count || depth >= 64 { return false; }
+        let node: AstNode = unsafe { *(self.nodes+index) };
+        if node.kind == AstKind::ExprCall {
+            return self.expression_domain(index) == 0 && self.deferred_call_effects(index);
         }
-        let mut action: usize = payload.first_child;
+        if node.kind == AstKind::IfStmt {
+            let condition: usize = node.first_child;
+            if condition == 0 || condition >= self.node_count
+                || !self.deferred_argument_effects(condition,0) { return false; }
+            let yes: usize = unsafe { (*(self.nodes+condition)).next_sibling };
+            if !self.deferred_shape_valid(yes,depth+1) { return false; }
+            let no: usize = unsafe { (*(self.nodes+yes)).next_sibling };
+            return no == 0 || self.deferred_shape_valid(no,depth+1);
+        }
+        if node.kind != AstKind::Block { return false; }
+        let mut child: usize = node.first_child;
         let mut count: usize = 0;
-        while action != 0 {
-            if action >= self.node_count || count >= 128 { return self.fail_reason(block,5); }
-            let statement: AstNode = unsafe { *(self.nodes + action) };
-            if statement.kind != AstKind::ExprCall || self.expression_domain(action) != 0
-                || !self.deferred_call_effects(action) {
-                return self.fail_reason(action,6);
-            }
-            let mut before: [u8;256] = 0;
-            let mut slot: usize = 0;
-            while slot < self.count {
-                before[slot] = self.states[slot];
-                slot = slot + 1;
-            }
-            if !self.expression(action,false,0) { return false; }
-            let consuming: bool = self.deferred_void_cleanup(action);
-            slot = 0;
-            while slot < self.count {
-                if before[slot] != self.states[slot]
-                    && !(consuming && self.domains[slot] == 1
-                        && before[slot] == 1 && self.states[slot] == 2) {
-                    return self.fail_reason(action,5);
-                }
-                slot = slot + 1;
-            }
-            action = statement.next_sibling;
-            count = count + 1;
-        }
-        action = payload.first_child;
-        while action != 0 {
-            if !self.reserve_defer_roots(action,0) { return false; }
-            action = unsafe { (*(self.nodes+action)).next_sibling };
+        while child != 0 {
+            if count >= 128 || !self.deferred_shape_valid(child,depth+1) { return false; }
+            child=unsafe { (*(self.nodes+child)).next_sibling };
+            count+=1;
         }
         return true;
+    }
+
+    pub fn reserve_defer_call_block(mut self: &mut Self, block: usize) -> bool {
+        if !self.deferred_shape_valid(block,0) { return self.fail_reason(block,6); }
+        let payload: AstNode = unsafe { *(self.nodes+block) };
+        if payload.kind != AstKind::Block || payload.first_child == 0 { return self.fail_reason(block,5); }
+        let previous: bool = self.checking_cleanup;
+        self.checking_cleanup=true;
+        let result: i64 = self.sequence(payload.first_child,0);
+        self.checking_cleanup=previous;
+        if result != 1 { return false; }
+        return self.reserve_defer_roots(block,0);
     }
 
     // Match reads an independent POD snapshot. Reading an exclusive/borrowed
@@ -5336,6 +5330,9 @@ impl NativeOwnershipCheck {
             let mut borrowed: [u8;256] = 0;
             if callee.kind == AstKind::ExprFieldAccess && parameter != 0 && parameter < self.node_count {
                 let receiver_domain: i64 = self.domain(parameter);
+                if self.checking_cleanup && receiver_domain == 1
+                    && self.expression_domain(callee.first_child) != 0
+                    && !self.deferred_void_cleanup(node_index) { return self.fail_reason(node_index,5); }
                 if self.contains_owner(callee.first_child,depth+1)
                     && receiver_domain != 1 && receiver_domain != 4 && receiver_domain != 6 { return self.fail_reason(node_index,4); }
                 if (receiver_domain == 4 || receiver_domain == 6)
@@ -5358,6 +5355,8 @@ impl NativeOwnershipCheck {
                     }
                 }
                 let arg: AstNode = unsafe { *(self.nodes + argument) };
+                if self.checking_cleanup && consumes && self.expression_domain(argument) != 0
+                    && !self.deferred_void_cleanup(node_index) { return self.fail_reason(node_index,5); }
                 if !consumes && !borrow && self.expression_domain(argument) != 0 { return self.fail(argument); }
                 if borrow && !self.collect_borrow_roots(argument, unsafe { borrowed as *mut u8 }, 0) { return self.fail(argument); }
                 if !self.expression(argument, consumes, depth + 1) { return false; }

@@ -32,9 +32,15 @@ fn owned_resource_group(p:*mut NativeKernelHeap,early:bool)->u32 {
         native_kernel_buffer_close(buffer);native_kernel_owned_pages_close(pages);return 1;
     }
     defer {
-        check_grouped_resources(pages,buffer);
-        buffer.close();
-        pages.close();
+        if early {
+            check_grouped_resources(pages,buffer);
+            buffer.close();
+            pages.close();
+        } else {
+            check_grouped_resources(pages,buffer);
+            pages.close();
+            buffer.close();
+        }
     }
     if early { return 42; }
     return 42;
@@ -49,9 +55,19 @@ fn owned_resource_groups_loop(p:*mut NativeKernelHeap)->u32 {
             native_kernel_buffer_close(buffer);native_kernel_owned_pages_close(pages);return 1;
         }
         defer {
-            check_grouped_resources(pages,buffer);
-            buffer.close();
-            pages.close();
+            if index%2==0 {
+                check_grouped_resources(pages,buffer);
+                pages.close();
+                buffer.close();
+            } else if index==1 {
+                check_grouped_resources(pages,buffer);
+                buffer.close();
+                pages.close();
+            } else {
+                check_grouped_resources(pages,buffer);
+                buffer.close();
+                pages.close();
+            }
         }
         index+=1;
         if index==1 { continue; }

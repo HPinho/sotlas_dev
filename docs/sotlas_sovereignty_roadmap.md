@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Conditional cleanup](native_conditional_cleanup.md) reuses the native
+structured ownership analysis for `if`/`else` inside owner-capturing
+defer blocks. Conditions retain effect checks, and consumption must return
+`void`. The kernel verifies branch-specific release orders and reclamation.
+Platform CI for this delivery is pending.
+
 [Consuming methods](native_consuming_methods.md) add `sole Self` receiver
 transfer, owned returns, deferred method cleanup and associated cleanup
 functions. Both native call paths preserve record value semantics.
