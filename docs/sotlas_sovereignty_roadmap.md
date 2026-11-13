@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Consuming methods](native_consuming_methods.md) add `sole Self` receiver
+transfer, owned returns, deferred method cleanup and associated cleanup
+functions. Both native call paths preserve record value semantics.
+The kernel uses these methods for resource resize and release.
+Platform CI for this delivery is pending.
+
 The native compiler now supports [consuming cleanup call blocks](native_cleanup_blocks.md).
 It validates reads and transfers in source order and reserves captured
 bindings until cleanup. Mixed page/buffer groups execute in the kernel,

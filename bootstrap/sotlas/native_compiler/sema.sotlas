@@ -2116,6 +2116,17 @@ impl Sema {
         return 0;
     }
 
+    // Resolve bare Self in its declaring impl before nominal type comparison.
+    pub fn nominal_type_node(self: &Self, nodes: *const AstNode, count: usize,
+        typ: usize, source: *const u8, length: usize) -> AstNode {
+        let node: AstNode = unsafe { *(nodes+typ) };
+        if self.source_slice_equals(source,length,node.str_offset,node.str_len,"Self",4) {
+            let owner: usize = self.enclosing_impl(nodes,count,typ);
+            if owner != 0 { return unsafe { *(nodes+owner) }; }
+        }
+        return node;
+    }
+
     pub fn is_by_value_self_receiver(
         self: &Self,
         nodes: *const AstNode,
@@ -2132,7 +2143,7 @@ impl Sema {
             return false;
         }
         let type_ref: AstNode = unsafe { *(nodes + param.first_child) };
-        if type_ref.int_value == 4 || type_ref.int_value == 6 { return false; }
+        if type_ref.int_value == 1 || type_ref.int_value == 4 || type_ref.int_value == 6 { return false; }
         if type_ref.str_len == 0 || type_ref.str_offset >= source_len {
             return false;
         }
@@ -2411,7 +2422,7 @@ impl Sema {
             if receiver_index != 0 {
                 let receiver: AstNode = unsafe { *(nodes + receiver_index) };
                 let receiver_type: AstNode = unsafe { *(nodes + receiver.first_child) };
-                if (receiver_type.int_value == 4 || receiver_type.int_value == 6)
+                if (receiver_type.int_value == 1 || receiver_type.int_value == 4 || receiver_type.int_value == 6)
                     && !self.same_source_text(source,source_len,receiver_type,impl_node)
                     && !self.source_slice_equals(source,source_len,receiver_type.str_offset,receiver_type.str_len,"Self",4) {
                     return self.reject_node(receiver);
@@ -2493,8 +2504,8 @@ impl Sema {
                     return false;
                 }
                 if expected_type != 0 && actual_type != 0 {
-                    let expected: AstNode = unsafe { *(nodes + expected_type) };
-                    let actual: AstNode = unsafe { *(nodes + actual_type) };
+                    let expected: AstNode = self.nominal_type_node(nodes,node_count,expected_type,source,source_len);
+                    let actual: AstNode = self.nominal_type_node(nodes,node_count,actual_type,source,source_len);
                     if !self.same_source_text(source, source_len, expected, actual)
                         && !self.mutable_pointer_to_const_matches(
                             source, source_len, actual, expected
@@ -4092,8 +4103,8 @@ impl Sema {
                     return false;
                 }
                 if expected_type != 0 && actual_type != 0 {
-                    let expected: AstNode = unsafe { *(nodes + expected_type) };
-                    let actual: AstNode = unsafe { *(nodes + actual_type) };
+                    let expected: AstNode = self.nominal_type_node(nodes,node_count,expected_type,source,source_len);
+                    let actual: AstNode = self.nominal_type_node(nodes,node_count,actual_type,source,source_len);
                     let mut types_match: bool = self.same_source_text(
                         source, source_len, expected, actual
                     );
@@ -4241,16 +4252,8 @@ impl Sema {
             return false;
         }
         if actual_type != 0 {
-            let mut expected: AstNode = unsafe { *(nodes + expected_type) };
-            let mut actual: AstNode = unsafe { *(nodes + actual_type) };
-            if self.source_slice_equals(source,source_len,expected.str_offset,expected.str_len,"Self",4) {
-                let owner: usize = self.enclosing_impl(nodes,node_count,expected_type);
-                if owner != 0 { expected=unsafe{*(nodes+owner)}; }
-            }
-            if self.source_slice_equals(source,source_len,actual.str_offset,actual.str_len,"Self",4) {
-                let owner: usize = self.enclosing_impl(nodes,node_count,actual_type);
-                if owner != 0 { actual=unsafe{*(nodes+owner)}; }
-            }
+            let expected: AstNode = self.nominal_type_node(nodes,node_count,expected_type,source,source_len);
+            let actual: AstNode = self.nominal_type_node(nodes,node_count,actual_type,source,source_len);
             let direct_match: bool = self.same_source_text(
                 source, source_len, expected, actual
             );
@@ -5334,10 +5337,10 @@ impl NativeOwnershipCheck {
             if callee.kind == AstKind::ExprFieldAccess && parameter != 0 && parameter < self.node_count {
                 let receiver_domain: i64 = self.domain(parameter);
                 if self.contains_owner(callee.first_child,depth+1)
-                    && receiver_domain != 4 && receiver_domain != 6 { return self.fail_reason(node_index,4); }
+                    && receiver_domain != 1 && receiver_domain != 4 && receiver_domain != 6 { return self.fail_reason(node_index,4); }
                 if (receiver_domain == 4 || receiver_domain == 6)
                     && !self.collect_borrow_roots(callee.first_child,unsafe { borrowed as *mut u8 },0) { return self.fail(node_index); }
-                if !self.expression(callee.first_child,false,depth+1) { return false; }
+                if !self.expression(callee.first_child,receiver_domain == 1,depth+1) { return false; }
                 parameter = unsafe { (*(self.nodes + parameter)).next_sibling };
             } else if callee.kind == AstKind::ExprFieldAccess && self.contains_owner(callee_index,depth+1) {
                 return self.fail_reason(node_index,4);
@@ -5427,14 +5430,16 @@ impl NativeOwnershipCheck {
         }
         return true;
     }
-    // A direct void cleanup can take ownership at registration. Lowering keeps
+    // A resolved void cleanup can take ownership at registration. Lowering keeps
     // the local storage until the deferred call runs, so reserve that storage
     // against reassignment as well as further reads and transfers.
     pub fn deferred_void_cleanup(self: &Self, index: usize) -> bool {
         let call: AstNode = unsafe { *(self.nodes+index) };
         if call.kind != AstKind::ExprCall || call.first_child == 0
-            || call.first_child >= self.node_count
-            || unsafe { (*(self.nodes+call.first_child)).kind } != AstKind::ExprIdent { return false; }
+            || call.first_child >= self.node_count { return false; }
+        let callee: AstNode = unsafe { *(self.nodes+call.first_child) };
+        if callee.kind != AstKind::ExprIdent && callee.kind != AstKind::ExprFieldAccess
+            && callee.kind != AstKind::ExprPath { return false; }
         let sem: Sema = Sema::new();
         let function: usize = sem.ownership_called_function(self.nodes,self.node_count,index,self.source,self.source_len);
         if function == 0 || function >= self.node_count { return false; }

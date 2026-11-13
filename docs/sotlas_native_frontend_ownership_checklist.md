@@ -25,6 +25,9 @@ and failure preservation. The issuing heap must outlive its claims.
 frontend to ordered observer/consumer call sequences, with capture checks
 and existing structured cleanup lowering.
 
+[Consuming methods](native_consuming_methods.md) extend the native frontend
+and lowering to `sole` receivers, owned results and method-based cleanup.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving

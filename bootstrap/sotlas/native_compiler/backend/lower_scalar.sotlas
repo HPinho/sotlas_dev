@@ -2286,6 +2286,15 @@ impl ScalarLowering {
                 if parameter_index == ordinal {
                     if child.first_child == 0 || child.first_child >= self.node_count { return 0; }
                     let typ: AstNode = unsafe { *(self.nodes + child.first_child) };
+                    let sem: Sema = Sema::new();
+                    if typ.int_value == 1 && sem.source_slice_equals(
+                        self.source,self.source_len,typ.str_offset,typ.str_len,"Self",4) {
+                        let parent: usize = unsafe { (*(self.nodes+function_index)).parent };
+                        if parent == 0 || parent >= self.node_count { return 0; }
+                        let owner: AstNode = unsafe { *(self.nodes+parent) };
+                        if owner.kind != AstKind::ImplDecl { return 0; }
+                        return self.find_struct(owner.str_offset,owner.str_len);
+                    }
                     let array: u32 = self.array_subject_record(child.first_child);
                     if array != 0 { return array; }
                     return self.find_struct(typ.str_offset, typ.str_len);
@@ -3792,6 +3801,11 @@ impl ScalarLowering {
                     return TARGET_VALUE_NONE;
                 }
                 callee_symbol = self.append_mangled_name(s_off, s_len, m_off, m_len);
+                if self.function_parameter_domain_from_ast(callee_decl,0) == 1 {
+                    let copy: u32 = self.allocate_struct(struct_id,base_index);
+                    if copy == 0 || !self.cfg_copy_fields(copy,base_ptr,struct_id,0,0,base_index,0) { return 0; }
+                    base_ptr=copy;
+                }
                 argument_values[0] = base_ptr;
                 argument_count = 1;
             } else {
@@ -4549,10 +4563,18 @@ impl ScalarLowering {
             symbol = self.append_mangled_name(owner.str_offset, owner.str_len, declared.str_offset, declared.str_len);
             if callee.kind == AstKind::ExprFieldAccess {
                 if !self.constant_receiver_allowed(callee.first_child,callee_decl) { return false; }
+                let record: u32 = self.function_parameter_struct_from_ast(callee_decl,0);
+                let consuming: bool = self.function_parameter_domain_from_ast(callee_decl,0) == 1;
                 if expected_count == 0 || self.function_parameter_type_from_ast(callee_decl, 0) != TargetTypeTag::Pointer
-                    || self.function_parameter_struct_from_ast(callee_decl, 0) != 0 { return false; }
-                let receiver: u32 = self.cfg_struct_address(callee.first_child, first_parameter, parameter_count, 0);
+                    || (record != 0 && !consuming) || (record == 0 && consuming) { return false; }
+                let mut receiver: u32 = self.cfg_struct_address(callee.first_child, first_parameter, parameter_count, 0);
                 if receiver == 0 { return false; }
+                if consuming {
+                    if self.cfg_struct_id(callee.first_child,0) != record { return false; }
+                    let copy: u32 = self.allocate_struct(record,callee.first_child);
+                    if copy == 0 || !self.cfg_copy_fields(copy,receiver,record,0,0,callee.first_child,0) { return false; }
+                    receiver=copy;
+                }
                 argument_values[0] = receiver;
                 argument_count = 1;
             }
@@ -9782,6 +9804,13 @@ impl ScalarLowering {
                         parameter_struct_id = self.find_struct(
                             type_node.str_offset, type_node.str_len
                         );
+                        let parameter_sema: Sema = Sema::new();
+                        if parameter_struct_id == 0 && type_node.int_value == 1
+                            && parameter_sema.source_slice_equals(self.source,self.source_len,
+                                type_node.str_offset,type_node.str_len,"Self",4) {
+                            parameter_struct_id=self.function_parameter_struct_from_ast(
+                                function_index,(self.parameter_count-first_parameter-1) as u32);
+                        }
                     }
                 }
                 if !function_is_external && parameter_struct_id != 0 {

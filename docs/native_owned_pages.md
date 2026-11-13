@@ -38,8 +38,9 @@ Cleanup executes in LIFO order on lexical exit, early return, loop backedge,
 `break` and `continue` along the supported structured paths. A conditional
 capture contributes a moved state to the branch merge. Argument computations
 retain the existing effect checks. [Cleanup call blocks](native_cleanup_blocks.md)
-can group observers and consumers. Consuming methods and consuming calls
-returning a value remain outside this contract.
+can group observers and consumers, including
+[consuming method calls](native_consuming_methods.md).
+Consuming calls returning a value remain outside the deferred contract.
 
 ## Runtime boundaries
 
