@@ -32,6 +32,10 @@ and lowering to `sole` receivers, owned results and method-based cleanup.
 capture analysis for `if`/`else` and nested cleanup blocks, with pure
 conditions and the existing structured lowering.
 
+[Method chains](native_method_chains.md) add returned records, fields and
+fixed-array elements as receivers, with single evaluation and existing move,
+borrow, constant-root and deferred-capture checks.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving

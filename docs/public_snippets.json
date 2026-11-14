@@ -427,6 +427,13 @@
       "verification": "tests/test_sotlas_native_deferred_ownership.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-method-chains",
+      "document": "docs/native_method_chains.md",
+      "status": "EXPERIMENTAL",
+      "source": "examples/native_kernel_foundation/main.sotlas",
+      "verification": "tests/test_sotlas_native_method_chains.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+    },
+    {
       "id": "native-owned-buffers",
       "document": "docs/native_owned_buffers.md",
       "status": "EXPERIMENTAL",

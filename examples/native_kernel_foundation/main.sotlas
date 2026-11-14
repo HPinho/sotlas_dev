@@ -98,7 +98,7 @@ fn owned_buffer_probe(p:*mut NativeKernelHeap,early:bool)->u32 {
         || native_kernel_buffer_read(failed,32,data,1) {
         native_kernel_buffer_close(failed);return 3;
     }
-    let shrunk:sole NativeOwnedBuffer=failed.resize(4,1,false);
+    let shrunk:sole NativeOwnedBuffer=failed.resize(16,8,false).resize(4,1,false);
     if !native_kernel_buffer_succeeded(shrunk) || native_kernel_buffer_length(shrunk)!=4
         || !native_kernel_buffer_read(shrunk,0,data,4) || bytes[0]!=83 || bytes[3]!=108 {
         native_kernel_buffer_close(shrunk);return 4;
@@ -125,6 +125,9 @@ fn owned_buffer_loop(p:*mut NativeKernelHeap)->u32 {
         native_kernel_buffer_close(invalid);return 2;
     }
     native_kernel_buffer_close(invalid);
+    let before_chain:usize=native_kernel_heap_used(p);
+    native_kernel_buffer_acquire(p,7,1,true).resize(9,1,true).close();
+    if native_kernel_heap_used(p)!=before_chain { return 4; }
     let explicit:sole NativeOwnedBuffer=native_kernel_buffer_acquire(p,7,1,true);
     if !native_kernel_buffer_release(explicit,true) { return 3; }
     return 42;
@@ -167,6 +170,7 @@ fn owned_pages_loop()->u32 {
         || native_kernel_owned_pages_load(invalid,0)!=256
         || native_kernel_owned_pages_store(invalid,0,42)
         || native_kernel_owned_pages_release(invalid) { return 2; }
+    native_kernel_pages_acquire(1,1,true).close();
     let explicit:sole NativeOwnedPages=native_kernel_pages_acquire(1,1,true);
     if !native_kernel_owned_pages_release(explicit) { return 3; }
     return 42;

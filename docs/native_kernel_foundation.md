@@ -87,6 +87,10 @@ user-mode address spaces, TSS/IST, scheduler, SMP or device drivers are claimed.
 
 ## CI evidence and release gate
 
+The foundation also exercises [method chains](native_method_chains.md):
+factory-to-close calls reclaim temporary heap/page claims, and successive
+consuming resizes preserve buffer contents and reclamation accounting.
+
 `tests/native_kernel_gate.py` checks the emitted kernel's image structure,
 interrupt ABI, deterministic relinking, rejected entry signatures, rejected
 hosted-syscall objects and the preservation of existing output on failures.

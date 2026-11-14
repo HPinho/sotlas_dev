@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Method chains](native_method_chains.md) connect returned records, fields and
+fixed-array elements to the native method ABI. Receivers and indices evaluate
+once, before arguments, with existing ownership and constant-root checks.
+The kernel exercises chained resize and temporary owner reclamation.
+Platform CI for this delivery is pending.
+
 [Conditional cleanup](native_conditional_cleanup.md) reuses the native
 structured ownership analysis for `if`/`else` inside owner-capturing
 defer blocks. Conditions retain effect checks, and consumption must return

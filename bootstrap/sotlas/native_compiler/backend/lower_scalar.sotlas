@@ -3766,21 +3766,12 @@ impl ScalarLowering {
                 let base_index: usize = callee.first_child;
                 if base_index == 0 || base_index >= self.node_count { return TARGET_VALUE_NONE; }
                 let base_node: AstNode = unsafe { *(self.nodes + base_index) };
-                if base_node.kind != AstKind::ExprIdent { return TARGET_VALUE_NONE; }
-                let mut struct_id: u32 = self.find_local_struct_id(base_node.str_offset, base_node.str_len);
-                let mut base_ptr: u32 = self.find_parameter_value(first_parameter, parameter_count, base_node.str_offset, base_node.str_len);
-                let receiver_sema: Sema = Sema::new();
-                if struct_id == 0 && base_ptr == 0 {
-                    let binding: usize = receiver_sema.find_visible_binding(self.nodes,self.node_count,base_index,self.source,self.source_len);
-                    if binding != 0 && binding < self.node_count
-                        && self.module_const_has_storage(unsafe{*(self.nodes+binding)}) {
-                        struct_id=self.global_record_id(base_index);
-                        if struct_id != 0 {
-                            base_ptr=self.lower_expression(base_index,TargetTypeTag::Pointer,first_parameter,parameter_count);
-                        }
-                    }
+                if base_node.kind != AstKind::ExprIdent && base_node.kind != AstKind::ExprCall
+                    && base_node.kind != AstKind::ExprFieldAccess && base_node.kind != AstKind::ExprIndex {
+                    return TARGET_VALUE_NONE;
                 }
-                if struct_id == 0 || base_ptr == TARGET_VALUE_NONE { return TARGET_VALUE_NONE; }
+                let struct_id: u32 = self.cfg_struct_id(base_index,0);
+                if struct_id == 0 { return TARGET_VALUE_NONE; }
                 let s_idx: usize = (struct_id - 1) as usize;
                 let s_off: usize = self.struct_name_offsets[s_idx];
                 let s_len: usize = self.struct_name_lens[s_idx];
@@ -3790,6 +3781,9 @@ impl ScalarLowering {
                     expression_index, struct_id, m_off, m_len
                 );
                 if !self.constant_receiver_allowed(base_index,callee_decl) { return 0; }
+                // Resolve the receiver type first, then evaluate its storage
+                // once before lowering explicit arguments.
+                let mut base_ptr: u32 = self.cfg_struct_address(base_index,first_parameter,parameter_count,0);
                 if callee_decl == 0
                     || self.function_parameter_count_from_ast(callee_decl) > 24
                     || self.function_parameter_type_from_ast(callee_decl, 0)

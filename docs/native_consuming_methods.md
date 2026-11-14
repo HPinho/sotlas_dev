@@ -26,7 +26,8 @@ For a local or parameter with an ordinary unqualified record value, the method
 receives a copy, matching
 the value-parameter ABI. Mutating the method's local `self` does not alter
 the caller's record. Nested POD fields and arrays use the same recursive
-copying as ordinary calls. Use a bound local or parameter as the receiver.
+copying as ordinary calls. [Method chains](native_method_chains.md) also accept
+returned records, selected fields and fixed-array elements as receivers.
 
 ## Deferred methods
 
