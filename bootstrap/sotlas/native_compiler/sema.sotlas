@@ -5030,6 +5030,10 @@ impl NativeOwnershipCheck {
             if owner < self.count && self.domains[owner] != 0 { self.deferred[owner] = 1; }
         }
         let mut child: usize = node.first_child;
+        // Patterns declare arm-local values; they do not capture outer owners.
+        if node.kind == AstKind::MatchArm && child != 0 && child < self.node_count {
+            child=unsafe{(*(self.nodes+child)).next_sibling};
+        }
         while child != 0 {
             if child >= self.node_count || !self.reserve_defer_roots(child,depth+1) { return false; }
             child = unsafe { (*(self.nodes + child)).next_sibling };
@@ -5048,6 +5052,19 @@ impl NativeOwnershipCheck {
         if binding == 0 || binding >= self.node_count { return false; }
         let node: AstNode = unsafe { *(self.nodes + binding) };
         if node.kind == AstKind::ParamDecl { return true; }
+        if node.kind == AstKind::ExprIdent {
+            // The lexical resolver returned a pattern binding, not an outer
+            // value with the same spelling. Only its arm may read it.
+            let mut child: usize = binding;
+            let mut parent: usize = node.parent;
+            let mut steps: usize = 0;
+            while parent != 0 && parent < self.node_count && steps < 64 {
+                let ancestor: AstNode = unsafe{*(self.nodes+parent)};
+                if ancestor.kind == AstKind::MatchArm { return ancestor.first_child == child; }
+                child=parent;parent=ancestor.parent;steps+=1;
+            }
+            return false;
+        }
         if node.kind != AstKind::LetStmt || node.parent == 0
             || node.parent >= self.node_count { return false; }
         return unsafe { (*(self.nodes + node.parent)).kind } != AstKind::Module;
@@ -5190,6 +5207,26 @@ impl NativeOwnershipCheck {
             if !self.deferred_shape_valid(yes,depth+1) { return false; }
             let no: usize = unsafe { (*(self.nodes+yes)).next_sibling };
             return no == 0 || self.deferred_shape_valid(no,depth+1);
+        }
+        if node.kind == AstKind::MatchStmt {
+            let subject: usize = node.first_child;
+            if subject == 0 || subject >= self.node_count
+                || !self.match_subject_readable(subject)
+                || !self.deferred_argument_effects(subject,0) { return false; }
+            let mut arm: usize = unsafe{(*(self.nodes+subject)).next_sibling};
+            let mut count: usize = 0;
+            while arm != 0 {
+                if arm >= self.node_count || count >= 64 { return false; }
+                let branch: AstNode = unsafe{*(self.nodes+arm)};
+                let pattern: usize = branch.first_child;
+                if branch.kind != AstKind::MatchArm || pattern == 0 || pattern >= self.node_count { return false; }
+                let body: usize = unsafe{(*(self.nodes+pattern)).next_sibling};
+                if !self.deferred_shape_valid(body,depth+1) { return false; }
+                let guard: usize = unsafe{(*(self.nodes+body)).next_sibling};
+                if guard != 0 && !self.deferred_argument_effects(guard,0) { return false; }
+                arm=branch.next_sibling;count+=1;
+            }
+            return count != 0;
         }
         if node.kind != AstKind::Block { return false; }
         let mut child: usize = node.first_child;

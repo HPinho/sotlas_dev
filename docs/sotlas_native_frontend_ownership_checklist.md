@@ -36,6 +36,10 @@ conditions and the existing structured lowering.
 fixed-array elements as receivers, with single evaluation and existing move,
 borrow, constant-root and deferred-capture checks.
 
+[Match cleanup](native_match_cleanup.md) connects pattern selection and POD
+payload guards to owner-capturing defers, with existing branch merges,
+coverage, structured cleanup and post-capture reservation checks.
+
 
 Implemented capability: [dynamic word maps](native_word_map.md) adds numeric
 lookup/update, checked counters, collision-safe removal and failure-preserving
