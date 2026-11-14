@@ -22,6 +22,21 @@ if make(10).add(12).add(20).take()!=42{return 1;}
 make(40).add(2).close();if unsafe{closed}!=42{return 2;}return 42;}"""
         self.execute(self.compile("method_chain_owned", source))
 
+    def test_qualified_factories_preserve_callee_and_arguments_in_chains(self):
+        source = """struct Token{pub value:u32;}impl Token{
+fn make(n:u32)->sole Token{return Token{value:n};}
+fn scalar(n:u32)->u32{return n;}
+fn add(self:sole Self,n:u32)->sole Self{return Token{value:self.value+n};}
+fn take(self:sole Self)->u32{return self.value;}}
+pub fn main_entry()->u32{return Token::make(Token::scalar(20)).add(22).take();}"""
+        self.execute(self.compile("method_qualified_factory", source))
+        for index, bad_call in enumerate(("Token::make()", "Token::make(true)",
+                                          "Token::missing(20)")):
+            with self.subTest(call=bad_call):
+                self.compile("method_qualified_reject_" + str(index),
+                             source.replace("Token::make(Token::scalar(20))", bad_call),
+                             False)
+
     def test_receiver_then_arguments_evaluate_once_in_source_order(self):
         source = """struct Token{pub value:u32;}static mut trace:u32=0;
 fn make()->Token{unsafe{trace=trace*10+1;}return Token{value:40};}
