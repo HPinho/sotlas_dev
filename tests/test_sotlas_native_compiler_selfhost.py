@@ -2972,7 +2972,18 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("let path_node: usize = self.alloc_node(AstKind::ExprPath", parser_text)
         self.assertIn("self.set_node_text_range(path_node, tok, path_end)", parser_text)
         self.assertIn("callee_node = path_node;", parser_text)
-        self.assertIn("self.append_child(call_node, callee_node)", parser_text)
+        # Qualified paths flow through the same call builder as method chains.
+        # Check both links so extracting the builder cannot hide a detached callee.
+        primary = parser_text.split("pub fn parse_primary_expression", 1)[1].split(
+            "pub fn parse_call_suffix", 1
+        )[0]
+        self.assertIn("let mut current_expr: usize = callee_node;", primary)
+        self.assertIn("self.parse_call_suffix(current_expr,tok.span)", primary)
+        call_builder = parser_text.split("pub fn parse_call_suffix", 1)[1].split(
+            "pub fn parse_postfix_expression", 1
+        )[0]
+        self.assertIn("self.alloc_node(AstKind::ExprCall,span)", call_builder)
+        self.assertIn("self.append_child(call,callee)", call_builder)
 
     def test_native_parser_persists_try_propagation_expression(self):
         ast_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "ast.sotlas"
