@@ -87,6 +87,10 @@ user-mode address spaces, TSS/IST, scheduler, SMP or device drivers are claimed.
 
 ## CI evidence and release gate
 
+[Match cleanup](native_match_cleanup.md) selects grouped page/buffer release
+order through an enum payload and guard on ordinary and early returns. The
+same probes run while PIT interrupts allocate from the shared heap.
+
 The foundation also exercises [method chains](native_method_chains.md):
 factory-to-close calls reclaim temporary heap/page claims, and successive
 consuming resizes preserve buffer contents and reclamation accounting.

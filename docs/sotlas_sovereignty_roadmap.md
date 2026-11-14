@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Match cleanup](native_match_cleanup.md) connects pattern selection and guarded
+POD payload bindings to deferred resource release. It reuses the ordinary
+ownership merge, coverage checker and structured lowering, with effect-checked
+subjects/guards and capture reservation. The kernel selects page/buffer release
+order through an enum payload. Platform CI for this delivery is pending.
+
 [Method chains](native_method_chains.md) connect returned records, fields and
 fixed-array elements to the native method ABI. Receivers and indices evaluate
 once, before arguments, with existing ownership and constant-root checks.

@@ -4,6 +4,9 @@ Owner-capturing `defer` blocks accept `if`, `else if`, `else` and
 nested blocks. The native compiler uses the same branch-sensitive ownership
 analysis as ordinary structured code.
 
+[Statement match](native_match_cleanup.md) also selects cleanup using existing
+scalar, enum payload, record and fixed-array patterns with effect-checked guards.
+
 ```sotlas
 defer {
     if close_buffer_first {
