@@ -1672,40 +1672,8 @@ impl Parser {
                     }
                     current_expr = field_node;
                 } else if self.match_token(TokenKind::OpenParen) {
-                    let call_node: usize = self.alloc_node(AstKind::ExprCall, tok.span);
-                    if call_node == 0 {
-                        return 0;
-                    }
-                    if current_expr == callee_node {
-                        if !self.append_child(call_node, callee_node) {
-                            return 0;
-                        }
-                    } else {
-                        if !self.append_child(call_node, current_expr) {
-                            return 0;
-                        }
-                    }
-
-                    self.advance();
-                    while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
-                        let arg_node: usize = self.parse_expression();
-                        if arg_node == 0 {
-                            return 0;
-                        }
-                        if !self.append_child(call_node, arg_node) {
-                            return 0;
-                        }
-                        if self.match_token(TokenKind::Comma) {
-                            self.advance();
-                        } else {
-                            break;
-                        }
-                    }
-                    if !self.match_token(TokenKind::CloseParen) {
-                        return 0;
-                    }
-                    self.advance();
-                    current_expr = call_node;
+                    current_expr = self.parse_call_suffix(current_expr,tok.span);
+                    if current_expr == 0 { return 0; }
                 } else {
                     break;
                 }
@@ -2249,6 +2217,21 @@ impl Parser {
         return query;
     }
 
+    pub fn parse_call_suffix(mut self: &mut Self, callee: usize, span: Span) -> usize {
+        let call: usize = self.alloc_node(AstKind::ExprCall,span);
+        if call == 0 || !self.append_child(call,callee) { return 0; }
+        self.advance();
+        while !self.is_at_end() && !self.match_token(TokenKind::CloseParen) {
+            let argument: usize = self.parse_expression();
+            if argument == 0 || !self.append_child(call,argument) { return 0; }
+            if self.match_token(TokenKind::Comma) { self.advance(); }
+            else { break; }
+        }
+        if !self.match_token(TokenKind::CloseParen) { return 0; }
+        self.advance();
+        return call;
+    }
+
     pub fn parse_postfix_expression(mut self: &mut Self) -> usize {
         let mut expr: usize = self.parse_primary_expression();
         if expr == 0 {
@@ -2276,7 +2259,16 @@ impl Parser {
                 expr = cast_node;
             }
         }
-        while self.match_token(TokenKind::OpenBracket) || self.match_token(TokenKind::Dot) {
+        while self.match_token(TokenKind::OpenBracket) || self.match_token(TokenKind::Dot)
+            || self.match_token(TokenKind::OpenParen) {
+            if self.match_token(TokenKind::OpenParen) {
+                let callee: AstNode = unsafe { *(self.nodes+expr) };
+                if callee.kind != AstKind::ExprIdent && callee.kind != AstKind::ExprPath
+                    && callee.kind != AstKind::ExprFieldAccess { self.reject_current();return 0; }
+                expr=self.parse_call_suffix(expr,callee.span);
+                if expr == 0 { return 0; }
+                continue;
+            }
             if self.match_token(TokenKind::Dot) {
                 self.advance();
                 let field: Token = self.current();

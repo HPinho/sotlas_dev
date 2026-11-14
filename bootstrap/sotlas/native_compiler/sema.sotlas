@@ -3455,7 +3455,7 @@ impl Sema {
         if type_index == 0 {
             return 0;
         }
-        let typ: AstNode = unsafe { *(nodes + type_index) };
+        let typ: AstNode = self.nominal_type_node(nodes,node_count,type_index,source,source_len);
         if typ.str_len == 0 || typ.str_offset > source_len
             || typ.str_len > source_len - typ.str_offset {
             return 0;

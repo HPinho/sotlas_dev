@@ -93,6 +93,10 @@ def verify_kernel_image(compiler,output,run_qemu=False,interrupts=False,memory=F
             'defer{if true{owner.close();}owner.length();}return 42;',
             'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
             'defer{if native_kernel_buffer_release(owner,true){owner.close();}}return 42;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'owner.resize(16,8,true).resize(32,8,true).close();return owner.length() as u32;',
+            'let owner:sole NativeOwnedBuffer=native_kernel_buffer_acquire(null,8,8,true);'
+            'defer owner.resize(16,8,true).close();return 42;',
         )
         for index,body in enumerate(cases):
             source=project/'src'/f'reject_owned_pages_{index}.sotlas'
