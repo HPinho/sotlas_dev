@@ -1,0 +1,153 @@
+module sotlas::runtime::json_writer;
+import sotlas::runtime::json::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+
+// Caller-owned builder. Do not copy an active control as a second writer.
+// Frames: 1 empty array, 2 populated array, 3 empty object,
+// 4 object awaiting a value, 5 populated object. At most 64 containers.
+pub struct NativeJsonWriter {pub buffer:NativeUtf8Buffer;pub frames:[u8;64];pub depth:usize;pub root:bool;}
+pub fn native_json_writer_open(data:*mut u8,capacity:usize)->NativeJsonWriter {
+    return NativeJsonWriter{buffer:native_utf8_buffer_open(data,capacity),frames:[0;64],depth:0,root:false};
+}
+fn json_writer_buffer(p:*const NativeJsonWriter)->*const NativeUtf8Buffer {
+    let address:usize=unsafe{p as usize}+field_offset!(NativeJsonWriter,buffer);
+    return unsafe{address as *const NativeUtf8Buffer};
+}
+fn json_writer_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if n==0 || m==0{return false;}if a>=b{return a-b<m;}return b-a<n;
+}
+pub fn native_json_writer_shape(p:*const NativeJsonWriter)->bool {
+    if p==null{return false;}
+    let address:usize=unsafe{p as usize};
+    if address%align_of::<NativeJsonWriter>()!=0 || span_of::<NativeJsonWriter>()>18446744073709551615-address{return false;}
+    if !native_utf8_buffer_shape(json_writer_buffer(p)){return false;}
+    unsafe{
+        if p.depth>64 || (p.depth!=0 && !p.root) || (p.root && p.buffer.length==0)
+            || (!p.root && p.buffer.length!=0){return false;}
+        if json_writer_overlap(address,span_of::<NativeJsonWriter>(),p.buffer.data as usize,p.buffer.capacity){return false;}
+        let mut i:usize=0;
+        while i<p.depth{let state:u8=p.frames[i];
+            if state<1 || state>5 || (i+1<p.depth && state!=2 && state!=5){return false;}i+=1;}
+    }
+    return true;
+}
+fn json_writer_value_ready(p:*const NativeJsonWriter)->bool {
+    unsafe{if p.depth==0{return !p.root;}let state:u8=p.frames[p.depth-1];return state==1 || state==2 || state==4;}
+}
+fn json_writer_comma(p:*const NativeJsonWriter)->bool {
+    unsafe{return p.depth!=0 && p.frames[p.depth-1]==2;}
+}
+fn json_writer_room(p:*const NativeJsonWriter,needed:usize,comma:bool)->bool {
+    let available:usize=unsafe{p.buffer.capacity-p.buffer.length};
+    return needed<=available && (!comma || needed<available);
+}
+fn json_writer_alias(p:*const NativeJsonWriter,value:NativeByteSlice)->bool {
+    let source:usize=unsafe{value.data as usize};
+    return json_writer_overlap(source,value.length,unsafe{p.buffer.data as usize},unsafe{p.buffer.capacity})
+        || json_writer_overlap(source,value.length,unsafe{p as usize},span_of::<NativeJsonWriter>());
+}
+// Only called after every fallible check for the complete operation.
+fn json_writer_put(mut p:*mut NativeJsonWriter,byte:u8)->void {
+    unsafe{*(p.buffer.data+p.buffer.length)=byte;p.buffer.length+=1;}return;
+}
+fn json_writer_commit(mut p:*mut NativeJsonWriter)->void {
+    unsafe{if p.depth==0{p.root=true;return;}
+        if p.frames[p.depth-1]==4{p.frames[p.depth-1]=5;}else{p.frames[p.depth-1]=2;}}
+    return;
+}
+fn json_writer_token(mut p:*mut NativeJsonWriter,value:NativeByteSlice)->u32 {
+    if !native_json_writer_shape(p) || !native_text_valid(value){return 1;}
+    if !json_writer_value_ready(p){return 8;}
+    if json_writer_alias(p,value){return 7;}
+    let comma:bool=json_writer_comma(p);if !json_writer_room(p,value.length,comma){return 6;}
+    if comma{json_writer_put(p,44);}
+    let mut i:usize=0;unsafe{while i<value.length{json_writer_put(p,*(value.data+i));i+=1;}}
+    json_writer_commit(p);return 0;
+}
+fn json_writer_begin(mut p:*mut NativeJsonWriter,object:bool)->u32 {
+    if !native_json_writer_shape(p){return 1;}
+    if !json_writer_value_ready(p){return 8;}
+    if unsafe{p.depth}==64{return 5;}
+    let comma:bool=json_writer_comma(p);if !json_writer_room(p,1,comma){return 6;}
+    if comma{json_writer_put(p,44);}json_writer_commit(p);
+    unsafe{if object{json_writer_put(p,123);p.frames[p.depth]=3;}
+        else{json_writer_put(p,91);p.frames[p.depth]=1;}p.depth+=1;}
+    return 0;
+}
+fn json_writer_end(mut p:*mut NativeJsonWriter,object:bool)->u32 {
+    if !native_json_writer_shape(p){return 1;}
+    unsafe{
+        if p.depth==0{return 8;}let state:u8=p.frames[p.depth-1];
+        if (object && state!=3 && state!=5) || (!object && state!=1 && state!=2){return 8;}
+        if !json_writer_room(p,1,false){return 6;}
+        if object{json_writer_put(p,125);}else{json_writer_put(p,93);}
+        p.depth-=1;p.frames[p.depth]=0;
+    }
+    return 0;
+}
+pub fn native_json_writer_object(p:*mut NativeJsonWriter)->u32{return json_writer_begin(p,true);}
+pub fn native_json_writer_array(p:*mut NativeJsonWriter)->u32{return json_writer_begin(p,false);}
+pub fn native_json_writer_end_object(p:*mut NativeJsonWriter)->u32{return json_writer_end(p,true);}
+pub fn native_json_writer_end_array(p:*mut NativeJsonWriter)->u32{return json_writer_end(p,false);}
+
+// UTF-8 remains UTF-8. Controls use \u00xx; quotes/backslashes use short escapes.
+// No replacement characters or implicit NUL terminator are introduced.
+fn json_writer_text(mut p:*mut NativeJsonWriter,value:NativeByteSlice,key:bool)->u32 {
+    if !native_json_writer_shape(p) || !native_text_valid(value){return 1;}
+    let mut comma:bool=false;
+    if key{
+        unsafe{if p.depth==0{return 8;}let state:u8=p.frames[p.depth-1];
+            if state!=3 && state!=5{return 8;}comma=state==5;}
+    }else{if !json_writer_value_ready(p){return 8;}comma=json_writer_comma(p);}
+    if !native_utf8_measure_utf16(value.data,value.length).valid{return 3;}
+    if json_writer_alias(p,value){return 7;}
+    let mut needed:usize=2;if key{needed=3;}let mut i:usize=0;
+    unsafe{while i<value.length{let byte:u8=*(value.data+i);let mut units:usize=1;
+        if byte<32{units=6;}else if byte==34 || byte==92{units=2;}
+        if needed>18446744073709551615-units{return 1;}needed+=units;i+=1;}}
+    if !json_writer_room(p,needed,comma){return 6;}
+    if comma{json_writer_put(p,44);}json_writer_put(p,34);i=0;
+    let digits:*const u8="0123456789abcdef";
+    unsafe{while i<value.length{let byte:u8=*(value.data+i);
+        if byte<32{
+            json_writer_put(p,92);json_writer_put(p,117);json_writer_put(p,48);json_writer_put(p,48);
+            let code:usize=byte as usize;let high:usize=code/16;let low:usize=code%16;
+            json_writer_put(p,*(digits+high));json_writer_put(p,*(digits+low));
+        }else if byte==34 || byte==92{json_writer_put(p,92);json_writer_put(p,byte);}
+        else{json_writer_put(p,byte);}i+=1;}}
+    json_writer_put(p,34);
+    if key{json_writer_put(p,58);unsafe{p.frames[p.depth-1]=4;}}
+    else{json_writer_commit(p);}return 0;
+}
+pub fn native_json_writer_key(p:*mut NativeJsonWriter,value:NativeByteSlice)->u32{return json_writer_text(p,value,true);}
+pub fn native_json_writer_string(p:*mut NativeJsonWriter,value:NativeByteSlice)->u32{return json_writer_text(p,value,false);}
+pub fn native_json_writer_bool(p:*mut NativeJsonWriter,value:bool)->u32 {
+    if value{return json_writer_token(p,native_text_open("true",4));}return json_writer_token(p,native_text_open("false",5));
+}
+pub fn native_json_writer_null(p:*mut NativeJsonWriter)->u32{return json_writer_token(p,native_text_open("null",4));}
+pub fn native_json_writer_number(p:*mut NativeJsonWriter,value:NativeByteSlice)->u32 {
+    if !native_json_writer_shape(p) || !native_text_valid(value){return 1;}
+    let parsed:NativeJsonResult=native_json_parse(value);if parsed.status!=0{return parsed.status;}
+    if parsed.value.kind!=4{return 4;}
+    if parsed.value.start!=0 || parsed.value.end!=value.length{return 2;}
+    return json_writer_token(p,value);
+}
+pub fn native_json_writer_u32(p:*mut NativeJsonWriter,value:u32)->u32 {
+    let mut digits:[u8;10]=0;let data:*mut u8=unsafe{digits as *mut u8};
+    let result:NativeU32Result=native_format_u32(value,data,10);if result.status!=0{return 1;}
+    return json_writer_token(p,native_text_open(data,result.value as usize));
+}
+pub fn native_json_writer_view(p:*const NativeJsonWriter)->NativeByteSlice {
+    if !native_json_writer_shape(p){return native_text_invalid();}
+    unsafe{if !p.root || p.depth!=0{return native_text_invalid();}
+        let view:NativeByteSlice=native_text_open(p.buffer.data,p.buffer.length);
+        if native_json_parse(view).status!=0{return native_text_invalid();}return view;}
+}
+pub fn native_json_writer_reset(mut p:*mut NativeJsonWriter)->u32 {
+    if !native_json_writer_shape(p){return 1;}
+    unsafe{p.buffer.length=0;p.depth=0;p.root=false;let mut i:usize=0;while i<64{p.frames[i]=0;i+=1;}}
+    return 0;
+}

@@ -4,6 +4,7 @@ import sotlas::runtime::pool::*;
 import sotlas::runtime::pool_text::*;
 import sotlas::runtime::results::*;
 import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
 import sotlas::runtime::text::*;
 
 fn configure_json(map:*mut NativeTextMap)->NativeU32Result{
@@ -23,6 +24,35 @@ fn configure_json(map:*mut NativeTextMap)->NativeU32Result{
     native_text_map_set_u32(map,"increment",9,b)?;
     native_text_map_set(map,"label",5,data,copied.length)?;
     return native_u32_ok(a+b);
+}
+
+fn export_config(map:*mut NativeTextMap)->NativeU32Result{
+    let base:u32=native_text_map_get_u32(map,"base",4)?;
+    let increment:u32=native_text_map_get_u32(map,"increment",9)?;
+    let label:NativePoolView=native_text_map_get(map,"label",5);
+    let mut text:[u8;32]=0;let content:*mut u8=unsafe{text as *mut u8};
+    if !native_pool_read(label,content,32){return native_u32_error(11,0);}
+    let mut output:[u8;160]=0;let data:*mut u8=unsafe{output as *mut u8};
+    let mut writer:NativeJsonWriter=native_json_writer_open(data,160);
+    let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+    if native_json_writer_object(w)!=0 || native_json_writer_key(w,native_text_open("base",4))!=0
+        || native_json_writer_u32(w,base)!=0 || native_json_writer_key(w,native_text_open("options",7))!=0
+        || native_json_writer_object(w)!=0 || native_json_writer_key(w,native_text_open("increment",9))!=0
+        || native_json_writer_u32(w,increment)!=0 || native_json_writer_end_object(w)!=0
+        || native_json_writer_key(w,native_text_open("label",5))!=0
+        || native_json_writer_string(w,native_text_open(content,label.length))!=0
+        || native_json_writer_end_object(w)!=0{return native_u32_error(11,1);}
+    let view:NativeByteSlice=native_json_writer_view(w);
+    let parsed:NativeJsonResult=native_json_parse(view);if parsed.status!=0{return native_u32_error(11,parsed.offset);}
+    let a:NativeJsonResult=native_json_object_get(parsed.value,native_text_open("base",4));
+    let options:NativeJsonResult=native_json_object_get(parsed.value,native_text_open("options",7));
+    let b:NativeJsonResult=native_json_object_get(options.value,native_text_open("increment",9));
+    let name:NativeJsonResult=native_json_object_get(parsed.value,native_text_open("label",5));
+    let decoded:NativeJsonStringResult=native_json_string_copy(name.value,content,32);
+    if !a.found || !b.found || decoded.status!=0 || decoded.length!=10
+        || text[0]!=83 || text[9]!=172{return native_u32_error(11,2);}
+    let first:u32=native_json_u32(a.value)?;let second:u32=native_json_u32(b.value)?;
+    return native_u32_ok(first+second);
 }
 
 fn configured(map:*mut NativeTextMap)->NativeU32Result{
@@ -53,9 +83,7 @@ fn configured(map:*mut NativeTextMap)->NativeU32Result{
         count=count+1;cursor=item.next;
     }
     if count!=4{return native_u32_error(11,3);}
-    let base:u32=native_text_map_get_u32(map,"base",4)?;
-    let increment:u32=native_text_map_get_u32(map,"increment",9)?;
-    return native_u32_ok(base+increment);
+    return export_config(map);
 }
 
 pub fn main_entry()->u32{
