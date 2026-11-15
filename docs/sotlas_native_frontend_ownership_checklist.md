@@ -160,6 +160,11 @@ documents and provides source-backed navigation and checked Unicode decoding.
 The configuration map example copies borrowed JSON data into its owned slots.
 General language strings, borrow lifetimes and automatic ARC remain separate.
 
+Implemented runtime capability: [JSON construction](native_json.md#constructing-json)
+adds bounded object/array building, Unicode escaping, validated numeric tokens
+and explicit buffer/state failure handling. The configuration example verifies
+a read/write/read cycle; generic serialization and automatic lifetimes remain open.
+
 ## SV8.103 — persistent Unicode text composition and checked fields (2026-10-28)
 
 Starting green baseline: `d02fe88b`,

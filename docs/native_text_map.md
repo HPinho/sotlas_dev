@@ -21,6 +21,8 @@ The example also imports nested configuration through the
 [native JSON reader](native_json.md), checks integer conversions and copies a
 decoded Unicode label into map-owned storage. It stages `json.sotlas` alongside
 the existing runtime modules; the map's identity and cleanup contract is unchanged.
+The same application writes its updated numeric fields and Unicode label using
+`json_writer.sotlas`, then reparses the document before releasing the map.
 
 ## Storage and identity
 

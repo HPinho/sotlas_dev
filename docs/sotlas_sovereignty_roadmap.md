@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+The [native JSON data path](native_json.md#constructing-json) now includes typed
+object/array construction, Unicode escaping and scalar output with per-operation
+capacity/grammar checks. The configuration application reads JSON, updates owned
+map values, generates a new document and validates the round trip before cleanup.
+Native Linux/Windows execution passed locally; platform CI is pending.
+
 [Native JSON](native_json.md) adds complete-document validation, readonly
 object/array navigation, UTF-8 string decoding and checked integer extraction.
 The existing configuration application imports a nested document and copies
