@@ -4454,7 +4454,8 @@ impl ScalarLowering {
         let narrow_arithmetic: bool = (type_tag == TargetTypeTag::U8
             || type_tag == TargetTypeTag::U16)
             && (opcode == TargetOpcode::Add || opcode == TargetOpcode::Sub
-                || opcode == TargetOpcode::Mul);
+                || opcode == TargetOpcode::Mul || opcode == TargetOpcode::Div
+                || opcode == TargetOpcode::Mod);
         let integer_shift: bool = opcode == TargetOpcode::ShiftLeft || opcode == TargetOpcode::ShiftRight;
         if integer_shift {
             let width: u32 = target_integer_width(type_tag);

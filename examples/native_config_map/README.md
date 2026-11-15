@@ -22,6 +22,9 @@ this example does not promise a generic map, automatic ARC or a disk database.
 With a native seed named `sotlas-native.exe` in the repository root, stage and
 build on Windows using PowerShell:
 
+Use a seed rebuilt with [unsigned byte/word division](../../docs/native_narrow_division.md),
+which the current JSON writer uses for escaping.
+
 ```powershell
 $runtime = 'build/config-map/src/sotlas/runtime'
 New-Item -ItemType Directory -Force $runtime

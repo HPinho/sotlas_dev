@@ -131,6 +131,10 @@ NaN, infinity, multiple values and non-number JSON are rejected. Keys are not
 deduplicated. Output is compact and follows construction order; it is not a
 canonicalization or signing format. No terminating NUL is written.
 
+Hexadecimal escaping now uses [native byte division and remainder](native_narrow_division.md)
+directly, widening only the computed nibble for indexing. Rebuild the native
+compiler with that arithmetic delivery before compiling this writer version.
+
 Keep the mutable control and backing separate, live and exclusive during use.
 Input text must not overlap the writer control or any of its backing capacity.
 Treat control fields as opaque and do not copy an active control as another
