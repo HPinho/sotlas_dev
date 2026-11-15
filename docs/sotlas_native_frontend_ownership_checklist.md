@@ -80,7 +80,7 @@ Implemented subset: [numeric place updates](native_numeric_projection.md)
 preserve a single destination evaluation for compound updates to scalar fields,
 fixed-array elements and raw pointer dereferences, including RHS propagation
 and readonly rejection. Caller-backed f32 CPU reference kernels provide dot,
-scale, AXPY and row-major GEMV. General tensor types, device dispatch and
+scale, AXPY, GEMV/GEMM, batched dense layers, transpose and ReLU. General tensor types, device dispatch and
 generative model execution remain open; these APIs do not close ownership or
 frontend parity as a whole.
 

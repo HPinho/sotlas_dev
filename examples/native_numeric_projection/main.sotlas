@@ -3,7 +3,31 @@ import sotlas::runtime::tensor_cpu::*;
 
 // A dense projection followed by a residual addition and scale, on the CPU.
 // This is a numerical building block, not a generative model.
+fn batched_dense()->u32 {
+    let inputs:[f32;6]=[1.0,2.0,3.0,-1.0,0.0,1.0];
+    // Stored as two output-major rows, then transposed for the batched ABI.
+    let weights:[f32;6]=[1.0,2.0,3.0,-1.0,0.0,1.0];
+    let bias:[f32;2]=[1.0,-3.0];
+    let mut transposed:[f32;6]=0;let mut hidden:[f32;4]=0;
+    let x:NativeF32View=NativeF32View{data:unsafe{inputs as *const f32},length:6};
+    let w:NativeF32View=NativeF32View{data:unsafe{weights as *const f32},length:6};
+    let b:NativeF32View=NativeF32View{data:unsafe{bias as *const f32},length:2};
+    let wt:NativeF32MutView=NativeF32MutView{data:unsafe{transposed as *mut f32},length:6};
+    let y:NativeF32MutView=NativeF32MutView{data:unsafe{hidden as *mut f32},length:4};
+    if native_f32_transpose_cpu(wt,w,2,3)!=0 { return 1; }
+    let columns:NativeF32View=NativeF32View{data:unsafe{transposed as *const f32},length:6};
+    if native_f32_linear_cpu(y,x,columns,b,2,3,2)!=0 || native_f32_relu_cpu(y)!=0 { return 2; }
+    if hidden[0]!=15.0 || hidden[1]!=0.0 || hidden[2]!=3.0 || hidden[3]!=0.0 { return 3; }
+    let read:NativeF32View=NativeF32View{data:unsafe{hidden as *const f32},length:4};
+    let head:[f32;2]=[2.0,1.0];let mut scores:[f32;2]=0;
+    let head_view:NativeF32View=NativeF32View{data:unsafe{head as *const f32},length:2};
+    let out:NativeF32MutView=NativeF32MutView{data:unsafe{scores as *mut f32},length:2};
+    if native_f32_gemm_cpu(out,read,head_view,2,2,1)!=0 || scores[0]!=30.0 || scores[1]!=6.0 { return 4; }
+    return 42;
+}
+
 pub fn main_entry()->u32 {
+    if batched_dense()!=42 { return 5; }
     let weights:[f32;6]=[1.0,2.0,3.0,1.0,1.0,1.0];
     let input:[f32;3]=[1.0,2.0,3.0];
     let residual:[f32;2]=[1.0,0.0];

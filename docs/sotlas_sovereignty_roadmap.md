@@ -7,6 +7,13 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+The [numeric CPU profile](native_numeric_projection.md) now includes rectangular
+GEMM, batched dense layers with bias, transpose and ReLU. Original Sotlas source
+executes a two-stage batched projection with checked shapes and output aliasing.
+Linux and Windows native execution and three-format emission passed locally;
+platform CI for this delivery is pending. This expands application-level numeric
+work without claiming generics, tensor graphs or physical accelerator execution.
+
 [Match cleanup](native_match_cleanup.md) connects pattern selection and guarded
 POD payload bindings to deferred resource release. It reuses the ordinary
 ownership merge, coverage checker and structured lowering, with effect-checked
@@ -89,7 +96,8 @@ POD copies and readonly receiver protection. See
 The native profile adds numeric compound updates to writable fields,
 fixed-array elements and raw pointer dereferences, with single evaluation of
 the address and explicit readonly rejection. Caller-backed f32 CPU kernels
-provide dot, scale, AXPY and row-major GEMV, plus an executable projection and
+provide dot, scale, AXPY, GEMV/GEMM, biased dense layers, transpose and ReLU,
+plus an executable batched projection and
 residual example. See [numeric projection](native_numeric_projection.md).
 GPU/NPU dispatch and generative model execution remain open.
 

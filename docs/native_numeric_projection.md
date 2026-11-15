@@ -26,6 +26,10 @@ without allocation, C glue or Python in the generated application:
 | `native_f32_scale_cpu(output, scale)` | In-place multiplication |
 | `native_f32_axpy_cpu(output, input, scale)` | `output += scale * input`; equal lengths |
 | `native_f32_gemv_cpu(output, input, weights, rows, columns)` | Row-major matrix-vector product; exact descriptor lengths |
+| `native_f32_gemm_cpu(output, left, right, rows, inner, columns)` | `[rows, inner] * [inner, columns] -> [rows, columns]` |
+| `native_f32_linear_cpu(output, input, weights, bias, batch, inputs, outputs)` | Batched GEMM followed by a broadcast bias per output column |
+| `native_f32_transpose_cpu(output, input, rows, columns)` | Rectangular transpose into separate storage |
+| `native_f32_relu_cpu(output)` | In-place activation: replace strictly negative values with zero |
 
 Status codes are 0 for success, 1 for invalid range metadata, 2 for incompatible
 dimensions and 3 for unsafe overlap. Dot returns a zero value on metadata
@@ -39,6 +43,22 @@ byte length/end address. Empty ranges allow null and do not dereference their
 address. Matrix shape multiplication is checked for overflow. A zero-column
 matrix writes zeros to its rows; a zero-row matrix writes nothing.
 
+GEMM checks all three dimension products, exact descriptor lengths and output
+overlap with either input. Readonly inputs may alias. Zero inner dimensions
+produce zeros; empty outputs finish immediately, including large zero-extent
+shapes. Transpose requires disjoint input/output ranges even for square matrices.
+
+The batched dense layer uses weights in `[inputs, outputs]` order. This differs
+from GEMV's `[outputs, inputs]` weight rows: transpose such weights first. Bias
+has exactly `outputs` elements, is reused for every batch row and cannot overlap
+output. Bias metadata is validated **before** computing the product, so a bad
+bias cannot partially overwrite output. With zero inputs, every row receives
+the bias. GEMM status is checked before bias status; no arithmetic failure channel
+is introduced.
+
+ReLU leaves NaNs and signed zero unchanged, preserves positive infinity and
+replaces negative infinity with zero. All functions retain the same status codes.
+
 These checks do **not** prove pointer provenance, allocation size, lifetime or
 absence of concurrent mutation. Callers must provide live, accessible buffers
 with the declared capacities and exclusive output access. Invalid storage can
@@ -50,6 +70,12 @@ arithmetic behavior; finite inputs/results are not enforced. This reference
 does not claim numerical equivalence to a future parallel or reduced-precision
 backend without an explicit tolerance contract.
 
+For GEMM and dense layers, each dot product accumulates in increasing inner
+index order from f32 zero. Dense bias is added after that dot product, not used
+as the initial accumulator. There is no threading, SIMD tuning, implicit
+allocation, tensor graph, autograd, model loader or GPU/NPU execution in this
+reference profile.
+
 ## Example and validation
 
 [`examples/native_numeric_projection/main.sotlas`](../examples/native_numeric_projection/main.sotlas)
@@ -57,12 +83,26 @@ computes a dense projection, adds a residual and scales the result. Its output
 is `[30.0, 12.0]`; it exits with 42 after checking that result and a dot product.
 It is a numerical building block, not an inference engine or a generative model.
 
+It also runs two input rows through a batched dense layer and ReLU, followed by
+a second matrix product. The checked hidden rows are `[15, 0]` and `[3, 0]`;
+the final scores are `[30, 6]`. Weight transposition and all intermediate storage
+are explicit Sotlas values. This same source is checked and executed by the
+existing native platform fixture, with no new workflow or alternate implementation.
+
 The shared Stage 3 platform fixtures run the imported example through
 `--check-build`, `--build-obj`, direct native build and ELF/PE/Mach-O linking,
 then execute the host format with host tools absent from PATH. Focused tests
 exercise single address evaluation, RHS side effects/failure, readonly writes,
 invalid ranges, dimensions, overlap, empty shapes and f32 accumulation order.
 A 1024-element raw buffer test avoids the fixed-array by-value snapshot limit.
+
+The expanded suite checks rectangular matrix products, shared readonly inputs,
+transpose round trips, batch-wise bias, ReLU special values, accumulation order,
+all dimension products, empty shapes and output preservation on range, shape,
+alias and bias failures. Local execution passed all 16 numeric tests using native
+Sotlas compilers on Linux and Windows. Original-source import/build/execution
+and ELF/PE/Mach-O emission also passed on both hosts. These results do not
+certify the pending platform CI or Intel macOS execution for this extension.
 
 Local package verification passed on Windows and Linux/WSL: the native
 regression group ran 148 tests on Windows and 145 on Linux (one platform skip).
