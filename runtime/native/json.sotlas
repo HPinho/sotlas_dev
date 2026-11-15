@@ -1,0 +1,235 @@
+module sotlas::runtime::json;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+
+// Readonly source-backed JSON values. Source storage must remain live and
+// unchanged. No allocation, AST arena or host JSON implementation is used.
+// Kinds: 1 object, 2 array, 3 string, 4 number, 5 true, 6 false, 7 null.
+pub struct NativeJsonValue {pub source:NativeByteSlice;pub start:usize;pub end:usize;pub kind:u32;pub valid:bool;}
+// Status: 0 success (found distinguishes absence), 1 range, 2 syntax,
+// 3 Unicode, 4 type, 5 nesting limit, 6 output capacity, 7 output overlap.
+pub struct NativeJsonResult {pub status:u32;pub found:bool;pub offset:usize;pub value:NativeJsonValue;}
+pub struct NativeJsonStringResult {pub status:u32;pub length:usize;pub offset:usize;}
+struct NativeJsonCursor {pub source:NativeByteSlice;pub offset:usize;pub status:u32;pub error:usize;}
+
+fn json_byte(source:NativeByteSlice,at:usize)->u32 {
+    if at>=source.length {return 256;}
+    let byte:u8=unsafe{*(source.data+at)};return byte as u32;
+}
+fn json_fail(mut p:*mut NativeJsonCursor,status:u32,at:usize)->u32 {
+    unsafe{if p.status==0{p.status=status;p.error=at;}}return 0;
+}
+fn json_space(mut p:*mut NativeJsonCursor)->void {
+    unsafe{while true{let b:u32=json_byte(p.source,p.offset);
+        if b!=32 && b!=9 && b!=10 && b!=13{return;}p.offset+=1;}}
+}
+fn json_hex(source:NativeByteSlice,at:usize)->u32 {
+    if at>source.length || source.length-at<4{return 65536;}
+    let mut value:u32=0;let mut i:usize=0;
+    while i<4 {let b:u32=json_byte(source,at+i);let mut digit:u32=16;
+        if b>=48 && b<=57{digit=b-48;}else if b>=65 && b<=70{digit=b-55;}
+        else if b>=97 && b<=102{digit=b-87;}if digit==16{return 65536;}
+        value=value*16+digit;i+=1;}
+    return value;
+}
+// Decode one raw or escaped scalar inside a string, excluding its quotes.
+fn json_scalar(source:NativeByteSlice,at:usize)->NativeUtf8Scalar {
+    let invalid:NativeUtf8Scalar=NativeUtf8Scalar{valid:false,scalar:0,next:at};
+    let b:u32=json_byte(source,at);if b<32 || b==34 || b==256{return invalid;}
+    if b!=92{return native_utf8_scalar(source.data,source.length,at);}
+    if source.length-at<2{return invalid;}
+    let escape:u32=json_byte(source,at+1);let mut scalar:u32=0;
+    if escape==34 || escape==92 || escape==47{scalar=escape;}
+    else if escape==98{scalar=8;}else if escape==102{scalar=12;}
+    else if escape==110{scalar=10;}else if escape==114{scalar=13;}
+    else if escape==116{scalar=9;}
+    else if escape==117{
+        if source.length-at<6{return invalid;}
+        scalar=json_hex(source,at+2);if scalar==65536{return invalid;}
+        if scalar>=55296 && scalar<=56319{
+            if source.length-at<12{return invalid;}
+            if json_byte(source,at+6)!=92 || json_byte(source,at+7)!=117{return invalid;}
+            let low:u32=json_hex(source,at+8);if low<56320 || low>57343{return invalid;}
+            return NativeUtf8Scalar{valid:true,scalar:65536+(scalar-55296)*1024+low-56320,next:at+12};
+        }
+        if scalar>=56320 && scalar<=57343{return invalid;}
+        return NativeUtf8Scalar{valid:true,scalar:scalar,next:at+6};
+    }else{return invalid;}
+    return NativeUtf8Scalar{valid:true,scalar:scalar,next:at+2};
+}
+fn json_string(mut p:*mut NativeJsonCursor)->bool {
+    unsafe{
+        if json_byte(p.source,p.offset)!=34{json_fail(p,2,p.offset);return false;}
+        p.offset+=1;
+        while p.offset<p.source.length{
+            if json_byte(p.source,p.offset)==34{p.offset+=1;return true;}
+            let scalar:NativeUtf8Scalar=json_scalar(p.source,p.offset);
+            if !scalar.valid{json_fail(p,3,p.offset);return false;}p.offset=scalar.next;
+        }
+        json_fail(p,2,p.offset);return false;
+    }
+}
+fn json_digit(b:u32)->bool{return b>=48 && b<=57;}
+fn json_number(mut p:*mut NativeJsonCursor)->bool {
+    unsafe{
+        if json_byte(p.source,p.offset)==45{p.offset+=1;}
+        if json_byte(p.source,p.offset)==48{
+            p.offset+=1;if json_digit(json_byte(p.source,p.offset)){json_fail(p,2,p.offset);return false;}
+        }else{
+            if !json_digit(json_byte(p.source,p.offset)){json_fail(p,2,p.offset);return false;}
+            while json_digit(json_byte(p.source,p.offset)){p.offset+=1;}
+        }
+        if json_byte(p.source,p.offset)==46{
+            p.offset+=1;if !json_digit(json_byte(p.source,p.offset)){json_fail(p,2,p.offset);return false;}
+            while json_digit(json_byte(p.source,p.offset)){p.offset+=1;}
+        }
+        let exponent:u32=json_byte(p.source,p.offset);
+        if exponent==101 || exponent==69{
+            p.offset+=1;let sign:u32=json_byte(p.source,p.offset);
+            if sign==43 || sign==45{p.offset+=1;}
+            if !json_digit(json_byte(p.source,p.offset)){json_fail(p,2,p.offset);return false;}
+            while json_digit(json_byte(p.source,p.offset)){p.offset+=1;}
+        }
+        return true;
+    }
+}
+fn json_literal(mut p:*mut NativeJsonCursor,word:NativeByteSlice)->bool {
+    let mut i:usize=0;unsafe{while i<word.length{
+        if json_byte(p.source,p.offset)!=json_byte(word,i){json_fail(p,2,p.offset);return false;}
+        p.offset+=1;i+=1;}}return true;
+}
+fn json_value(mut p:*mut NativeJsonCursor,depth:usize)->u32 {
+    json_space(p);unsafe{
+        if depth>64{return json_fail(p,5,p.offset);}
+        let first:u32=json_byte(p.source,p.offset);
+        if first==34{if json_string(p){return 3;}return 0;}
+        if first==45 || json_digit(first){if json_number(p){return 4;}return 0;}
+        if first==116{if json_literal(p,native_text_open("true",4)){return 5;}return 0;}
+        if first==102{if json_literal(p,native_text_open("false",5)){return 6;}return 0;}
+        if first==110{if json_literal(p,native_text_open("null",4)){return 7;}return 0;}
+        if first!=123 && first!=91{return json_fail(p,2,p.offset);}
+        if depth>=64{return json_fail(p,5,p.offset);}
+        let mut closing:u32=93;let mut kind:u32=2;if first==123{closing=125;kind=1;}
+        p.offset+=1;json_space(p);
+        if json_byte(p.source,p.offset)==closing{p.offset+=1;return kind;}
+        while true{
+            if kind==1{
+                if !json_string(p){return 0;}json_space(p);
+                if json_byte(p.source,p.offset)!=58{return json_fail(p,2,p.offset);}p.offset+=1;
+            }
+            if json_value(p,depth+1)==0{return 0;}json_space(p);
+            if json_byte(p.source,p.offset)==closing{p.offset+=1;return kind;}
+            if json_byte(p.source,p.offset)!=44{return json_fail(p,2,p.offset);}
+            p.offset+=1;json_space(p);
+        }
+    }
+    return 0;
+}
+fn json_result(status:u32,found:bool,offset:usize,value:NativeJsonValue)->NativeJsonResult {
+    return NativeJsonResult{status:status,found:found,offset:offset,value:value};
+}
+fn json_invalid()->NativeJsonValue {
+    return NativeJsonValue{source:native_text_invalid(),start:0,end:0,kind:0,valid:false};
+}
+pub fn native_json_parse(source:NativeByteSlice)->NativeJsonResult {
+    if !native_text_valid(source){return json_result(1,false,0,json_invalid());}
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:source,offset:0,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};json_space(p);let start:usize=cursor.offset;
+    let kind:u32=json_value(p,0);let end:usize=cursor.offset;json_space(p);
+    if cursor.status==0 && cursor.offset!=source.length{json_fail(p,2,cursor.offset);}
+    if cursor.status!=0{return json_result(cursor.status,false,cursor.error,json_invalid());}
+    return json_result(0,true,0,NativeJsonValue{source:source,start:start,end:end,kind:kind,valid:true});
+}
+// Public descriptors are checked again; validity is not an allocation/lifetime proof.
+fn json_checked(value:NativeJsonValue)->bool {
+    if !value.valid || !native_text_valid(value.source) || value.start>=value.end
+        || value.end>value.source.length{return false;}
+    let first:u32=json_byte(value.source,value.start);
+    if first==32 || first==9 || first==10 || first==13{return false;}
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:value.source,offset:value.start,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};let kind:u32=json_value(p,0);
+    return cursor.status==0 && kind==value.kind && cursor.offset==value.end;
+}
+pub fn native_json_raw(value:NativeJsonValue)->NativeByteSlice {
+    if !json_checked(value){return native_text_invalid();}
+    return native_text_sub(value.source,value.start,value.end-value.start);
+}
+pub fn native_json_array_at(value:NativeJsonValue,index:usize)->NativeJsonResult {
+    if !json_checked(value){return json_result(1,false,value.start,json_invalid());}
+    if value.kind!=2{return json_result(4,false,value.start,json_invalid());}
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:value.source,offset:value.start+1,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};json_space(p);let mut current:usize=0;
+    while json_byte(value.source,cursor.offset)!=93{
+        let start:usize=cursor.offset;let kind:u32=json_value(p,0);
+        if current==index{return json_result(0,true,0,NativeJsonValue{source:value.source,start:start,end:cursor.offset,kind:kind,valid:true});}
+        json_space(p);if json_byte(value.source,cursor.offset)==93{break;}
+        cursor.offset+=1;json_space(p);current+=1;
+    }
+    return json_result(0,false,0,json_invalid());
+}
+fn json_key_equals(source:NativeByteSlice,start:usize,end:usize,key:NativeByteSlice)->bool {
+    let mut at:usize=start+1;let mut index:usize=0;
+    while at<end-1 && index<key.length{
+        let left:NativeUtf8Scalar=json_scalar(source,at);
+        let right:NativeUtf8Scalar=native_utf8_scalar(key.data,key.length,index);
+        if !left.valid || !right.valid || left.scalar!=right.scalar{return false;}
+        at=left.next;index=right.next;
+    }
+    return at==end-1 && index==key.length;
+}
+// Duplicate decoded names are retained; lookup returns the first occurrence.
+pub fn native_json_object_get(value:NativeJsonValue,key:NativeByteSlice)->NativeJsonResult {
+    if !json_checked(value) || !native_text_valid(key){return json_result(1,false,value.start,json_invalid());}
+    if !native_utf8_measure_utf16(key.data,key.length).valid{return json_result(3,false,0,json_invalid());}
+    if value.kind!=1{return json_result(4,false,value.start,json_invalid());}
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:value.source,offset:value.start+1,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};json_space(p);
+    while json_byte(value.source,cursor.offset)!=125{
+        let key_start:usize=cursor.offset;json_string(p);let key_end:usize=cursor.offset;
+        json_space(p);cursor.offset+=1;json_space(p);
+        let start:usize=cursor.offset;let kind:u32=json_value(p,0);
+        if json_key_equals(value.source,key_start,key_end,key){
+            return json_result(0,true,0,NativeJsonValue{source:value.source,start:start,end:cursor.offset,kind:kind,valid:true});
+        }
+        json_space(p);if json_byte(value.source,cursor.offset)==125{break;}
+        cursor.offset+=1;json_space(p);
+    }
+    return json_result(0,false,0,json_invalid());
+}
+pub fn native_json_u32(value:NativeJsonValue)->NativeU32Result {
+    if !json_checked(value){return native_u32_error(1,value.start);}
+    if value.kind!=4{return native_u32_error(7,value.start);}
+    let result:NativeU32Result=native_parse_u32(unsafe{value.source.data+value.start},value.end-value.start);
+    if result.status!=0{return native_u32_error(result.error.kind,value.start+result.error.offset);}
+    return result;
+}
+fn json_utf8_units(scalar:u32)->usize {
+    if scalar<128{return 1;}if scalar<2048{return 2;}if scalar<65536{return 3;}return 4;
+}
+fn json_encode(destination:*mut u8,scalar:u32)->usize {
+    unsafe{
+        if scalar<128{*destination=scalar as u8;return 1;}
+        if scalar<2048{*destination=(192+scalar/64) as u8;*(destination+1)=(128+scalar%64) as u8;return 2;}
+        if scalar<65536{*destination=(224+scalar/4096) as u8;*(destination+1)=(128+(scalar/64)%64) as u8;
+            *(destination+2)=(128+scalar%64) as u8;return 3;}
+        *destination=(240+scalar/262144) as u8;*(destination+1)=(128+(scalar/4096)%64) as u8;
+        *(destination+2)=(128+(scalar/64)%64) as u8;*(destination+3)=(128+scalar%64) as u8;return 4;
+    }
+}
+// Two passes: malformed input, capacity and overlap failures leave output intact.
+// No terminating NUL is written; escaped U+0000 is an ordinary output byte.
+pub fn native_json_string_copy(value:NativeJsonValue,destination:*mut u8,capacity:usize)->NativeJsonStringResult {
+    if !json_checked(value){return NativeJsonStringResult{status:1,length:0,offset:value.start};}
+    if value.kind!=3{return NativeJsonStringResult{status:4,length:0,offset:value.start};}
+    let mut at:usize=value.start+1;let mut length:usize=0;
+    while at<value.end-1{let scalar:NativeUtf8Scalar=json_scalar(value.source,at);length+=json_utf8_units(scalar.scalar);at=scalar.next;}
+    if !native_text_open(unsafe{destination as *const u8},capacity).valid{return NativeJsonStringResult{status:1,length:length,offset:value.start};}
+    if length>capacity{return NativeJsonStringResult{status:6,length:length,offset:value.start};}
+    let destination_address:usize=unsafe{destination as usize};let source:usize=unsafe{value.source.data as usize};
+    if length!=0 && destination_address<source+value.source.length && source<destination_address+length{return NativeJsonStringResult{status:7,length:length,offset:value.start};}
+    at=value.start+1;let mut output:usize=0;
+    while at<value.end-1{let scalar:NativeUtf8Scalar=json_scalar(value.source,at);
+        output+=json_encode(unsafe{destination+output},scalar.scalar);at=scalar.next;}
+    return NativeJsonStringResult{status:0,length:length,offset:0};
+}

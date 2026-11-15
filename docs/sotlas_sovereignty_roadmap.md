@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Native JSON](native_json.md) adds complete-document validation, readonly
+object/array navigation, UTF-8 string decoding and checked integer extraction.
+The existing configuration application imports a nested document and copies
+decoded values into its owned map before deferred cleanup. Production code is
+Sotlas; Python remains a test harness/oracle. Platform CI for this delivery is pending.
+
 The [numeric CPU profile](native_numeric_projection.md) now includes rectangular
 GEMM, batched dense layers with bias, transpose and ReLU. Original Sotlas source
 executes a two-stage batched projection with checked shapes and output aliasing.

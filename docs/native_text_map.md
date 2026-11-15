@@ -17,6 +17,11 @@ iterates the entries and computes 42 before deferred collection cleanup.
 The example now uses [typed native pool metadata](native_record_storage.md).
 Its updated source requires a compiler rebuilt with that frontend capability.
 
+The example also imports nested configuration through the
+[native JSON reader](native_json.md), checks integer conversions and copies a
+decoded Unicode label into map-owned storage. It stages `json.sotlas` alongside
+the existing runtime modules; the map's identity and cleanup contract is unchanged.
+
 ## Storage and identity
 
 Initialize `NativeTextMap` with `native_text_map_empty`, then open it over a live

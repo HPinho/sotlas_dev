@@ -3,9 +3,32 @@ import sotlas::runtime::text_map::*;
 import sotlas::runtime::pool::*;
 import sotlas::runtime::pool_text::*;
 import sotlas::runtime::results::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::text::*;
+
+fn configure_json(map:*mut NativeTextMap)->NativeU32Result{
+    let source:NativeByteSlice=native_text_open("{\"base\":20,\"options\":{\"increment\":22},\"label\":\"Sotlas \\u20ac\"}",62);
+    let document:NativeJsonResult=native_json_parse(source);
+    if document.status!=0{return native_u32_error(11,document.offset);}
+    let base:NativeJsonResult=native_json_object_get(document.value,native_text_open("base",4));
+    let options:NativeJsonResult=native_json_object_get(document.value,native_text_open("options",7));
+    let increment:NativeJsonResult=native_json_object_get(options.value,native_text_open("increment",9));
+    let label:NativeJsonResult=native_json_object_get(document.value,native_text_open("label",5));
+    if !base.found || !increment.found || !label.found{return native_u32_error(11,0);}
+    let a:u32=native_json_u32(base.value)?;let b:u32=native_json_u32(increment.value)?;
+    let mut bytes:[u8;16]=0;let data:*mut u8=unsafe{bytes as *mut u8};
+    let copied:NativeJsonStringResult=native_json_string_copy(label.value,data,16);
+    if copied.status!=0{return native_u32_error(11,copied.offset);}
+    native_text_map_set_u32(map,"base",4,a)?;
+    native_text_map_set_u32(map,"increment",9,b)?;
+    native_text_map_set(map,"label",5,data,copied.length)?;
+    return native_u32_ok(a+b);
+}
 
 fn configured(map:*mut NativeTextMap)->NativeU32Result{
     defer{native_text_map_close(map,true);}
+    let imported:u32=configure_json(map)?;
+    if imported!=42{return native_u32_error(11,0);}
     native_text_map_set(map,"mode",4,"native",6)?;
     native_text_map_set_u32(map,"base",4,20)?;
     let source:NativePoolHandle=unsafe{native_pool_text_create(map.pool,"increment=22",12)};

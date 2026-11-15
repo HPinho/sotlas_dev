@@ -76,7 +76,7 @@ def verify_pool_text(compiler, output):
 
 def verify_config_map(compiler, output):
     verify_numeric_pipeline(compiler, output, 'native_config_map',
-                            ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'pool', 'pool_text', 'text_map'))
+                            ('results', 'managed', 'text', 'unicode', 'utf8_buffer', 'pool', 'pool_text', 'text_map', 'json'))
 
 
 def verify_record_storage(compiler, output):
