@@ -4,6 +4,12 @@ This example runs a small row-major f32 projection, residual addition, scale
 and dot product using Sotlas CPU kernels. It checks `[30.0, 12.0]` and exits 42.
 It does not load a model or dispatch to a GPU/NPU.
 
+The same program also executes a small batched dense pipeline: transpose weights,
+multiply two input rows, broadcast bias, apply ReLU and run a second projection.
+It checks hidden rows `[15, 0]` and `[3, 0]` and scores `[30, 6]` before the
+original projection. Buffers and intermediate shapes are explicit; no allocation
+or foreign math library is hidden in the operations.
+
 Create this project layout, using the runtime module from this checkout:
 
 ```text
