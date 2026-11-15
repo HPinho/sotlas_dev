@@ -155,6 +155,11 @@ The reusable allocator/text delivery is documented in [native pools](native_pool
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+Implemented runtime capability: [native JSON](native_json.md) validates complete
+documents and provides source-backed navigation and checked Unicode decoding.
+The configuration map example copies borrowed JSON data into its owned slots.
+General language strings, borrow lifetimes and automatic ARC remain separate.
+
 ## SV8.103 — persistent Unicode text composition and checked fields (2026-10-28)
 
 Starting green baseline: `d02fe88b`,
