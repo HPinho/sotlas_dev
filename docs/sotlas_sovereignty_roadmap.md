@@ -7,6 +7,12 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+[Unsigned byte/word division](native_narrow_division.md) closes native `u8`/`u16`
+`/` and `%`, including expression casts and compound places. The JSON writer
+uses narrow hexadecimal arithmetic, and the kernel foundation executes it in
+ring 0. Machine zero-divisor faults and existing type checks are preserved.
+Platform CI for this delivery is pending.
+
 The [native JSON data path](native_json.md#constructing-json) now includes typed
 object/array construction, Unicode escaping and scalar output with per-operation
 capacity/grammar checks. The configuration application reads JSON, updates owned

@@ -1791,7 +1791,8 @@ fn object_integer_arithmetic_type(type_tag: TargetTypeTag) -> bool {
 }
 
 fn object_unsigned_integer_type(type_tag: TargetTypeTag) -> bool {
-    return type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
+    return type_tag == TargetTypeTag::U8 || type_tag == TargetTypeTag::U16
+        || type_tag == TargetTypeTag::U32 || type_tag == TargetTypeTag::U64
         || type_tag == TargetTypeTag::Usize;
 }
 

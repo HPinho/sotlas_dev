@@ -114,7 +114,7 @@ fn json_writer_text(mut p:*mut NativeJsonWriter,value:NativeByteSlice,key:bool)-
     unsafe{while i<value.length{let byte:u8=*(value.data+i);
         if byte<32{
             json_writer_put(p,92);json_writer_put(p,117);json_writer_put(p,48);json_writer_put(p,48);
-            let code:usize=byte as usize;let high:usize=code/16;let low:usize=code%16;
+            let high:usize=(byte/16) as usize;let low:usize=(byte%16) as usize;
             json_writer_put(p,*(digits+high));json_writer_put(p,*(digits+low));
         }else if byte==34 || byte==92{json_writer_put(p,92);json_writer_put(p,byte);}
         else{json_writer_put(p,byte);}i+=1;}}

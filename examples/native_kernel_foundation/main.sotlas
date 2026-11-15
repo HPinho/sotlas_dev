@@ -19,6 +19,15 @@ static mut foundation_heap:*mut NativeKernelHeap=null;
 static mut foundation_ticks:u64=0;
 enum CleanupOrder { PagesFirst,BufferFirst(u32) }
 
+fn narrow_integer_probe()->u32 {
+    let byte:u8=255;let word:u16=65535;
+    let high:usize=(byte/16) as usize;let low:u8=byte%16;
+    let page_size:u16=4096;
+    if high!=15 || low!=15 || word/page_size!=15 || word%page_size!=4095{return 1;}
+    let mut values:[u8;2]=[254,255];values[0]/=2;values[1]%=16;
+    if values[0]!=127 || values[1]!=15{return 2;}return 42;
+}
+
 fn check_grouped_resources(pages:whisper NativeOwnedPages,buffer:whisper NativeOwnedBuffer)->void {
     if pages.load(0)!=42 || buffer.length()!=8 {
         native_kernel_qemu_exit(25);
@@ -193,6 +202,7 @@ pub fn kernel_interrupt(vector:u32,error:u64,frame:*mut u64)->u32 {
     return 0;
 }
 pub fn kernel_main(magic:u32,info:u32)->u32 {
+    if narrow_integer_probe()!=42{return native_kernel_qemu_exit(28);}
     if !native_kernel_serial_init() || !native_kernel_interrupts_install()
         || !native_kernel_pages_init(magic,info) {return native_kernel_qemu_exit(1);}
     let baseline:usize=native_kernel_pages_free();

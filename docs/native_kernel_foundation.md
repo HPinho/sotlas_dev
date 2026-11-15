@@ -87,6 +87,11 @@ user-mode address spaces, TSS/IST, scheduler, SMP or device drivers are claimed.
 
 ## CI evidence and release gate
 
+The foundation also executes [unsigned byte/word division](native_narrow_division.md),
+including quotient/remainder casts and indexed compound updates, before the
+existing memory and resource workload. This keeps the scalar arithmetic path
+covered in actual ring-0 execution as well as hosted tests.
+
 [Match cleanup](native_match_cleanup.md) selects grouped page/buffer release
 order through an enum payload and guard on ordinary and early returns. The
 same probes run while PIT interrupts allocate from the shared heap.

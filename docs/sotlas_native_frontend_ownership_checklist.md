@@ -155,6 +155,11 @@ The reusable allocator/text delivery is documented in [native pools](native_pool
 
 Repository: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
 
+Implemented scalar capability: [byte/word division](native_narrow_division.md)
+adds native unsigned `u8`/`u16` quotient and remainder, including computed casts
+and compound places. Runtime JSON escaping and the kernel use the same path;
+general numeric inference and frontend parity remain open.
+
 Implemented runtime capability: [native JSON](native_json.md) validates complete
 documents and provides source-backed navigation and checked Unicode decoding.
 The configuration map example copies borrowed JSON data into its owned slots.
