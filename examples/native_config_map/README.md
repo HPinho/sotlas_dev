@@ -13,6 +13,10 @@ and offsets; the map owns its copied keys and values after insertion.
 After updating those values, the program builds a nested JSON document using
 the native writer, reparses it and verifies the numeric and Unicode round trip
 before deferred map cleanup. Output remains in a caller-owned memory buffer.
+The final pass iterates every object member and re-emits keys and arbitrary
+nested values into separate storage, then checks the copied configuration.
+This is the executable closure target for the
+[in-memory JSON block](../../docs/native_json.md#block-completion).
 
 Production collection code is [Sotlas](../../runtime/native/text_map.sotlas).
 See [the collection contract](../../docs/native_text_map.md) for capacity,

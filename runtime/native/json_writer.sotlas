@@ -140,6 +140,15 @@ pub fn native_json_writer_u32(p:*mut NativeJsonWriter,value:u32)->u32 {
     let result:NativeU32Result=native_format_u32(value,data,10);if result.status!=0{return 1;}
     return json_writer_token(p,native_text_open(data,result.value as usize));
 }
+// Copy any parsed JSON value without retaining its source. Preserve number
+// spelling, duplicate names and inner whitespace; this is not canonicalization.
+pub fn native_json_writer_value(p:*mut NativeJsonWriter,value:NativeJsonValue)->u32 {
+    if !native_json_writer_shape(p){return 1;}
+    let raw:NativeByteSlice=native_json_raw(value);if !raw.valid{return 1;}
+    let depth:NativeU32Result=native_json_depth(value);if depth.status!=0{return 1;}
+    if (depth.value as usize)>64-unsafe{p.depth}{return 5;}
+    return json_writer_token(p,raw);
+}
 pub fn native_json_writer_view(p:*const NativeJsonWriter)->NativeByteSlice {
     if !native_json_writer_shape(p){return native_text_invalid();}
     unsafe{if !p.root || p.depth!=0{return native_text_invalid();}

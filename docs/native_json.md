@@ -1,4 +1,31 @@
-# Native JSON reader
+# Native in-memory JSON
+
+## Block completion
+
+**Implementation status: closed for the in-memory contract below.** Further
+language work can move to the remaining frontend, ownership and preview-delivery
+blocks. Platform CI for this commit remains a separate certification gate.
+
+- [x] Whole-document parsing of all JSON value kinds under the published UTF-8/depth rules.
+- [x] Checked lookup and complete object/array traversal, including empty containers and duplicate names.
+- [x] Lossless raw number tokens, checked `u32` conversion and Unicode string decoding.
+- [x] Construction of every value kind with grammar checks and bounded caller storage.
+- [x] Validated whole-value/subtree re-emission with combined-depth and alias checks.
+- [x] No partial writes or construction-state changes on rejected write operations.
+- [x] Original-source configuration read, map update, traversal, re-emission and readback before cleanup.
+- [x] Local native execution and ELF/PE/Mach-O emission on Linux and Windows hosts.
+- [ ] Cross-platform CI certification for this closing commit, including Intel macOS execution.
+
+The closed block is a memory-format API. Files/networking, schema validation,
+reflection-based serialization, implicit floating-point conversion, indexing
+optimizations and compiler-proven borrow lifetimes belong to other contracts.
+
+Closing evidence: all 31 reader/writer/exchange tests passed through native
+Linux and Windows compilers. The focused JSON/map regression passed 51 tests,
+and 35 contract/documentation checks passed. The original-source application
+passed checking, native execution and ELF/PE/Mach-O emission on both hosts.
+`tests/test_sotlas_native_json_exchange.py` adds the traversal, re-emission,
+combined-depth, cursor-membership and failure-preservation closure cases.
 
 `runtime/native/json.sotlas` reads JSON using the Sotlas-written compiler and
 runtime. It validates a complete document, provides readonly object/array
@@ -22,6 +49,8 @@ Names below omit `native_json_`.
 | `parse(source)` | Validate the entire source; return its root or a byte-positioned error |
 | `object_get(value, key)` | Find a member by its decoded Unicode name |
 | `array_at(value, index)` | Select a zero-based array item |
+| `iter(value)` / `next(cursor)` | Traverse direct object members or array items |
+| `depth(value)` | Count maximum nested containers; zero for scalar values |
 | `raw(value)` | Borrow the exact source token, including quotes/escapes for strings |
 | `u32(value)` | Convert an unsigned integer token with checked overflow |
 | `string_copy(value, destination, capacity)` | Decode to UTF-8 without a terminating NUL |
@@ -35,6 +64,20 @@ Value kinds are: 1 object, 2 array, 3 string, 4 number, 5 true, 6 false and 7 nu
 Objects retain duplicate names; lookup returns the first decoded-name match.
 Escaped and raw spellings of the same name compare equally. No case folding or
 Unicode normalization is performed. Object order has no semantic significance.
+
+`NativeJsonIter` traverses one object or array in source order, preserving
+duplicate names. `NativeJsonItem` has `status`, `done`, `offset`, `key`, `value`
+and `next`. Loop with `next(cursor)`, check status, stop on `done`, then use
+`item.next`. Object keys are string values and can be decoded with `string_copy`;
+array keys are invalid. Empty containers and exhausted cursors return successful
+`done` items with invalid key/value fields. Exhaustion is repeatable. A scalar
+produces an invalid iterator. Invalid or forged cursor positions return status 1.
+
+Cursor validation checks direct-member boundaries, not merely byte ranges, so
+an interior position in a nested value cannot become a sibling. This requires
+rescanning from the container start. Full traversal can be quadratic in source
+length; the profile favors bounded configuration documents, without a hidden
+index or allocation. Input storage must remain unchanged and alive.
 
 Numbers retain their exact lexical bytes, including long integers and large
 exponents. The reader does not round numbers to floats. `u32` accepts only
@@ -105,6 +148,7 @@ Writer names below omit `native_json_writer_`.
 | `string(writer, text)` | Escape a UTF-8 string value |
 | `u32(writer, value)` | Format a checked decimal integer token |
 | `number(writer, text)` | Append one validated number token, without leading/trailing whitespace |
+| `value(writer, parsed_value)` | Copy any validated JSON value, including a whole container |
 | `bool(writer, value)` / `null(writer)` | Append a literal value |
 | `view(writer)` | Borrow a complete, validated document; invalid while incomplete |
 | `reset(writer)` | Discard construction state without wiping backing bytes |
@@ -131,6 +175,13 @@ NaN, infinity, multiple values and non-number JSON are rejected. Keys are not
 deduplicated. Output is compact and follows construction order; it is not a
 canonicalization or signing format. No terminating NUL is written.
 
+`value` bridges the reader and writer without a schema-specific field list. It
+copies bytes into destination storage and retains no source reference. Number
+spelling, escaped strings, duplicate names and internal whitespace are preserved.
+Depth is checked for the **combined** writer and copied subtree before writing;
+depth, metadata, overlap and capacity failures leave output and state unchanged.
+Only the source value's token is copied, excluding surrounding root whitespace.
+
 Hexadecimal escaping now uses [native byte division and remainder](native_narrow_division.md)
 directly, widening only the computed nibble for indexing. Rebuild the native
 compiler with that arithmetic delivery before compiling this writer version.
@@ -151,6 +202,10 @@ the existing owned configuration map and then exercises updates and cleanup.
 It then writes a nested document from the updated map, reparses it and checks
 the numeric and Unicode values before deferred map cleanup. Both reader and
 writer run through the same native compiler and original-source import path.
+The closing example traverses every generated member, decodes/re-escapes keys,
+copies each arbitrary value into a new document, reparses it and computes its
+result from the copied configuration. It does not hardcode the traversal's
+member names or silently truncate key buffers.
 It exits with 42 and checks that its backing pool closes without live slots.
 Its staged runtime includes `json.sotlas` and `json_writer.sotlas`; the existing native platform gate
 checks imports, object emission, executable builds and ELF/PE/Mach-O linking.
