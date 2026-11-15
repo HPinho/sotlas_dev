@@ -13,17 +13,14 @@ uses narrow hexadecimal arithmetic, and the kernel foundation executes it in
 ring 0. Machine zero-divisor faults and existing type checks are preserved.
 Platform CI for this delivery is pending.
 
-The [native JSON data path](native_json.md#constructing-json) now includes typed
-object/array construction, Unicode escaping and scalar output with per-operation
-capacity/grammar checks. The configuration application reads JSON, updates owned
-map values, generates a new document and validates the round trip before cleanup.
-Native Linux/Windows execution passed locally; platform CI is pending.
-
-[Native JSON](native_json.md) adds complete-document validation, readonly
-object/array navigation, UTF-8 string decoding and checked integer extraction.
-The existing configuration application imports a nested document and copies
-decoded values into its owned map before deferred cleanup. Production code is
-Sotlas; Python remains a test harness/oracle. Platform CI for this delivery is pending.
+**[In-memory JSON implementation closed](native_json.md#block-completion):** the
+published contract covers complete-document parsing, Unicode decoding, lookup,
+object/array traversal, lossless numeric tokens, checked `u32` conversion,
+construction and validated subtree re-emission. The original configuration
+application verifies the full read/update/traverse/write/read cycle and cleanup.
+Local native Linux/Windows execution and ELF/PE/Mach-O emission passed. Full
+platform CI for the closing commit remains pending; further feature work returns
+to frontend/ownership and preview delivery rather than extending this block.
 
 The [numeric CPU profile](native_numeric_projection.md) now includes rectangular
 GEMM, batched dense layers with bias, transpose and ReLU. Original Sotlas source

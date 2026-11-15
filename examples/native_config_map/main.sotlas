@@ -51,7 +51,28 @@ fn export_config(map:*mut NativeTextMap)->NativeU32Result{
     let decoded:NativeJsonStringResult=native_json_string_copy(name.value,content,32);
     if !a.found || !b.found || decoded.status!=0 || decoded.length!=10
         || text[0]!=83 || text[9]!=172{return native_u32_error(11,2);}
-    let first:u32=native_json_u32(a.value)?;let second:u32=native_json_u32(b.value)?;
+    // Re-emit every member without a schema-specific field list. Keys are
+    // decoded/re-escaped; nested values and number spellings are preserved.
+    let mut copied:[u8;256]=0;let destination:*mut u8=unsafe{copied as *mut u8};
+    let mut mirror:NativeJsonWriter=native_json_writer_open(destination,256);
+    let m:*mut NativeJsonWriter=unsafe{(&mut mirror) as *mut NativeJsonWriter};
+    if native_json_writer_object(m)!=0{return native_u32_error(11,3);}
+    let mut cursor:NativeJsonIter=native_json_iter(parsed.value);let mut count:u32=0;
+    while true{
+        let item:NativeJsonItem=native_json_next(cursor);
+        if item.status!=0{return native_u32_error(11,item.offset);}if item.done{break;}
+        let key:NativeJsonStringResult=native_json_string_copy(item.key,content,32);
+        if key.status!=0 || native_json_writer_key(m,native_text_open(content,key.length))!=0
+            || native_json_writer_value(m,item.value)!=0{return native_u32_error(11,4);}
+        count+=1;cursor=item.next;
+    }
+    if count!=3 || native_json_writer_end_object(m)!=0{return native_u32_error(11,5);}
+    let mirrored:NativeJsonResult=native_json_parse(native_json_writer_view(m));
+    if mirrored.status!=0{return native_u32_error(11,mirrored.offset);}
+    let copied_base:NativeJsonResult=native_json_object_get(mirrored.value,native_text_open("base",4));
+    let copied_options:NativeJsonResult=native_json_object_get(mirrored.value,native_text_open("options",7));
+    let copied_increment:NativeJsonResult=native_json_object_get(copied_options.value,native_text_open("increment",9));
+    let first:u32=native_json_u32(copied_base.value)?;let second:u32=native_json_u32(copied_increment.value)?;
     return native_u32_ok(first+second);
 }
 

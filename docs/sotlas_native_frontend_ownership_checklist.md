@@ -170,6 +170,12 @@ adds bounded object/array building, Unicode escaping, validated numeric tokens
 and explicit buffer/state failure handling. The configuration example verifies
 a read/write/read cycle; generic serialization and automatic lifetimes remain open.
 
+Closed implementation block: [in-memory JSON exchange](native_json.md#block-completion)
+includes checked traversal and re-emission of arbitrary parsed values, with
+published limits and an executable configuration round trip. Full CI certification
+for its closing commit is pending. Subsequent language work uses this API as a
+regression target; it does not expand the closed JSON scope.
+
 ## SV8.103 — persistent Unicode text composition and checked fields (2026-10-28)
 
 Starting green baseline: `d02fe88b`,

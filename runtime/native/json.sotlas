@@ -11,6 +11,8 @@ pub struct NativeJsonValue {pub source:NativeByteSlice;pub start:usize;pub end:u
 // 3 Unicode, 4 type, 5 nesting limit, 6 output capacity, 7 output overlap.
 pub struct NativeJsonResult {pub status:u32;pub found:bool;pub offset:usize;pub value:NativeJsonValue;}
 pub struct NativeJsonStringResult {pub status:u32;pub length:usize;pub offset:usize;}
+pub struct NativeJsonIter {pub owner:NativeJsonValue;pub position:usize;pub valid:bool;pub done:bool;}
+pub struct NativeJsonItem {pub status:u32;pub done:bool;pub offset:usize;pub key:NativeJsonValue;pub value:NativeJsonValue;pub next:NativeJsonIter;}
 struct NativeJsonCursor {pub source:NativeByteSlice;pub offset:usize;pub status:u32;pub error:usize;}
 
 fn json_byte(source:NativeByteSlice,at:usize)->u32 {
@@ -203,6 +205,83 @@ pub fn native_json_u32(value:NativeJsonValue)->NativeU32Result {
     let result:NativeU32Result=native_parse_u32(unsafe{value.source.data+value.start},value.end-value.start);
     if result.status!=0{return native_u32_error(result.error.kind,value.start+result.error.offset);}
     return result;
+}
+
+// Count containers without interpreting delimiters inside strings. Scalar
+// roots have depth zero. Used before embedding a parsed value in a writer.
+pub fn native_json_depth(value:NativeJsonValue)->NativeU32Result {
+    if !json_checked(value){return native_u32_error(1,value.start);}
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:value.source,offset:value.start,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};
+    let mut depth:u32=0;let mut maximum:u32=0;
+    while cursor.offset<value.end{
+        let byte:u32=json_byte(value.source,cursor.offset);
+        if byte==34{json_string(p);}
+        else{
+            if byte==91 || byte==123{depth+=1;if depth>maximum{maximum=depth;}}
+            else if byte==93 || byte==125{depth-=1;}
+            cursor.offset+=1;
+        }
+    }
+    return native_u32_ok(maximum);
+}
+pub fn native_json_iter(value:NativeJsonValue)->NativeJsonIter {
+    if !json_checked(value) || (value.kind!=1 && value.kind!=2){
+        return NativeJsonIter{owner:json_invalid(),position:0,valid:false,done:false};
+    }
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:value.source,offset:value.start+1,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};json_space(p);
+    return NativeJsonIter{owner:value,position:cursor.offset,valid:true,done:false};
+}
+fn json_iter_failure(owner:NativeJsonValue,position:usize)->NativeJsonItem {
+    let next:NativeJsonIter=NativeJsonIter{owner:owner,position:position,valid:false,done:false};
+    return NativeJsonItem{status:1,done:false,offset:position,key:json_invalid(),value:json_invalid(),next:next};
+}
+// One direct member, retaining source slices for both name and value.
+fn json_iter_step(owner:NativeJsonValue,position:usize)->NativeJsonItem {
+    let mut cursor:NativeJsonCursor=NativeJsonCursor{source:owner.source,offset:position,status:0,error:0};
+    let p:*mut NativeJsonCursor=unsafe{&mut cursor};
+    if position==owner.end-1{
+        let next:NativeJsonIter=NativeJsonIter{owner:owner,position:position,valid:true,done:true};
+        return NativeJsonItem{status:0,done:true,offset:0,key:json_invalid(),value:json_invalid(),next:next};
+    }
+    let mut key:NativeJsonValue=json_invalid();
+    if owner.kind==1{
+        let start:usize=cursor.offset;if !json_string(p){return json_iter_failure(owner,position);}
+        key=NativeJsonValue{source:owner.source,start:start,end:cursor.offset,kind:3,valid:true};
+        json_space(p);if json_byte(owner.source,cursor.offset)!=58{return json_iter_failure(owner,position);}
+        cursor.offset+=1;json_space(p);
+    }
+    let start:usize=cursor.offset;let kind:u32=json_value(p,0);let end:usize=cursor.offset;
+    if cursor.status!=0 || end>owner.end-1{return json_iter_failure(owner,position);}
+    json_space(p);
+    if cursor.offset<owner.end-1{
+        if json_byte(owner.source,cursor.offset)!=44{return json_iter_failure(owner,position);}
+        cursor.offset+=1;json_space(p);
+    }
+    if cursor.offset>owner.end-1{return json_iter_failure(owner,position);}
+    let next:NativeJsonIter=NativeJsonIter{owner:owner,position:cursor.offset,valid:true,done:false};
+    let selected:NativeJsonValue=NativeJsonValue{source:owner.source,start:start,end:end,kind:kind,valid:true};
+    return NativeJsonItem{status:0,done:false,offset:0,key:key,value:selected,next:next};
+}
+pub fn native_json_next(iterator:NativeJsonIter)->NativeJsonItem {
+    let owner:NativeJsonValue=iterator.owner;
+    if !iterator.valid || !json_checked(owner) || (owner.kind!=1 && owner.kind!=2)
+        || iterator.position<=owner.start || iterator.position>=owner.end{
+        return json_iter_failure(owner,iterator.position);
+    }
+    // Verify membership, not just the range: a forged position inside a string
+    // or nested value must not be interpreted as another direct member.
+    let beginning:NativeJsonIter=native_json_iter(owner);let mut position:usize=beginning.position;
+    while position<iterator.position{
+        let skipped:NativeJsonItem=json_iter_step(owner,position);
+        if skipped.status!=0 || skipped.done || skipped.next.position<=position{
+            return json_iter_failure(owner,iterator.position);
+        }
+        position=skipped.next.position;
+    }
+    if position!=iterator.position || (iterator.done && position!=owner.end-1){return json_iter_failure(owner,iterator.position);}
+    return json_iter_step(owner,position);
 }
 fn json_utf8_units(scalar:u32)->usize {
     if scalar<128{return 1;}if scalar<2048{return 2;}if scalar<65536{return 3;}return 4;
