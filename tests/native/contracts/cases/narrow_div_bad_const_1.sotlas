@@ -1,0 +1,10 @@
+// Migrated contract: NativeNarrowDivisionTests.test_module_constants_keep_the_declared_byte_and_word_types
+module sotlas::tests::contracts::narrow_div_bad_const_1;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+const BAD:u16=65535%0;pub fn main_entry()->u32{return 42;}

@@ -1,0 +1,23 @@
+// Migrated contract: NativeJsonTests.test_string_capacity_and_overlap_fail_before_writes
+module sotlas::tests::contracts::json_copy_fail;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;8]=[34,92,117,48,48,101,57,34];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},8);
+
+let root:NativeJsonResult=native_json_parse(input);let mut out:[u8;4]=[77;4];
+let p:*mut u8=unsafe{out as *mut u8};
+let small:NativeJsonStringResult=native_json_string_copy(root.value,p,1);
+if small.status!=6 || small.length!=2 || out[0]!=77 || out[3]!=77{return 1;}
+let overlap:*mut u8=unsafe{input.data as *mut u8};
+if native_json_string_copy(root.value,overlap,input.length).status!=7{return 2;}
+if native_json_string_copy(root.value,null,2).status!=1{return 3;}
+if native_json_parse(input).status!=0 || native_json_string_copy(root.value,p,2).status!=0
+|| out[0]!=195 || out[1]!=169 || out[2]!=77{return 4;}return 0;
+}

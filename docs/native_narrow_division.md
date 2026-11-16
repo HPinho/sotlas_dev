@@ -43,7 +43,7 @@ integer widths, foreign ABI parity or the whole frontend roadmap.
 
 ## Executable evidence
 
-`tests/test_sotlas_native_narrow_division.py` compares all 65,280 nonzero-divisor
+The `narrow_div_*` Sotlas cases in `tests/native/contracts/manifest.txt` compare all 65,280 nonzero-divisor
 `u8` operand pairs against widened arithmetic and the quotient/remainder identity.
 It also checks `u16` boundaries, high-bit values, computed casts, wrap-before-divide,
 compound places, single evaluation, rejected type combinations and child-process

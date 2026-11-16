@@ -1,0 +1,10 @@
+// Migrated contract: NativeNarrowDivisionTests.test_mixed_widths_boolean_divisors_and_readonly_places_are_rejected
+module sotlas::tests::contracts::narrow_div_invalid_5;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+const VALUE:u8=255;fn bad()->u8{VALUE%=16;return VALUE;}pub fn main_entry()->u32{return 42;}

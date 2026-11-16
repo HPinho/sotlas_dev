@@ -1,0 +1,23 @@
+// Migrated contract: NativeJsonWriterTests.test_string_escaping_preserves_unicode_controls_and_nul
+module sotlas::tests::contracts::json_writer_escapes;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input:[u8;11]=[34,92,0,10,9,195,169,240,159,153,130];
+let text:NativeByteSlice=native_text_open(unsafe{input as *const u8},11);
+if native_json_writer_string(w,text)!=0{return 1;}
+let root:NativeJsonResult=native_json_parse(native_json_writer_view(w));
+let mut decoded:[u8;12]=[77;12];
+let copied:NativeJsonStringResult=native_json_string_copy(root.value,unsafe{decoded as *mut u8},12);
+if copied.status!=0 || copied.length!=11 || decoded[11]!=77{return 2;}
+let mut i:usize=0;while i<11{if decoded[i]!=input[i]{return 3;}i+=1;}return 0;
+}

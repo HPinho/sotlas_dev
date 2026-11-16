@@ -1,0 +1,24 @@
+// Migrated contract: NativeJsonWriterTests.test_unicode_keys_duplicate_names_and_state_reset
+module sotlas::tests::contracts::json_writer_keys;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let name:[u8;2]=[195,169];
+let key:NativeByteSlice=native_text_open(unsafe{name as *const u8},2);
+if native_json_writer_object(w)!=0 || native_json_writer_key(w,key)!=0 || native_json_writer_u32(w,20)!=0
+|| native_json_writer_key(w,key)!=0 || native_json_writer_u32(w,99)!=0 || native_json_writer_end_object(w)!=0{return 1;}
+let parsed:NativeJsonResult=native_json_parse(native_json_writer_view(w));
+if native_json_u32(native_json_object_get(parsed.value,key).value).value!=20{return 2;}
+if native_json_writer_reset(w)!=0 || native_json_writer_array(w)!=0
+|| native_json_writer_bool(w,true)!=0 || native_json_writer_end_array(w)!=0
+|| !native_json_writer_view(w).valid{return 3;}return 0;
+}

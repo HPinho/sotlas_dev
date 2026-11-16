@@ -1,0 +1,26 @@
+// Migrated contract: NativeJsonWriterTests.test_invalid_utf8_number_and_source_alias_do_not_write
+module sotlas::tests::contracts::json_writer_invalid;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let invalid:[u8;2]=[192,128];
+let bad:NativeByteSlice=native_text_open(unsafe{invalid as *const u8},2);
+if native_json_writer_string(w,bad)!=3 || native_json_writer_number(w,native_text_open("NaN",3))!=2
+|| native_json_writer_number(w,native_text_open("true",4))!=4
+|| native_json_writer_number(w,native_text_open(" 1",2))!=2
+|| native_json_writer_string(w,native_text_open(null,1))!=1 || writer.root
+|| writer.buffer.length!=0 || bytes[0]!=77{return 1;}
+if native_json_writer_array(w)!=0{return 2;}
+let alias:NativeByteSlice=native_text_open(unsafe{data as *const u8},1);
+if native_json_writer_string(w,alias)!=7 || writer.buffer.length!=1 || bytes[1]!=77{return 3;}
+if native_json_writer_string(w,native_text_open("ok",2))!=0 || native_json_writer_end_array(w)!=0{return 4;}return 0;
+}

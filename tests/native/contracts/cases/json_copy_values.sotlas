@@ -1,0 +1,28 @@
+// Migrated contract: NativeJsonExchangeTests.test_copy_all_kinds_and_keep_lexical_numbers_and_whitespace
+module sotlas::tests::contracts::json_copy_values;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;74]=[91,32,123,34,97,34,58,32,49,44,32,34,97,34,58,50,125,44,32,91,116,114,117,101,44,32,110,117,108,108,93,44,32,34,92,117,48,48,101,57,34,44,32,45,49,46,50,48,101,43,57,57,57,44,32,116,114,117,101,44,32,102,97,108,115,101,44,32,110,117,108,108,32,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},74);
+
+let root:NativeJsonResult=native_json_parse(input);let mut cursor:NativeJsonIter=native_json_iter(root.value);
+if native_json_writer_array(w)!=0{return 1;}
+while true{let item:NativeJsonItem=native_json_next(cursor);if item.status!=0{return 2;}if item.done{break;}
+if native_json_writer_value(w,item.value)!=0{return 3;}cursor=item.next;}
+if native_json_writer_end_array(w)!=0{return 4;}
+let out:NativeJsonResult=native_json_parse(native_json_writer_view(w));if out.status!=0{return 5;}
+let number:NativeByteSlice=native_json_raw(native_json_array_at(out.value,3).value);
+let mut ordering:i32=0;if !native_text_compare(number,native_text_open("-1.20e+999",10),unsafe{&mut ordering}) || ordering!=0{return 6;}
+let first:NativeJsonValue=native_json_array_at(out.value,0).value;
+if native_json_u32(native_json_object_get(first,native_text_open("a",1)).value).value!=1{return 7;}return 0;
+}

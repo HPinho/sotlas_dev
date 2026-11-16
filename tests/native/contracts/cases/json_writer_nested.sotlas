@@ -1,0 +1,28 @@
+// Migrated contract: NativeJsonWriterTests.test_nested_objects_arrays_and_readback
+module sotlas::tests::contracts::json_writer_nested;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+
+if native_json_writer_object(w)!=0 || native_json_writer_key(w,native_text_open("values",6))!=0
+|| native_json_writer_array(w)!=0 || native_json_writer_u32(w,20)!=0 || native_json_writer_u32(w,22)!=0
+|| native_json_writer_bool(w,true)!=0 || native_json_writer_null(w)!=0 || native_json_writer_end_array(w)!=0
+|| native_json_writer_key(w,native_text_open("ready",5))!=0 || native_json_writer_bool(w,false)!=0
+|| native_json_writer_end_object(w)!=0{return 1;}
+let view:NativeByteSlice=native_json_writer_view(w);let parsed:NativeJsonResult=native_json_parse(view);
+if !view.valid || parsed.status!=0{return 2;}
+let values:NativeJsonResult=native_json_object_get(parsed.value,native_text_open("values",6));
+if native_json_u32(native_json_array_at(values.value,0).value).value!=20
+|| native_json_u32(native_json_array_at(values.value,1).value).value!=22
+|| native_json_array_at(values.value,2).value.kind!=5 || native_json_array_at(values.value,3).value.kind!=7
+|| native_json_object_get(parsed.value,native_text_open("ready",5)).value.kind!=6{return 3;}return 0;
+}

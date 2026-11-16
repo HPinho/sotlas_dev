@@ -1,0 +1,34 @@
+// Migrated contract: NativeJsonTests.test_unicode_escapes_decoding_and_embedded_nul
+module sotlas::tests::contracts::json_unicode;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;43]=[34,65,92,117,48,48,101,57,92,117,68,56,51,68,92,117,68,69,52,50,92,117,48,48,48,48,92,110,92,116,92,98,92,102,92,114,92,47,92,92,92,34,34];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},43);
+let result:NativeJsonResult=native_json_parse(input);
+if result.status!=0{return 1;}let mut out:[u8;32]=[77;32];
+let copied:NativeJsonStringResult=native_json_string_copy(result.value,unsafe{out as *mut u8},32);
+if copied.status!=0 || copied.length!=16{return 2;}
+if out[0]!=65{return 3;}
+if out[1]!=195{return 3;}
+if out[2]!=169{return 3;}
+if out[3]!=240{return 3;}
+if out[4]!=159{return 3;}
+if out[5]!=153{return 3;}
+if out[6]!=130{return 3;}
+if out[7]!=0{return 3;}
+if out[8]!=10{return 3;}
+if out[9]!=9{return 3;}
+if out[10]!=8{return 3;}
+if out[11]!=12{return 3;}
+if out[12]!=13{return 3;}
+if out[13]!=47{return 3;}
+if out[14]!=92{return 3;}
+if out[15]!=34{return 3;}
+if out[16]!=77{return 4;}return 0;
+}

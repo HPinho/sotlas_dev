@@ -1,0 +1,16 @@
+// Migrated contract: NativeNarrowDivisionTests.test_u16_boundary_pairs_preserve_unsigned_width
+module sotlas::tests::contracts::narrow_div_u16_boundaries;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let values:[u16;9]=[0,1,2,255,256,32767,32768,65534,65535];
+let divisors:[u16;8]=[1,2,3,255,256,32767,32768,65535];
+let mut i:u32=0;while i<9{let mut j:u32=0;while j<8{
+let a:u16=values[i];let b:u16=divisors[j];let wide_a:u32=a as u32;let wide_b:u32=b as u32;
+let q:u32=(a/b) as u32;let r:u32=(a%b) as u32;
+if q!=wide_a/wide_b || r!=wide_a%wide_b || q*wide_b+r!=wide_a{return 1;}j+=1;}i+=1;}return 0;}

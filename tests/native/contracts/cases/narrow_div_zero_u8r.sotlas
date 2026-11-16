@@ -1,0 +1,11 @@
+// Migrated contract: NativeNarrowDivisionTests.test_dynamic_zero_divisors_trap_for_both_widths_and_operations
+module sotlas::tests::contracts::narrow_div_zero_u8r;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+fn calculate(a:u8,b:u8)->u8{return a%b;}
+pub fn main_entry()->u32{let result:u8=calculate(42,0);return result as u32;}

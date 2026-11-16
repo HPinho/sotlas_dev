@@ -1,0 +1,51 @@
+// Migrated contract: NativeJsonTests.test_top_level_values_numbers_and_json_whitespace
+module sotlas::tests::contracts::json_values;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let v0_bytes:[u8;1]=[48];
+let v0:NativeByteSlice=native_text_open(unsafe{v0_bytes as *const u8},1);
+if native_json_parse(v0).status!=0{return 1;}
+let v1_bytes:[u8;2]=[45,48];
+let v1:NativeByteSlice=native_text_open(unsafe{v1_bytes as *const u8},2);
+if native_json_parse(v1).status!=0{return 1;}
+let v2_bytes:[u8;4]=[49,46,50,53];
+let v2:NativeByteSlice=native_text_open(unsafe{v2_bytes as *const u8},4);
+if native_json_parse(v2).status!=0{return 1;}
+let v3_bytes:[u8;9]=[45,49,48,46,53,101,43,49,50];
+let v3:NativeByteSlice=native_text_open(unsafe{v3_bytes as *const u8},9);
+if native_json_parse(v3).status!=0{return 1;}
+let v4_bytes:[u8;4]=[57,69,45,51];
+let v4:NativeByteSlice=native_text_open(unsafe{v4_bytes as *const u8},4);
+if native_json_parse(v4).status!=0{return 1;}
+let v5_bytes:[u8;8]=[49,101,57,57,57,57,57,57];
+let v5:NativeByteSlice=native_text_open(unsafe{v5_bytes as *const u8},8);
+if native_json_parse(v5).status!=0{return 1;}
+let v6_bytes:[u8;4]=[116,114,117,101];
+let v6:NativeByteSlice=native_text_open(unsafe{v6_bytes as *const u8},4);
+if native_json_parse(v6).status!=0{return 1;}
+let v7_bytes:[u8;5]=[102,97,108,115,101];
+let v7:NativeByteSlice=native_text_open(unsafe{v7_bytes as *const u8},5);
+if native_json_parse(v7).status!=0{return 1;}
+let v8_bytes:[u8;4]=[110,117,108,108];
+let v8:NativeByteSlice=native_text_open(unsafe{v8_bytes as *const u8},4);
+if native_json_parse(v8).status!=0{return 1;}
+let v9_bytes:[u8;2]=[91,93];
+let v9:NativeByteSlice=native_text_open(unsafe{v9_bytes as *const u8},2);
+if native_json_parse(v9).status!=0{return 1;}
+let v10_bytes:[u8;2]=[123,125];
+let v10:NativeByteSlice=native_text_open(unsafe{v10_bytes as *const u8},2);
+if native_json_parse(v10).status!=0{return 1;}
+let v11_bytes:[u8;2]=[34,34];
+let v11:NativeByteSlice=native_text_open(unsafe{v11_bytes as *const u8},2);
+if native_json_parse(v11).status!=0{return 1;}
+let v12_bytes:[u8;21]=[32,32,9,13,10,91,49,44,32,123,34,120,34,58,32,91,93,125,93,32,10];
+let v12:NativeByteSlice=native_text_open(unsafe{v12_bytes as *const u8},21);
+if native_json_parse(v12).status!=0{return 1;}
+return 0;
+}

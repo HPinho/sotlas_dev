@@ -1,0 +1,23 @@
+// Migrated contract: NativeJsonExchangeTests.test_copy_capacity_failure_does_not_append_separator_or_consume_slot
+module sotlas::tests::contracts::json_copy_capacity;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;8]=[77;8];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,8);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;7]=[91,50,48,44,50,50,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},7);
+
+let root:NativeJsonResult=native_json_parse(input);
+if native_json_writer_array(w)!=0 || native_json_writer_u32(w,1)!=0{return 1;}
+if native_json_writer_value(w,root.value)!=6 || writer.buffer.length!=2 || writer.frames[0]!=2
+|| bytes[2]!=77 || bytes[3]!=77{return 2;}
+if native_json_writer_end_array(w)!=0 || !native_json_writer_view(w).valid{return 3;}return 0;
+}

@@ -1,0 +1,31 @@
+// Migrated contract: NativeJsonExchangeTests.test_object_iteration_preserves_duplicates_order_and_decoded_keys
+module sotlas::tests::contracts::json_iter_object;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;54]=[123,32,34,97,34,58,91,49,44,50,93,44,32,34,97,34,58,110,117,108,108,44,32,34,92,117,48,48,101,57,34,58,123,34,120,34,58,116,114,117,101,125,44,32,34,34,58,102,97,108,115,101,32,125];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},54);
+
+let parsed:NativeJsonResult=native_json_parse(input);let mut cursor:NativeJsonIter=native_json_iter(parsed.value);
+let kinds:[u32;4]=[2,7,1,6];let mut count:u32=0;
+while true{let item:NativeJsonItem=native_json_next(cursor);
+if item.status!=0{return 1;}if item.done{cursor=item.next;break;}
+if count>=4 || !item.key.valid || item.value.kind!=kinds[count]{return 2;}
+let mut key:[u8;8]=0;let copied:NativeJsonStringResult=native_json_string_copy(item.key,unsafe{key as *mut u8},8);
+if copied.status!=0{return 3;}
+if count<2 && (copied.length!=1 || key[0]!=97){return 4;}
+if count==2 && (copied.length!=2 || key[0]!=195 || key[1]!=169){return 5;}
+if count==3 && copied.length!=0{return 6;}
+cursor=item.next;count+=1;}
+let again:NativeJsonItem=native_json_next(cursor);
+if count!=4 || again.status!=0 || !again.done || again.value.valid{return 7;}return 0;
+}
