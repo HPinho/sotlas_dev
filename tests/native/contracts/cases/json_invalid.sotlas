@@ -1,0 +1,90 @@
+// Migrated contract: NativeJsonTests.test_syntax_rejections_and_original_byte_offsets
+module sotlas::tests::contracts::json_invalid;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let v0:NativeByteSlice=native_text_open(null,0);
+if native_json_parse(v0).status==0{return 1;}
+let v1_bytes:[u8;1]=[32];
+let v1:NativeByteSlice=native_text_open(unsafe{v1_bytes as *const u8},1);
+if native_json_parse(v1).status==0{return 1;}
+let v2_bytes:[u8;2]=[43,49];
+let v2:NativeByteSlice=native_text_open(unsafe{v2_bytes as *const u8},2);
+if native_json_parse(v2).status==0{return 1;}
+let v3_bytes:[u8;2]=[48,49];
+let v3:NativeByteSlice=native_text_open(unsafe{v3_bytes as *const u8},2);
+if native_json_parse(v3).status==0{return 1;}
+let v4_bytes:[u8;3]=[45,48,49];
+let v4:NativeByteSlice=native_text_open(unsafe{v4_bytes as *const u8},3);
+if native_json_parse(v4).status==0{return 1;}
+let v5_bytes:[u8;1]=[45];
+let v5:NativeByteSlice=native_text_open(unsafe{v5_bytes as *const u8},1);
+if native_json_parse(v5).status==0{return 1;}
+let v6_bytes:[u8;2]=[49,46];
+let v6:NativeByteSlice=native_text_open(unsafe{v6_bytes as *const u8},2);
+if native_json_parse(v6).status==0{return 1;}
+let v7_bytes:[u8;2]=[49,101];
+let v7:NativeByteSlice=native_text_open(unsafe{v7_bytes as *const u8},2);
+if native_json_parse(v7).status==0{return 1;}
+let v8_bytes:[u8;3]=[49,101,43];
+let v8:NativeByteSlice=native_text_open(unsafe{v8_bytes as *const u8},3);
+if native_json_parse(v8).status==0{return 1;}
+let v9_bytes:[u8;2]=[46,49];
+let v9:NativeByteSlice=native_text_open(unsafe{v9_bytes as *const u8},2);
+if native_json_parse(v9).status==0{return 1;}
+let v10_bytes:[u8;3]=[78,97,78];
+let v10:NativeByteSlice=native_text_open(unsafe{v10_bytes as *const u8},3);
+if native_json_parse(v10).status==0{return 1;}
+let v11_bytes:[u8;8]=[73,110,102,105,110,105,116,121];
+let v11:NativeByteSlice=native_text_open(unsafe{v11_bytes as *const u8},8);
+if native_json_parse(v11).status==0{return 1;}
+let v12_bytes:[u8;4]=[91,49,44,93];
+let v12:NativeByteSlice=native_text_open(unsafe{v12_bytes as *const u8},4);
+if native_json_parse(v12).status==0{return 1;}
+let v13_bytes:[u8;8]=[123,34,97,34,58,49,44,125];
+let v13:NativeByteSlice=native_text_open(unsafe{v13_bytes as *const u8},8);
+if native_json_parse(v13).status==0{return 1;}
+let v14_bytes:[u8;7]=[123,34,97,34,32,49,125];
+let v14:NativeByteSlice=native_text_open(unsafe{v14_bytes as *const u8},7);
+if native_json_parse(v14).status==0{return 1;}
+let v15_bytes:[u8;5]=[123,97,58,49,125];
+let v15:NativeByteSlice=native_text_open(unsafe{v15_bytes as *const u8},5);
+if native_json_parse(v15).status==0{return 1;}
+let v16_bytes:[u8;5]=[91,49,32,50,93];
+let v16:NativeByteSlice=native_text_open(unsafe{v16_bytes as *const u8},5);
+if native_json_parse(v16).status==0{return 1;}
+let v17_bytes:[u8;6]=[123,34,97,34,58,125];
+let v17:NativeByteSlice=native_text_open(unsafe{v17_bytes as *const u8},6);
+if native_json_parse(v17).status==0{return 1;}
+let v18_bytes:[u8;10]=[116,114,117,101,32,102,97,108,115,101];
+let v18:NativeByteSlice=native_text_open(unsafe{v18_bytes as *const u8},10);
+if native_json_parse(v18).status==0{return 1;}
+let v19_bytes:[u8;4]=[84,82,85,69];
+let v19:NativeByteSlice=native_text_open(unsafe{v19_bytes as *const u8},4);
+if native_json_parse(v19).status==0{return 1;}
+let v20_bytes:[u8;5]=[110,117,108,108,120];
+let v20:NativeByteSlice=native_text_open(unsafe{v20_bytes as *const u8},5);
+if native_json_parse(v20).status==0{return 1;}
+let v21_bytes:[u8;2]=[91,125];
+let v21:NativeByteSlice=native_text_open(unsafe{v21_bytes as *const u8},2);
+if native_json_parse(v21).status==0{return 1;}
+let v22_bytes:[u8;13]=[34,117,110,116,101,114,109,105,110,97,116,101,100];
+let v22:NativeByteSlice=native_text_open(unsafe{v22_bytes as *const u8},13);
+if native_json_parse(v22).status==0{return 1;}
+let v23_bytes:[u8;5]=[239,187,191,123,125];
+let v23:NativeByteSlice=native_text_open(unsafe{v23_bytes as *const u8},5);
+if native_json_parse(v23).status==0{return 1;}
+let v24_bytes:[u8;2]=[11,48];
+let v24:NativeByteSlice=native_text_open(unsafe{v24_bytes as *const u8},2);
+if native_json_parse(v24).status==0{return 1;}
+let offset_bytes:[u8;12]=[32,123,34,97,34,58,32,91,49,44,93,125];
+let offset:NativeByteSlice=native_text_open(unsafe{offset_bytes as *const u8},12);
+
+let result:NativeJsonResult=native_json_parse(offset);
+if result.status!=2 || result.offset!=10 || result.found || result.value.valid{return 2;}return 0;
+}

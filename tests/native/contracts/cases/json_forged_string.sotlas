@@ -1,0 +1,18 @@
+// Migrated contract: NativeJsonTests.test_forged_string_span_cannot_include_leading_whitespace
+module sotlas::tests::contracts::json_forged_string;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;4]=[32,34,120,34];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},4);
+
+let forged:NativeJsonValue=NativeJsonValue{source:input,start:0,end:4,kind:3,valid:true};
+let mut out:[u8;4]=[77;4];
+if native_json_raw(forged).valid || native_json_string_copy(forged,unsafe{out as *mut u8},4).status!=1
+|| out[0]!=77 || out[3]!=77{return 1;}return 0;
+}

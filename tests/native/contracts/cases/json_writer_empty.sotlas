@@ -1,0 +1,20 @@
+// Migrated contract: NativeJsonWriterTests.test_empty_storage_reset_and_invalid_control
+module sotlas::tests::contracts::json_writer_empty;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;1]=[77;1];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,0);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+
+if native_json_writer_null(w)!=6 || native_json_writer_object(w)!=6 || writer.root
+|| writer.buffer.length!=0 || bytes[0]!=77{return 1;}
+if native_json_writer_reset(w)!=0 || native_json_writer_view(w).valid{return 2;}
+if native_json_writer_null(null)!=1 || native_json_writer_reset(null)!=1{return 3;}return 0;
+}

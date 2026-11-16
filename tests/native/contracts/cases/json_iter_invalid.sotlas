@@ -1,0 +1,29 @@
+// Migrated contract: NativeJsonExchangeTests.test_cursor_rejects_interior_positions_wrong_kinds_and_false_done
+module sotlas::tests::contracts::json_iter_invalid;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;18]=[91,32,91,50,48,44,50,50,93,44,32,34,120,44,121,34,32,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},18);
+
+let parsed:NativeJsonResult=native_json_parse(input);let cursor:NativeJsonIter=native_json_iter(parsed.value);
+let interior:NativeJsonIter=NativeJsonIter{owner:parsed.value,position:4,valid:true,done:false};
+if native_json_next(interior).status!=1{return 1;}
+let premature:NativeJsonIter=NativeJsonIter{owner:parsed.value,position:cursor.position,valid:true,done:true};
+if native_json_next(premature).status!=1{return 2;}
+let outside:NativeJsonIter=NativeJsonIter{owner:parsed.value,position:parsed.value.end,valid:true,done:false};
+if native_json_next(outside).status!=1{return 3;}
+let scalar:NativeJsonValue=native_json_array_at(parsed.value,1).value;
+if native_json_iter(scalar).valid || native_json_next(native_json_iter(scalar)).status!=1{return 4;}
+let first:NativeJsonItem=native_json_next(cursor);
+if first.status!=0 || first.value.kind!=2{return 5;}return 0;
+}

@@ -24,7 +24,7 @@ Closing evidence: all 31 reader/writer/exchange tests passed through native
 Linux and Windows compilers. The focused JSON/map regression passed 51 tests,
 and 35 contract/documentation checks passed. The original-source application
 passed checking, native execution and ELF/PE/Mach-O emission on both hosts.
-`tests/test_sotlas_native_json_exchange.py` adds the traversal, re-emission,
+`tests/native/contracts/manifest.txt` includes the traversal, re-emission,
 combined-depth, cursor-membership and failure-preservation closure cases.
 
 `runtime/native/json.sotlas` reads JSON using the Sotlas-written compiler and
@@ -210,14 +210,14 @@ It exits with 42 and checks that its backing pool closes without live slots.
 Its staged runtime includes `json.sotlas` and `json_writer.sotlas`; the existing native platform gate
 checks imports, object emission, executable builds and ELF/PE/Mach-O linking.
 
-`tests/test_sotlas_native_json.py` covers nested navigation, missing/null values,
+The native `json_*` cases in `tests/native/contracts/cases/` cover nested navigation, missing/null values,
 top-level values, number syntax, original error offsets, duplicate/escaped names,
 UTF-8 and surrogate handling, capacity/overlap atomicity, nesting boundaries,
-wide arrays and forged descriptors. Python JSON is only a test oracle for decoded
-string bytes; production parsing and decoding are entirely Sotlas.
+wide arrays and forged descriptors. Inputs and expected decoded bytes are now
+stored directly in Sotlas tests; no Python JSON oracle runs in the native gate.
 Platform CI for this delivery is pending.
 
-`tests/test_sotlas_native_json_writer.py` executes nested construction/readback,
+The native `json_writer_*` cases execute nested construction/readback,
 Unicode/control-byte escaping, exact capacities, grammar-state rejection,
 failure preservation, duplicate keys, reset/reuse, backing/control alias checks
 and the 64-level boundary. All 11 writer tests and the imported configuration

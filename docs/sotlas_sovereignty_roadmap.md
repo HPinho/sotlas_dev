@@ -7,6 +7,13 @@ has limits; it is not full parity with the hosted compiler.
 
 ## Evidence and current delivery
 
+**[Sotlas-written test migration](../tests/native/contracts/README.md):** 50
+checked-in `.sotlas` programs replace four Python test modules for JSON and
+byte/word division. A native Actions matrix runs check/build/execution and
+publishes reports without Python in the test job. It starts after native seed
+production, independently of the reference Python matrix. Bootstrap seed
+production still uses Stage 0; this is not full toolchain independence.
+
 [Unsigned byte/word division](native_narrow_division.md) closes native `u8`/`u16`
 `/` and `%`, including expression casts and compound places. The JSON writer
 uses narrow hexadecimal arithmetic, and the kernel foundation executes it in

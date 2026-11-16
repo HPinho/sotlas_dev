@@ -1,0 +1,17 @@
+// Migrated contract: NativeNarrowDivisionTests.test_nested_arithmetic_casts_calls_and_conditional_values
+module sotlas::tests::contracts::narrow_div_expressions;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+fn byte()->u8{return 255;}
+fn word()->u16{return 65535;}
+pub fn main_entry()->u32{let b:u8=byte();let w:u16=word();
+let high:usize=(b/16) as usize;let low:usize=(b%16) as usize;
+let quotient:f32=(w/256) as f32;let remainder:f64=(w%256) as f64;
+let selected:u8=if high==15{byte()/17}else{byte()%2};
+if high!=15 || low!=15 || quotient!=255.0 || remainder!=255.0 || selected!=15{return 1;}
+let wrapped:u8=(b+1)/2;if wrapped!=0{return 2;}return 0;}

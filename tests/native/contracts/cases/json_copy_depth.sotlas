@@ -1,0 +1,27 @@
+// Migrated contract: NativeJsonExchangeTests.test_combined_depth_is_checked_before_copy
+module sotlas::tests::contracts::json_copy_depth;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;132]=[91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,91,110,117,108,108,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},132);
+
+let parsed:NativeJsonResult=native_json_parse(input);if parsed.status!=0{return 1;}
+if native_json_writer_array(w)!=0{return 2;}
+if native_json_writer_value(w,parsed.value)!=5 || writer.buffer.length!=1 || writer.frames[0]!=1 || bytes[1]!=77{return 3;}
+if native_json_writer_null(w)!=0 || native_json_writer_end_array(w)!=0{return 4;}
+if native_json_writer_reset(w)!=0 || native_json_writer_value(w,parsed.value)!=0
+|| !native_json_writer_view(w).valid{return 5;}
+let inner:NativeJsonValue=native_json_array_at(parsed.value,0).value;
+if native_json_writer_reset(w)!=0 || native_json_writer_array(w)!=0 || native_json_writer_value(w,inner)!=0
+|| native_json_writer_end_array(w)!=0 || !native_json_writer_view(w).valid{return 6;}return 0;
+}

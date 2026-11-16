@@ -1,0 +1,22 @@
+// Migrated contract: NativeJsonTests.test_raw_utf8_keys_escaped_keys_and_first_duplicate
+module sotlas::tests::contracts::json_keys;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;50]=[123,34,99,97,102,92,117,48,48,101,57,34,58,50,48,44,34,99,97,102,195,169,34,58,57,57,44,34,92,117,68,56,51,68,92,117,68,69,52,50,34,58,50,50,44,34,34,58,48,125];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},50);
+let key_bytes:[u8;5]=[99,97,102,195,169];
+let key:NativeByteSlice=native_text_open(unsafe{key_bytes as *const u8},5);
+let face_bytes:[u8;4]=[240,159,153,130];
+let face:NativeByteSlice=native_text_open(unsafe{face_bytes as *const u8},4);
+
+let root:NativeJsonResult=native_json_parse(input);if root.status!=0{return 1;}
+let a:NativeJsonResult=native_json_object_get(root.value,key);let b:NativeJsonResult=native_json_object_get(root.value,face);
+if !a.found || !b.found || native_json_u32(a.value).value!=20 || native_json_u32(b.value).value!=22{return 2;}
+if !native_json_object_get(root.value,native_text_open(null,0)).found{return 3;}return 0;
+}

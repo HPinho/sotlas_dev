@@ -1,0 +1,27 @@
+// Migrated contract: NativeJsonExchangeTests.test_array_iteration_covers_every_value_kind_and_nested_values
+module sotlas::tests::contracts::json_iter_array;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;41]=[91,123,125,44,91,93,44,34,120,34,44,49,101,57,57,57,44,116,114,117,101,44,102,97,108,115,101,44,110,117,108,108,44,91,50,48,44,50,50,93,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},41);
+
+let root:NativeJsonResult=native_json_parse(input);let mut cursor:NativeJsonIter=native_json_iter(root.value);
+let kinds:[u32;8]=[1,2,3,4,5,6,7,2];let mut count:u32=0;
+while true{let item:NativeJsonItem=native_json_next(cursor);if item.status!=0{return 1;}if item.done{break;}
+if count>=8 || item.key.valid || item.value.kind!=kinds[count]{return 2;}
+if count==7{let mut nested:NativeJsonIter=native_json_iter(item.value);let mut sum:u32=0;
+while true{let child:NativeJsonItem=native_json_next(nested);if child.status!=0{return 3;}if child.done{break;}
+sum+=native_json_u32(child.value).value;nested=child.next;}
+if sum!=42{return 4;}}
+cursor=item.next;count+=1;}if count!=8{return 5;}return 0;
+}

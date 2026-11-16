@@ -1,0 +1,24 @@
+// Migrated contract: NativeJsonWriterTests.test_corrupt_control_and_backing_alias_are_rejected_without_writes
+module sotlas::tests::contracts::json_writer_corrupt;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+
+writer.depth=65;
+if native_json_writer_null(w)!=1 || native_json_writer_view(w).valid || bytes[0]!=77{return 1;}
+writer.depth=0;writer.buffer.length=257;
+if native_json_writer_array(w)!=1 || bytes[0]!=77{return 2;}
+writer.buffer.length=0;
+let address:usize=unsafe{w as usize};let control:*mut u8=unsafe{address as *mut u8};
+writer.buffer.data=control;writer.buffer.capacity=span_of::<NativeJsonWriter>();
+if native_json_writer_null(w)!=1 || native_json_writer_reset(w)!=1{return 3;}return 0;
+}

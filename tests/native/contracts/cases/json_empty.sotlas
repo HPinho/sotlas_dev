@@ -1,0 +1,23 @@
+// Migrated contract: NativeJsonTests.test_empty_string_and_empty_collections_have_distinct_missing_results
+module sotlas::tests::contracts::json_empty;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;10]=[91,34,34,44,123,125,44,91,93,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},10);
+
+let root:NativeJsonResult=native_json_parse(input);
+let empty:NativeJsonResult=native_json_array_at(root.value,0);
+let copied:NativeJsonStringResult=native_json_string_copy(empty.value,null,0);
+if !empty.found || copied.status!=0 || copied.length!=0{return 1;}
+let object:NativeJsonResult=native_json_array_at(root.value,1);
+let array:NativeJsonResult=native_json_array_at(root.value,2);
+let key:NativeJsonResult=native_json_object_get(object.value,native_text_open(null,0));
+let item:NativeJsonResult=native_json_array_at(array.value,18446744073709551615);
+if key.status!=0 || key.found || item.status!=0 || item.found{return 2;}return 0;
+}

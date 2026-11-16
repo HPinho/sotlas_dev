@@ -1,0 +1,12 @@
+// Migrated contract: NativeNarrowDivisionTests.test_module_constants_keep_the_declared_byte_and_word_types
+module sotlas::tests::contracts::narrow_div_constants;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+const HIGH:u8=255/16;const LOW:u16=65535%4096;
+pub fn main_entry()->u32{let byte:u8=HIGH;let word:u16=LOW;
+if byte!=15 || word!=4095{return 1;}return 0;}

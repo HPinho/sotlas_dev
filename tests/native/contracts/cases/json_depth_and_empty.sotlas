@@ -1,0 +1,25 @@
+// Migrated contract: NativeJsonExchangeTests.test_empty_container_iteration_and_depth_ignores_escaped_delimiters
+module sotlas::tests::contracts::json_depth_and_empty;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let input_bytes:[u8;32]=[91,123,125,44,91,93,44,34,91,123,125,93,92,34,34,44,32,123,34,120,34,58,91,91,110,117,108,108,93,93,125,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},32);
+
+let root:NativeJsonResult=native_json_parse(input);if root.status!=0 || native_json_depth(root.value).value!=4{return 1;}
+let object:NativeJsonValue=native_json_array_at(root.value,0).value;
+let array:NativeJsonValue=native_json_array_at(root.value,1).value;
+let a:NativeJsonItem=native_json_next(native_json_iter(object));let b:NativeJsonItem=native_json_next(native_json_iter(array));
+if a.status!=0 || !a.done || b.status!=0 || !b.done{return 2;}
+let string:NativeJsonValue=native_json_array_at(root.value,2).value;
+if native_json_depth(string).value!=0{return 3;}return 0;
+}

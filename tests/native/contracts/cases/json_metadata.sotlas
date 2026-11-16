@@ -1,0 +1,22 @@
+// Migrated contract: NativeJsonTests.test_invalid_descriptors_and_wrong_value_types
+module sotlas::tests::contracts::json_metadata;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;2]=[52,50];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},2);
+
+if native_json_parse(native_text_open(null,1)).status!=1{return 1;}
+let root:NativeJsonResult=native_json_parse(input);
+if native_json_array_at(root.value,0).status!=4
+|| native_json_object_get(root.value,native_text_open("x",1)).status!=4{return 2;}
+let forged:NativeJsonValue=NativeJsonValue{source:input,start:0,end:3,kind:4,valid:true};
+if native_json_raw(forged).valid || native_json_u32(forged).status==0{return 3;}
+let mut out:[u8;2]=[77;2];
+if native_json_string_copy(root.value,unsafe{out as *mut u8},2).status!=4 || out[0]!=77{return 4;}return 0;
+}

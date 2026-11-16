@@ -382,28 +382,28 @@
       "document": "docs/native_json.md",
       "status": "EXPERIMENTAL",
       "source": "examples/native_config_map/main.sotlas",
-      "verification": "tests/test_sotlas_native_json_exchange.py; tests/native_numeric_gate.py::verify_config_map; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+      "verification": "tests/native/contracts/manifest.txt::json_iter_array; scripts/test_native.sh; scripts/test_native.ps1; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
       "id": "native-narrow-division",
       "document": "docs/native_narrow_division.md",
       "status": "EXPERIMENTAL",
       "source": "examples/native_kernel_foundation/main.sotlas",
-      "verification": "tests/test_sotlas_native_narrow_division.py; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+      "verification": "tests/native/contracts/manifest.txt::narrow_div_u8_exhaustive; scripts/test_native.sh; scripts/test_native.ps1; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
       "id": "native-json-writer",
       "document": "docs/native_json.md",
       "status": "EXPERIMENTAL",
       "source": "examples/native_config_map/main.sotlas",
-      "verification": "tests/test_sotlas_native_json_writer.py; tests/native_numeric_gate.py::verify_config_map; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+      "verification": "tests/native/contracts/manifest.txt::json_writer_nested; scripts/test_native.sh; scripts/test_native.ps1; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
       "id": "native-json",
       "document": "docs/native_json.md",
       "status": "EXPERIMENTAL",
       "source": "examples/native_config_map/main.sotlas",
-      "verification": "tests/test_sotlas_native_json.py; tests/native_numeric_gate.py::verify_config_map; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
+      "verification": "tests/native/contracts/manifest.txt::json_nested; scripts/test_native.sh; scripts/test_native.ps1; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
       "id": "native-numeric-projection",

@@ -1,0 +1,22 @@
+// Migrated contract: NativeJsonWriterTests.test_depth_limit_is_recoverable_and_reader_accepts_boundary
+module sotlas::tests::contracts::json_writer_depth;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let mut bytes:[u8;256]=[77;256];
+let data:*mut u8=unsafe{bytes as *mut u8};
+let mut writer:NativeJsonWriter=native_json_writer_open(data,256);
+let w:*mut NativeJsonWriter=unsafe{(&mut writer) as *mut NativeJsonWriter};
+let mut i:usize=0;
+while i<64{if native_json_writer_array(w)!=0{return 1;}i+=1;}
+if native_json_writer_array(w)!=5 || writer.buffer.length!=64 || writer.depth!=64{return 2;}
+if native_json_writer_null(w)!=0{return 3;}
+while i!=0{if native_json_writer_end_array(w)!=0{return 4;}i-=1;}
+let view:NativeByteSlice=native_json_writer_view(w);
+if !view.valid || view.length!=132 || native_json_parse(view).status!=0{return 5;}return 0;
+}

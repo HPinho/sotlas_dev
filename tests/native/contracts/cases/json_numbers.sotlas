@@ -1,0 +1,21 @@
+// Migrated contract: NativeJsonTests.test_raw_number_preserves_precision_and_u32_is_strict
+module sotlas::tests::contracts::json_numbers;
+import sotlas::runtime::text::*;
+import sotlas::runtime::unicode::*;
+import sotlas::runtime::results::*;
+import sotlas::runtime::utf8_buffer::*;
+import sotlas::runtime::json::*;
+import sotlas::runtime::json_writer::*;
+
+pub fn main_entry()->u32{
+let input_bytes:[u8;65]=[91,52,50,57,52,57,54,55,50,57,53,44,52,50,57,52,57,54,55,50,57,54,44,45,49,44,49,46,53,44,49,101,50,44,49,50,51,52,53,54,55,56,57,48,49,50,51,52,53,54,55,56,57,48,49,50,51,52,53,54,55,56,57,48,93];
+let input:NativeByteSlice=native_text_open(unsafe{input_bytes as *const u8},65);
+
+let root:NativeJsonResult=native_json_parse(input);if root.status!=0{return 1;}
+if native_json_u32(native_json_array_at(root.value,0).value).value!=4294967295{return 2;}
+let overflow:NativeU32Result=native_json_u32(native_json_array_at(root.value,1).value);
+if overflow.status!=4 || overflow.error.offset!=21{return 3;}
+let mut i:usize=2;while i<5{if native_json_u32(native_json_array_at(root.value,i).value).status==0{return 4;}i+=1;}
+let raw:NativeByteSlice=native_json_raw(native_json_array_at(root.value,5).value);
+if !raw.valid || raw.length!=30 || unsafe{*(raw.data)}!=49{return 5;}return 0;
+}
