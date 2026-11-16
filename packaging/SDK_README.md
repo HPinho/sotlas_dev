@@ -2,7 +2,9 @@
 
 This preview contains a native x86-64 compiler, its original Sotlas sources,
 native runtime modules, a terminal calculator, a JSON configuration application,
-and 50 executable/rejection/fault contract tests written in Sotlas.
+a Windows graphical calculator and 53 executable/rejection/fault contract tests
+written in Sotlas. UI model and Unicode tests run on every CLI target; Windows
+also runs hidden-window rendering/cleanup tests and builds the GUI executable.
 
 The compiler builds and links the bundled examples and rebuilds itself after
 receiving this seed. These operations do not invoke Python, a C compiler or an
@@ -46,6 +48,9 @@ Stage 2 and Stage 3 and requires byte identity. Reports are in the output
 directory; the contract runner also writes JUnit. The calculator executable is
 `calculator` (`calculator.exe` on Windows). Enter one expression per line;
 EOF ends the session. `configuration` exits with code 42 on success.
+On Windows, launch `ui-main.exe` from the verification output for the graphical
+calculator. It uses Windows desktop drawing services and a fixed layout; see
+`examples/graphical_calculator/README.md` and `docs/native_ui_snapshots.md`.
 
 ## Compile a project
 
@@ -67,8 +72,8 @@ contract and `docs/native_json.md` for JSON limits.
 
 ## Scope and updates
 
-This is a terminal SDK candidate, not GUI/kernel/accelerator release
-certification. Automatic ARC, general generics, package-manager parity and full
+This is a native SDK candidate with a bounded Windows GUI example, not complete
+GUI/kernel/accelerator release certification. Automatic ARC, general generics, package-manager parity and full
 frontend parity are separate work. Follow the support evidence attached to the
 candidate. Install updates beside the old SDK in a fresh directory; select the
 new compiler path after verification. Rollback means selecting the previous

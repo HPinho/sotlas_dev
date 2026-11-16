@@ -8,13 +8,16 @@ case "$(uname -s):$(uname -m)" in
     *) echo 'Unsupported SDK host.' >&2; exit 2 ;;
 esac
 [[ ! -e "$1" ]] || { echo 'Choose a fresh verification output directory.' >&2; exit 2; }
-mkdir -p "$1/src/sotlas/runtime" "$1/src/calculator" "$1/src/configuration"
+mkdir -p "$1/src/sotlas/runtime" "$1/src/calculator" "$1/src/configuration" "$1/src/calculator_app"
 output="$(cd "$1" && pwd)"
 cp "$sdk"/runtime/native/*.sotlas "$output/src/sotlas/runtime/"
 cp "$sdk/examples/calculator/src/calculator/main.sotlas" "$output/src/calculator/"
 cp "$sdk/examples/calculator/platform/$platform.sotlas" "$output/src/calculator/platform.sotlas"
 cp "$sdk/examples/native_config_map/main.sotlas" "$output/src/configuration/main.sotlas"
 cp "$sdk/tests/native/calculator/model.sotlas" "$output/src/calculator_model.sotlas"
+cp "$sdk"/examples/graphical_calculator/src/calculator_app/*.sotlas "$output/src/calculator_app/"
+cp "$sdk/tests/native/ui/model.sotlas" "$output/src/calculator_app/tests.sotlas"
+cp "$sdk/tests/native/ui/unicode.sotlas" "$output/src/calculator_app/unicode_tests.sotlas"
 environment="$(command -v env)"
 native() { "$environment" -i PATH="$output/no-host-tools" "$@"; }
 compiler="$sdk/bin/sotlas-native"
@@ -41,10 +44,19 @@ for program in configuration model; do
     set -e
     [[ $status -eq 42 ]] || { echo "$program returned $status; expected 42." >&2; exit 1; }
 done
+for name in tests unicode_tests; do
+    native "$compiler" --check-build "$output/src" "$output/src/calculator_app/$name.sotlas"
+    native "$compiler" "$build" "$output/ui-$name" "$output/src" "$output/src/calculator_app/$name.sotlas"
+    set +e
+    native "$output/ui-$name"
+    status=$?
+    set -e
+    [[ $status -eq 42 ]] || { echo "UI $name returned $status; expected 42." >&2; exit 1; }
+done
 bash "$sdk/scripts/test_native.sh" "$compiler" "$output/contracts"
 if [[ "${2:-}" == --rebuild ]]; then
     bash "$sdk/scripts/build_native.sh" "$compiler" "$output/rebuild"
 fi
-printf '# Installed native SDK verification\n\nCalculator, error recovery, JSON configuration, model and 50 Sotlas contracts passed.\n' > "$output/summary.md"
+printf '# Installed native SDK verification\n\nCalculator, error recovery, JSON configuration, UI model/Unicode and installed Sotlas contracts passed.\n' > "$output/summary.md"
 if [[ "${2:-}" == --rebuild ]]; then printf '\nOriginal compiler sources rebuilt with Stage 2/3 byte identity.\n' >> "$output/summary.md"; fi
 echo "Installed SDK verified: $output"

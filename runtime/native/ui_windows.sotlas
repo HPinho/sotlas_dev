@@ -4,7 +4,7 @@ import sotlas::runtime::window_windows::*;
 import sotlas::runtime::unicode::*;
 
 pub fn ui_windows_paint(view:*const UiView) -> bool {
-    if view == null { return false; }
+    if !ui_view_valid(view) { return false; }
     let current:UiView=unsafe { *view };
     if current.error != 0 || current.items == null || current.count > current.capacity || current.capacity > 64 { return false; }
     if !native_window_begin() { return false; }

@@ -11,6 +11,8 @@
 
 [Native terminal SDK: install, run examples and self-rebuild](packaging/SDK_README.md)
 
+[Validated UI scenes and independent label storage](docs/native_ui_snapshots.md)
+
 [Native configuration collection](examples/native_config_map/README.md)
 
 [Typed native record storage](examples/native_record_storage/README.md)

@@ -21,12 +21,15 @@ foreach ($name in @('token','ast','lexer','parser','sema','backend/target_ir','b
 foreach ($name in @('linux','windows','darwin')) {Copy-Sdk "bootstrap/sotlas/native_driver/$name.sotlas"}
 foreach ($name in @('build_native.sh','build_native.ps1','test_native.sh','test_native.ps1','verify_sdk.sh','verify_sdk.ps1')) {Copy-Sdk "scripts/$name"}
 foreach ($name in @('install-sdk.sh','install-sdk.ps1')) {Copy-Sdk "packaging/$name"}
-foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md')) {Copy-Sdk "docs/$name"}
+foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md','native_ui_snapshots.md')) {Copy-Sdk "docs/$name"}
 Copy-Sdk 'examples/calculator/src/calculator/main.sotlas'
 foreach ($name in @('linux','windows','darwin')) {Copy-Sdk "examples/calculator/platform/$name.sotlas"}
 Copy-Sdk 'examples/native_config.sotlas'
 Copy-Sdk 'examples/native_config_map/main.sotlas';Copy-Sdk 'examples/native_config_map/README.md'
 Copy-Sdk 'tests/native/use_after_move.sotlas';Copy-Sdk 'tests/native/calculator/model.sotlas'
+foreach ($name in @('model','unicode','render')) {Copy-Sdk "tests/native/ui/$name.sotlas"}
+foreach ($name in @('main','model')) {Copy-Sdk "examples/graphical_calculator/src/calculator_app/$name.sotlas"}
+Copy-Sdk 'examples/graphical_calculator/README.md';Copy-Sdk 'examples/graphical_calculator/build.ps1'
 foreach ($file in Get-ChildItem (Join-Path $repository 'tests/native/contracts') -File -Recurse) {
     $relative=$file.FullName.Substring($repository.Length+1).Replace('\','/');Copy-Sdk $relative
 }

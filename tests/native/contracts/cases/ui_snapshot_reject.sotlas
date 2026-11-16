@@ -1,0 +1,46 @@
+module ui_snapshot_reject;
+import sotlas::runtime::ui::*;
+static mut source_items:[UiItem;2]=0;
+static mut target_items:[UiItem;2]=0;
+static mut target_labels:[u8;16]=0;
+pub fn main_entry() -> u32 {
+    let source:*mut UiItem=unsafe { source_items as *mut UiItem };let items:*mut UiItem=unsafe { target_items as *mut UiItem };
+    let labels:*mut u8=unsafe { target_labels as *mut u8 };
+    let source_address:usize=unsafe { source as usize };let item_address:usize=unsafe { items as usize };
+    let source_bytes:*mut u8=unsafe { source_address as *mut u8 };let item_bytes:*mut u8=unsafe { item_address as *mut u8 };
+    let mut draft:UiView=ui_view(source,2,1);let input:*mut UiView=unsafe { (&mut draft) as *mut UiView };
+    let mut result:UiView=ui_view(items,2,0);let output:*mut UiView=unsafe { (&mut result) as *mut UiView };
+    let output_address:usize=unsafe { output as usize };
+    let output_items:*mut UiItem=unsafe { output_address as *mut UiItem };let output_bytes:*mut u8=unsafe { output_address as *mut u8 };
+    let mut second:*mut UiItem=unsafe { source+1 };
+    let mut byte:usize=0;while byte < 16 { unsafe { *(labels+byte)=77; }byte=byte+1; }
+    if !ui_button(input,1,ui_rect(0,0,10,10),"old",3)
+        || !ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,16) { return 1; }
+    if !ui_button(input,2,ui_rect(20,0,10,10),"second",6) { return 2; }
+    if ui_snapshot(unsafe { input as *const UiView },output,items,1,labels,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,8) { return 3; }
+    let overflow:*mut u8=unsafe { 18446744073709551615 as *mut u8 };
+    if ui_snapshot(unsafe { input as *const UiView },output,items,2,overflow,2)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,0,labels,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,2,null,16) { return 10; }
+    // All overlapping destination and source combinations fail before writes.
+    if ui_snapshot(unsafe { input as *const UiView },input,items,2,labels,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,source,2,labels,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,2,source_bytes,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,2,item_bytes,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,output_items,2,labels,16)
+        || ui_snapshot(unsafe { input as *const UiView },output,items,2,output_bytes,16) { return 4; }
+    unsafe { second.label=labels as *const u8;second.length=3; }
+    if ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,16) { return 5; }
+    unsafe { second.label="\0";second.length=1; }
+    if ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,16) { return 6; }
+    unsafe { second.label="second";second.length=6;second.id=1; }
+    if ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,16) { return 7; }
+    let old:UiItem=unsafe { *items };
+    if result.count != 1 || result.focus != 1 || result.error != 0 || old.length != 3 || old.id != 1
+        || target_labels[0] != 111 || target_labels[1] != 108 || target_labels[2] != 100 { return 8; }
+    byte=3;while byte < 16 { if unsafe { *(labels+byte) } != 77 { return 11; }byte=byte+1; }
+    unsafe { second.id=2; }
+    if !ui_snapshot(unsafe { input as *const UiView },output,items,2,labels,9) || result.count != 2 || target_labels[8] != 100 { return 9; }
+    return 0;
+}

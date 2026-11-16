@@ -33,7 +33,11 @@ It is not exact financial decimal arithmetic.
 `runtime/native/ui.sotlas` is independent of the platform renderer. A `UiView`
 borrows caller-owned item storage; item labels borrow stable UTF-8 storage.
 The example model keeps its expression/result buffers stable through painting.
-This is an explicit lifetime precondition, not a new compiler borrow proof.
+The application publishes a [validated snapshot](../../docs/native_ui_snapshots.md)
+into separate item/text storage before painting. Published labels are copied,
+so later model changes cannot silently change the displayed scene. The storage
+itself must remain live: this is an explicit lifetime precondition, not a new
+compiler borrow proof. A failed snapshot preserves all previous scene bytes.
 
 | Component/API | Behavior in this profile |
 |---|---|
@@ -44,6 +48,8 @@ This is an explicit lifetime precondition, not a new compiler borrow proof.
 | `ui_click` | Hit testing with half-open bounds; gaps do not activate controls |
 | `ui_key` | Tab focus cycling; Enter/Space button activation |
 | `ui_windows_paint` | Event-driven Windows drawing and per-item clipping |
+| `ui_view_valid` | Full-scene validation before rendering and input dispatch |
+| `ui_snapshot` | Independent copied label storage; publication rejects invalid input, aliases and insufficient capacity before writes |
 
 The view supports at most 64 items, each with a unique nonzero ID and up to
 128 UTF-8 label bytes. Geometry must fit the 4096-unit coordinate profile.
@@ -80,6 +86,9 @@ Tests: `tests/native/ui/model.sotlas`, `tests/native/ui/unicode.sotlas`,
 `tests/native/ui/render.sotlas` and the
 process adapter `tests/native_ui_gate.py`. UI implementation and tests of its
 semantics are Sotlas; Python only orchestrates processes in the test harness.
+The installed SDK now runs the same model/Unicode/render fixtures directly
+through shell orchestration, without invoking this Python adapter. It also runs
+the three native snapshot contracts and builds `ui-main.exe` on Windows.
 
 ## Remaining scope
 

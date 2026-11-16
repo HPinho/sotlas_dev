@@ -4,6 +4,8 @@ import sotlas::runtime::ui::*;
 import sotlas::runtime::ui_windows::*;
 import sotlas::runtime::window_windows::*;
 static mut render_items:[UiItem;32]=0;
+static mut snapshot_items:[UiItem;32]=0;
+static mut snapshot_labels:[u8;4096]=0;
 
 pub fn main_entry() -> u32 {
     if !native_window_start() { return 1; }
@@ -12,10 +14,15 @@ pub fn main_entry() -> u32 {
     let mut view:UiView=ui_view(unsafe { render_items as *mut UiItem },32,2000);
     let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
     let frame:*const UiView=unsafe { (&view) as *const UiView };
+    let mut published:UiView=ui_view(unsafe { snapshot_items as *mut UiItem },32,2000);
+    let snapshot:*mut UiView=unsafe { (&mut published) as *mut UiView };
+    let stable:*const UiView=unsafe { snapshot as *const UiView };
     calculator_ui_reset();
     let mut iteration:u32=0; let mut gdi:u32=0; let mut windows:u32=0;
     while iteration < 20 {
-        if !calculator_ui_view(scene) || !native_window_invalidate() || !ui_windows_paint(frame) { native_window_stop(); return 3; }
+        if !calculator_ui_view(scene)
+            || !ui_snapshot(frame,snapshot,unsafe { snapshot_items as *mut UiItem },32,unsafe { snapshot_labels as *mut u8 },4096)
+            || !native_window_invalidate() || !ui_windows_paint(stable) { native_window_stop(); return 3; }
         if native_window_text(0,0,unsafe { title as *const u16 },1,0) || native_window_end() { native_window_stop(); return 4; }
         let current:u32=native_window_resource_count(0); let current_user:u32=native_window_resource_count(1);
         if iteration == 1 { gdi=current; windows=current_user; }
@@ -24,6 +31,8 @@ pub fn main_entry() -> u32 {
     }
     // Failed frame input must not leave a paint session or selected font behind.
     view.error=1;
+    if ui_snapshot(frame,snapshot,unsafe { snapshot_items as *mut UiItem },32,unsafe { snapshot_labels as *mut u8 },4096)
+        || !native_window_invalidate() || !ui_windows_paint(stable) { native_window_stop(); return 13; }
     if ui_windows_paint(frame) || native_window_end() { native_window_stop(); return 6; }
     if !calculator_ui_view(scene) { native_window_stop(); return 9; }
     let mut first:*mut UiItem=unsafe { render_items as *mut UiItem };
@@ -37,5 +46,11 @@ pub fn main_entry() -> u32 {
     if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 11; }
     if !native_window_begin() || native_window_begin() { native_window_stop(); return 7; }
     if !native_window_stop() || !native_window_stop() { return 8; }
+    iteration=0;
+    while iteration < 3 {
+        if !native_window_start() || !native_window_create(unsafe { title as *const u16 },416,560,false)
+            || !native_window_invalidate() || !ui_windows_paint(stable) || !native_window_stop() { return 14; }
+        iteration=iteration+1;
+    }
     return 42;
 }
