@@ -52,9 +52,11 @@ foreach ($name in @('tests','unicode_tests','render_tests','main')) {
     Invoke-Sdk $compiler @('--build-win',$image,$source,$entry)
     if ($name -ne 'main') {Invoke-Sdk $image @() 42}
 }
-$LASTEXITCODE=0
+# Native invocation updates the global automatic variable. A local assignment
+# here shadows it in nested build scripts when packaging initialized it first.
+$global:LASTEXITCODE=0
 & (Join-Path $sdk 'scripts/test_native.ps1') $compiler (Join-Path $output 'contracts')
-if ($LASTEXITCODE -ne 0) {throw 'Installed Sotlas contract tests failed.'}
+if ($global:LASTEXITCODE -ne 0) {throw 'Installed Sotlas contract tests failed.'}
 if ($Rebuild) {& (Join-Path $sdk 'scripts/build_native.ps1') $compiler (Join-Path $output 'rebuild')}
 $summary="# Installed native SDK verification`n`nCalculator, error recovery, JSON configuration, UI model/Unicode, Windows rendering/cleanup and installed Sotlas contracts passed. GUI executable: ui-main.exe.`n"
 if ($Rebuild) {$summary+="`nOriginal compiler sources rebuilt with Stage 2/3 byte identity.`n"}

@@ -34,8 +34,11 @@ $program = Join-Path $output 'native-config.exe'
 
 function Invoke-Native([string]$Executable, [string[]]$Arguments, [int]$Expected = 0) {
     & $Executable @Arguments
-    if ($LASTEXITCODE -ne $Expected) {
-        throw "Native command failed: $Executable $Arguments (exit $LASTEXITCODE; expected $Expected)"
+    # The native process updates the global automatic variable; callers can
+    # otherwise shadow it with a script-local status from an earlier operation.
+    $actual = $global:LASTEXITCODE
+    if ($actual -ne $Expected) {
+        throw "Native command failed: $Executable $Arguments (exit $actual; expected $Expected)"
     }
 }
 
@@ -72,3 +75,5 @@ foreach ($artifact in @($seedPath, $stage2, $stage3)) {
     Write-Output "$(Get-NativeHash $artifact)  $artifact"
 }
 Write-Output "Native self-build verified. Compiler: $stage3"
+# Expected rejection tests above return 6. Successful verification returns 0.
+$global:LASTEXITCODE = 0
