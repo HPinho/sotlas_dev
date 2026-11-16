@@ -330,7 +330,7 @@ jobs:
       with:
         name: ${{ matrix.artifact }}
         path: build/native-test-seed
-    - name: Run Sotlas contracts on Linux without Python
+    - name: Prepare native Linux seed
       if: matrix.target == 'linux'
       shell: bash
       run: |
@@ -340,27 +340,64 @@ jobs:
         tar -xzf sotlas-native-linux-x64.tar.gz
         cd ../..
         bash packaging/install-native.sh build/native-test-seed/sotlas-native-linux-x64 build/native-test-seed/installed
-        bash scripts/test_native.sh build/native-test-seed/installed/bin/sotlas-native build/native-test-results
-    - name: Run Sotlas contracts on Windows without Python
-      if: matrix.target == 'windows'
-      shell: pwsh
-      run: |
-        & ./scripts/test_native.ps1 ./build/native-test-seed/sotlas-native.exe ./build/native-test-results
-    - name: Run Sotlas contracts on Intel macOS without Python
+    - name: Prepare native Intel macOS seed
       if: matrix.target == 'macos'
       shell: bash
       run: |
         chmod +x build/native-test-seed/sotlas-native
-        bash scripts/test_native.sh build/native-test-seed/sotlas-native build/native-test-results
+    - name: Package and verify installed terminal SDK on Linux or Intel macOS
+      if: matrix.target != 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        seed=build/native-test-seed/sotlas-native
+        if [[ '${{ matrix.target }}' == linux ]]; then seed=build/native-test-seed/installed/bin/sotlas-native; fi
+        bundle=build/sotlas-sdk-${{ matrix.target }}-x64
+        bash packaging/pack-sdk.sh "$seed" "$bundle"
+        mkdir build/sdk-extracted
+        tar -xzf "$bundle.tar.gz" -C build/sdk-extracted
+        bash packaging/install-sdk.sh "build/sdk-extracted/$(basename "$bundle")" 'build/sdk installed'
+        bash 'build/sdk installed/scripts/verify_sdk.sh' 'build/sdk verification' --rebuild
+        printf '\ncorrupted\n' >> "$bundle/README.md"
+        if bash packaging/install-sdk.sh "$bundle" build/sdk-must-not-exist; then
+          echo 'Installer accepted a corrupted SDK.' >&2; exit 1
+        fi
+        test ! -e build/sdk-must-not-exist
+        cat 'build/sdk verification/summary.md' >> "$GITHUB_STEP_SUMMARY"
+    - name: Package and verify installed terminal SDK on Windows
+      if: matrix.target == 'windows'
+      shell: pwsh
+      run: |
+        & ./packaging/pack-sdk.ps1 ./build/native-test-seed/sotlas-native.exe ./build/sotlas-sdk-windows-x64
+        Expand-Archive ./build/sotlas-sdk-windows-x64.zip ./build/sdk-extracted
+        & ./packaging/install-sdk.ps1 ./build/sdk-extracted './build/sdk installed'
+        & './build/sdk installed/scripts/verify_sdk.ps1' './build/sdk verification' -Rebuild
+        Add-Content ./build/sotlas-sdk-windows-x64/README.md 'corrupted'
+        $rejected = $false
+        try { & ./packaging/install-sdk.ps1 ./build/sotlas-sdk-windows-x64 ./build/sdk-must-not-exist }
+        catch { $rejected = $true }
+        if (!$rejected -or (Test-Path ./build/sdk-must-not-exist)) { throw 'Corrupted SDK was not rejected before installation.' }
+        Get-Content './build/sdk verification/summary.md' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+    - name: Upload terminal SDK candidate
+      uses: actions/upload-artifact@v4
+      with:
+        name: sotlas-terminal-sdk-${{ matrix.target }}-x64
+        path: |
+          build/sotlas-sdk-*.tar.gz
+          build/sotlas-sdk-*.tar.gz.sha256
+          build/sotlas-sdk-*.zip
+          build/sotlas-sdk-*.zip.sha256
+        if-no-files-found: error
     - name: Upload Sotlas test reports
       if: always()
       uses: actions/upload-artifact@v4
       with:
         name: sotlas-tests-${{ matrix.target }}
         path: |
-          build/native-test-results/junit.xml
-          build/native-test-results/summary.md
-          build/native-test-results/logs/
+          build/sdk verification/summary.md
+          build/sdk verification/contracts/junit.xml
+          build/sdk verification/contracts/summary.md
+          build/sdk verification/contracts/logs/
         if-no-files-found: warn
 
   native-macos-execution:

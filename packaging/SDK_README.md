@@ -1,0 +1,78 @@
+# Sotlas native terminal SDK
+
+This preview contains a native x86-64 compiler, its original Sotlas sources,
+native runtime modules, a terminal calculator, a JSON configuration application,
+and 50 executable/rejection/fault contract tests written in Sotlas.
+
+The compiler builds and links the bundled examples and rebuilds itself after
+receiving this seed. These operations do not invoke Python, a C compiler or an
+external linker. Packaging and test orchestration use Bash or PowerShell and
+ordinary OS utilities. Producing the initial seed still has a separate Stage-0
+reference path; this SDK does not claim full language parity or global removal
+of that path.
+
+## Install
+
+Candidate bundles are attached to the
+[main workflow](https://github.com/HPinho/sotlas_dev/actions) as
+`sotlas-terminal-sdk-linux-x64`, `sotlas-terminal-sdk-windows-x64` and
+`sotlas-terminal-sdk-macos-x64`. Use the artifacts from the same fully green
+run. They are CI candidates, not published stable releases.
+
+Use a bundle matching Linux x86-64, Windows x86-64 or Intel macOS. Verify the
+archive against its separately downloaded `.sha256` file, then extract it. The
+installer verifies every bundled file and the target before copying to a fresh
+directory. Checksums detect corruption; they are not publisher signatures.
+No administrator privileges, registry edits or global PATH changes are needed.
+
+Linux and Intel macOS (run from the extracted bundle directory):
+
+```bash
+bash packaging/install-sdk.sh "$PWD" "$HOME/sotlas-sdk"
+bash "$HOME/sotlas-sdk/scripts/verify_sdk.sh" "$HOME/sotlas-sdk-check" --rebuild
+```
+
+Windows (run from the extracted ZIP directory):
+
+```powershell
+& ./packaging/install-sdk.ps1 . "$HOME/sotlas-sdk"
+& "$HOME/sotlas-sdk/scripts/verify_sdk.ps1" "$HOME/sotlas-sdk-check" -Rebuild
+```
+
+Choose fresh output directories. Verification copies source projects outside
+the SDK, checks and compiles the calculator/configuration examples, executes
+their success and error paths, runs the installed Sotlas tests, then reconstructs
+Stage 2 and Stage 3 and requires byte identity. Reports are in the output
+directory; the contract runner also writes JUnit. The calculator executable is
+`calculator` (`calculator.exe` on Windows). Enter one expression per line;
+EOF ends the session. `configuration` exits with code 42 on success.
+
+## Compile a project
+
+The SDK verifier creates a working `src` tree containing the runtime namespace
+`sotlas/runtime` and both example projects. From that output directory:
+
+```bash
+/path/to/sotlas-sdk/bin/sotlas-native --check-build src src/calculator/main.sotlas
+/path/to/sotlas-sdk/bin/sotlas-native --build calculator src src/calculator/main.sotlas
+./calculator
+```
+
+On Intel macOS use `--build-mac`; on Windows use `--build-win`, the compiler
+`bin/sotlas-native.exe` and an `.exe` output path. Paths containing spaces must
+be quoted. The compiler resolves source modules below the supplied source root.
+Runtime allocation and I/O use OS services; operating systems remain runtime
+dependencies. See `docs/native_seed_workflow.md` for the bounded compiler
+contract and `docs/native_json.md` for JSON limits.
+
+## Scope and updates
+
+This is a terminal SDK candidate, not GUI/kernel/accelerator release
+certification. Automatic ARC, general generics, package-manager parity and full
+frontend parity are separate work. Follow the support evidence attached to the
+candidate. Install updates beside the old SDK in a fresh directory; select the
+new compiler path after verification. Rollback means selecting the previous
+directory. Sources, examples and tests remain in the bundle for inspection.
+
+Development: [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev).
+License: see `LICENSE`.

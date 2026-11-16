@@ -9,6 +9,8 @@
 [Active native roadmap](docs/sotlas_sovereignty_roadmap.md) ·
 [Reusable native storage](docs/native_pool.md)
 
+[Native terminal SDK: install, run examples and self-rebuild](packaging/SDK_README.md)
+
 [Native configuration collection](examples/native_config_map/README.md)
 
 [Typed native record storage](examples/native_record_storage/README.md)

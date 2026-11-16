@@ -1,6 +1,6 @@
 # Public preview launch roadmap
 
-**Date:** 2026-10-16  
+**Date:** 2026-11-15
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Scope:** a usable native preview for terminal applications, a declarative GUI
 calculator and a documented minimal kernel example. This is a release plan;
@@ -18,6 +18,37 @@ An initial declarative UI and Windows GUI calculator exist; the complete P2/P3
 contracts below remain open.
 
 ## Six delivery blocks
+
+### Daily delivery agreement — 2026-11-15, 22:54 America/Sao_Paulo
+
+Deliver one bounded, usable block at a time. A block includes its implementation,
+native execution/rejection checks, user instructions and explicit limits. The
+owner reports the complete remote matrix result. Green closes that declared
+scope; move to the next block rather than repeatedly expanding the same scope.
+Later defects remain fixable, and broader features become separate deliveries.
+This cadence is a working order, not a claim that all language features can be
+completed in one day. No workflow polling or scheduled automation is required.
+
+**2026-11-15 block: installable native terminal SDK.** Includes the compiler seed,
+original compiler/runtime sources, terminal calculator, JSON configuration
+application, 50 Sotlas contract tests, per-file/archive checksums and fresh-prefix
+installation. Installed examples and original-source Stage 2/3 reconstruction
+must work with host build tools absent from PATH. Windows and Linux local
+execution and Intel macOS/complete remote matrix are recorded separately.
+The block remains pending certification until the owner confirms that matrix.
+See [SDK instructions](../packaging/SDK_README.md). GUI distribution, package
+manager parity, full frontend/ownership parity and kernel release certification
+are outside this block. The next delivery returns to the remaining P2/P3 GUI
+resource/interaction gate; it does not reopen the terminal SDK scope.
+
+**Local evidence (2026-11-15):** Windows and Linux/WSL passed archive extraction,
+fresh-prefix installation with spaces in its path, calculator success/error
+recovery, JSON configuration and model execution, all 50 installed Sotlas
+contract tests, and original-source Stage 2/3 byte identity with host build tools
+absent from PATH. Both installers rejected corrupted content before creating
+the destination and refused to overwrite an existing installation. Intel macOS
+and the complete remote matrix remain pending; CI now exercises this same SDK
+path on all three CLI targets and uploads candidate archives and test reports.
 
 | Block | Deliverable | Completion gate |
 |---|---|---|

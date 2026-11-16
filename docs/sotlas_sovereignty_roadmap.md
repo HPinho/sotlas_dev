@@ -178,10 +178,16 @@ at the maximum of the bound type. Literal bounds can take the type of the
 other bound, so loops such as `0..count` work with `usize` counts.
 See [native iteration](native_array_iteration.md).
 
-The maintainer's requested usability checkpoint is **2026-11-15**. Work follows
-the existing roadmap and its closure criteria. Delivery is measured by runnable
-capabilities, not helper count or unweighted checkbox percentages; the requested
-date does not certify untested features.
+The daily delivery cadence starts **2026-11-15 at 22:54 America/Sao_Paulo**:
+one bounded usable block, implementation and native checks, then owner-reported
+green matrix closes that scope before the next block. The first delivery is the
+[installable terminal SDK](../packaging/SDK_README.md), with bundled original
+sources, examples, native tests and self-rebuild after a seed. Its packaging uses
+shell orchestration; the initial seed producer still has a Stage-0 reference
+path. This does not certify full language parity or remove that reference path.
+Delivery is measured by runnable capabilities rather than helper counts or
+unweighted percentages. See the [preview plan](preview_launch_roadmap.md) for
+scope, closure and the next block.
 
 ## Remaining work, grouped by outcome
 
