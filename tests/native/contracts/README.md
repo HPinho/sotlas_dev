@@ -44,6 +44,11 @@ processes with core dumps/crash dialogs suppressed. A wrong fault/status is a
 failure. Empty suites, duplicate names, malformed rows and missing sources fail
 the gate rather than silently skipping tests.
 
+The current suite contains 53 cases. Three UI contracts cover copied scene
+storage, validation/alias/capacity failure without partial publication, and
+invalid-view rejection during input dispatch. They extend the initial 50-case
+migration described below; all checks execute as original Sotlas programs.
+
 The initial suite contains 50 cases: 36 positive programs, ten compiler
 rejections and four arithmetic-fault cases. JSON parsing, construction,
 traversal/re-emission and unsigned byte/word division are covered. The exhaustive

@@ -1,0 +1,20 @@
+module ui_invalid_views;
+import sotlas::runtime::ui::*;
+static mut items:[UiItem;2]=0;
+pub fn main_entry() -> u32 {
+    let mut view:UiView=ui_view(unsafe { items as *mut UiItem },2,7);let input:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    if !ui_button(input,7,ui_rect(0,0,20,20),"ok",2) { return 1; }
+    let mut first:*mut UiItem=unsafe { items as *mut UiItem };unsafe { first.kind=99; }
+    if ui_view_valid(unsafe { input as *const UiView }) || ui_click(input,1,1) != 0 || ui_key(input,13) != 0 || view.focus != 7 { return 2; }
+    unsafe { first.kind=2;first.bounds=ui_rect(0,0,0,20); }
+    if ui_click(input,1,1) != 0 || ui_key(input,13) != 0 { return 3; }
+    unsafe { first.bounds=ui_rect(0,0,20,20);first.label=18446744073709551615 as *const u8;first.length=2; }
+    if ui_view_valid(unsafe { input as *const UiView }) || ui_key(input,13) != 0 { return 4; }
+    view.items=null;
+    if ui_click(input,1,1) != 0 || ui_key(input,9) != 0 { return 5; }
+    view.items=unsafe { items as *mut UiItem };view.count=3;
+    if ui_view_valid(unsafe { input as *const UiView }) || ui_key(input,13) != 0 { return 6; }
+    view.count=0;view.capacity=65;
+    if ui_view_valid(unsafe { input as *const UiView }) { return 7; }
+    return 0;
+}

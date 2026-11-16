@@ -49,3 +49,6 @@ reject narrow_div_bad_const_0 cases/narrow_div_bad_const_0.sotlas
 reject narrow_div_bad_const_1 cases/narrow_div_bad_const_1.sotlas
 pass narrow_div_expressions cases/narrow_div_expressions.sotlas
 pass narrow_div_u16_boundaries cases/narrow_div_u16_boundaries.sotlas
+pass ui_snapshot_values cases/ui_snapshot_values.sotlas
+pass ui_snapshot_reject cases/ui_snapshot_reject.sotlas
+pass ui_invalid_views cases/ui_invalid_views.sotlas

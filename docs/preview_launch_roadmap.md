@@ -1,6 +1,6 @@
 # Public preview launch roadmap
 
-**Date:** 2026-11-15
+**Date:** 2026-11-16
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Scope:** a usable native preview for terminal applications, a declarative GUI
 calculator and a documented minimal kernel example. This is a release plan;
@@ -97,7 +97,22 @@ system services remain runtime dependencies and must be listed.
 
 - [x] Implement the first bounded `Text`, `Button`, `TextField`, `Row` and `Column` profile, with IDs, fixed sizing/spacing and Tab focus order.
 - [x] Implement state-to-view updates, action dispatch and event-driven repaint in the graphical calculator, with separate key/character activation paths.
-- [ ] Define component/state/resource ownership and cleanup; reject or diagnose exhausted UI storage and preserve valid state on failure.
+- [x] Define caller-owned scene/state storage and window cleanup for the bounded single-threaded profile; reject exhausted snapshot storage without changing the previous publication. General compiler borrowing/ARC is separate.
+
+**2026-11-16 delivery — scene ownership and publication:**
+[UI snapshots](native_ui_snapshots.md) validate the whole scene and copy its
+labels into separate caller-owned storage before publication. The calculator
+uses the snapshot for painting. Failed capacity, validation and alias checks
+leave the previous scene unchanged; hit testing, keyboard activation and
+painting reject invalid views. No heap allocation or new Python implementation
+was introduced. The installed SDK now includes the graphical example and UI
+fixtures: model/Unicode execution on each CLI target, plus hidden-window
+rendering/cleanup and GUI compilation on Windows. Local Windows and Linux/WSL
+passed the 53 native contract programs and installed-example checks. Windows
+also passed twenty snapshot-backed frames, failed-publication recovery and
+three restart/shutdown cycles. Complete matrix/Intel macOS certification is
+pending the owner's result; this bounded block closes on green. Responsive
+layout, editing and broader ownership remain separate deliveries.
 
 **P3 first application (2026-10-16):** the [graphical calculator](../examples/graphical_calculator/README.md)
 now executes through the native Windows backend. Model/layout tests passed on

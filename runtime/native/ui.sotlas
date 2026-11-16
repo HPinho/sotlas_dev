@@ -42,13 +42,81 @@ pub fn ui_view(items:*mut UiItem,capacity:usize,focus:u32) -> UiView {
     return UiView{items:items,count:0,capacity:capacity,focus:focus,error:error};
 }
 pub fn ui_label_valid(label:*const u8,length:usize) -> bool {
-    if label == null || length > 128 { return false; }
+    if label == null || length > 128 || length > 18446744073709551615-(unsafe { label as usize }) { return false; }
     let mut offset:usize=0;
     while offset < length {
         let value:NativeUtf8Scalar=native_utf8_scalar(label,length,offset);
         if !value.valid || value.scalar < 32 || (value.scalar >= 127 && value.scalar <= 159) { return false; }
         offset=value.next;
     }
+    return true;
+}
+
+// Pointer shape checks do not prove accessibility. Caller storage must remain
+// live, correctly typed and exclusive to the UI thread for the entire call.
+fn ui_range(address:usize,length:usize) -> bool {
+    return address != 0 && length <= 18446744073709551615-address;
+}
+fn ui_separate(first:usize,length:usize,second:usize,count:usize) -> bool {
+    if !ui_range(first,length) || !ui_range(second,count) { return false; }
+    return length == 0 || count == 0 || first+length <= second || second+count <= first;
+}
+pub fn ui_view_valid(view:*const UiView) -> bool {
+    if view == null { return false; }
+    let current:UiView=unsafe { *view };
+    let address:usize=unsafe { current.items as usize };
+    if current.error != 0 || current.capacity == 0 || current.capacity > 64 || current.count > current.capacity
+        || address%align_of::<UiItem>() != 0 || !ui_range(address,current.capacity*stride_of::<UiItem>()) { return false; }
+    let mut index:usize=0;
+    while index < current.count {
+        let item:UiItem=unsafe { *(current.items+index) };
+        let checked:UiRect=ui_rect(item.bounds.x,item.bounds.y,item.bounds.width,item.bounds.height);
+        if item.id == 0 || item.kind < 1 || item.kind > 3 || !item.bounds.valid || !checked.valid
+            || !ui_label_valid(item.label,item.length) { return false; }
+        let mut previous:usize=0;
+        while previous < index {
+            if unsafe { (*(current.items+previous)).id } == item.id { return false; }
+            previous=previous+1;
+        }
+        index=index+1;
+    }
+    return true;
+}
+
+// Validate everything before writing either destination buffer or metadata.
+// On success labels belong to the supplied snapshot storage, not the model.
+// All source ranges must be disjoint from all destination ranges. Source data
+// must stay stable during validation/copy; snapshots are not a concurrency API.
+pub fn ui_snapshot(source:*const UiView,destination:*mut UiView,items:*mut UiItem,capacity:usize,labels:*mut u8,label_capacity:usize) -> bool {
+    if source == null || destination == null || capacity == 0 || capacity > 64 || label_capacity == 0 || label_capacity > 8192 { return false; }
+    let from:usize=unsafe { source as usize }; let to:usize=unsafe { destination as usize };
+    let item_address:usize=unsafe { items as usize }; let text_address:usize=unsafe { labels as usize };
+    let view_size:usize=span_of::<UiView>(); let item_size:usize=capacity*stride_of::<UiItem>();
+    if from%align_of::<UiView>() != 0 || to%align_of::<UiView>() != 0 || item_address%align_of::<UiItem>() != 0
+        || !ui_separate(to,view_size,item_address,item_size) || !ui_separate(to,view_size,text_address,label_capacity)
+        || !ui_separate(item_address,item_size,text_address,label_capacity)
+        || !ui_separate(from,view_size,to,view_size) || !ui_separate(from,view_size,item_address,item_size)
+        || !ui_separate(from,view_size,text_address,label_capacity) { return false; }
+    if !ui_view_valid(source) { return false; }
+    let current:UiView=unsafe { *source };
+    let input:usize=unsafe { current.items as usize };let input_size:usize=current.capacity*stride_of::<UiItem>();
+    if current.count > capacity || !ui_separate(input,input_size,to,view_size)
+        || !ui_separate(input,input_size,item_address,item_size) || !ui_separate(input,input_size,text_address,label_capacity) { return false; }
+    let mut index:usize=0;let mut needed:usize=0;
+    while index < current.count {
+        let item:UiItem=unsafe { *(current.items+index) };let label:usize=unsafe { item.label as usize };
+        if item.length > label_capacity-needed || !ui_separate(label,item.length,to,view_size)
+            || !ui_separate(label,item.length,item_address,item_size) || !ui_separate(label,item.length,text_address,label_capacity) { return false; }
+        needed=needed+item.length;index=index+1;
+    }
+    index=0;let mut offset:usize=0;
+    while index < current.count {
+        let mut item:UiItem=unsafe { *(current.items+index) };let mut byte:usize=0;
+        while byte < item.length { unsafe { *(labels+offset+byte)=*(item.label+byte); }byte=byte+1; }
+        item.label=unsafe { (labels+offset) as *const u8 };
+        unsafe { *(items+index)=item; }offset=offset+item.length;index=index+1;
+    }
+    unsafe { *destination=UiView{items:items,count:current.count,capacity:capacity,focus:current.focus,error:0}; }
     return true;
 }
 fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,length:usize) -> bool {
@@ -75,7 +143,7 @@ pub fn ui_text_field(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,lengt
 pub fn ui_click(mut view:*mut UiView,x:i32,y:i32) -> u32 {
     if view == null { return 0; }
     unsafe {
-        if view.error != 0 || view.count > view.capacity { return 0; }
+        if !ui_view_valid(unsafe { view as *const UiView }) { return 0; }
         let mut index:usize=view.count;
         while index != 0 {
             index=index-1;
@@ -93,7 +161,7 @@ pub fn ui_click(mut view:*mut UiView,x:i32,y:i32) -> u32 {
 pub fn ui_key(mut view:*mut UiView,key:u32) -> u32 {
     if view == null { return 0; }
     unsafe {
-        if view.error != 0 || view.count > view.capacity { return 0; }
+        if !ui_view_valid(unsafe { view as *const UiView }) { return 0; }
         let mut index:usize=0; let mut first:u32=0; let mut next:bool=false;
         while index < view.count {
             let item:UiItem=*(view.items+index);
