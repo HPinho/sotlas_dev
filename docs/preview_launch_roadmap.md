@@ -35,11 +35,11 @@ application, 50 Sotlas contract tests, per-file/archive checksums and fresh-pref
 installation. Installed examples and original-source Stage 2/3 reconstruction
 must work with host build tools absent from PATH. Windows and Linux local
 execution and Intel macOS/complete remote matrix are recorded separately.
-The block remains pending certification until the owner confirms that matrix.
+**Closed:** the owner confirmed the full matrix green for `c97c936` on 2026-11-16.
 See [SDK instructions](../packaging/SDK_README.md). GUI distribution, package
 manager parity, full frontend/ownership parity and kernel release certification
-are outside this block. The next delivery returns to the remaining P2/P3 GUI
-resource/interaction gate; it does not reopen the terminal SDK scope.
+are outside this block. Subsequent P2/P3 GUI deliveries do not reopen the
+terminal SDK scope.
 
 **Local evidence (2026-11-15):** Windows and Linux/WSL passed archive extraction,
 fresh-prefix installation with spaces in its path, calculator success/error
@@ -110,9 +110,23 @@ fixtures: model/Unicode execution on each CLI target, plus hidden-window
 rendering/cleanup and GUI compilation on Windows. Local Windows and Linux/WSL
 passed the 53 native contract programs and installed-example checks. Windows
 also passed twenty snapshot-backed frames, failed-publication recovery and
-three restart/shutdown cycles. Complete matrix/Intel macOS certification is
-pending the owner's result; this bounded block closes on green. Responsive
+three restart/shutdown cycles. Complete matrix/Intel macOS certification was
+confirmed by the owner for `c97c936`; this bounded block is closed. Responsive
 layout, editing and broader ownership remain separate deliveries.
+
+**Next delivery — keyboard expression editing:**
+[Cursor-aware fields](native_ui_editing.md) add insertion, Backspace/Delete,
+Home/End, left/right navigation, capacity/error recovery and focused caret
+rendering with horizontal scrolling. The native UI record/snapshot validates
+UTF-8 scalar boundaries; the calculator grammar remains ASCII. Selection,
+clipboard, mouse caret placement, IME and responsive layout are outside this
+scope. The editing block awaits its own complete matrix result before closure.
+
+**Editing local evidence:** extracted SDK installation passed on Windows
+(PowerShell 7) and Linux/WSL: 54 native contracts, calculator editing/model and
+Unicode fixtures. Windows also passed posted keydown events through the native
+window event queue, focused caret/scroll rendering, active/inactive font-width
+measurement, existing resource-count and cleanup checks, and GUI compilation.
 
 **P3 first application (2026-10-16):** the [graphical calculator](../examples/graphical_calculator/README.md)
 now executes through the native Windows backend. Model/layout tests passed on

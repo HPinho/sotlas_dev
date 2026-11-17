@@ -52,3 +52,4 @@ pass narrow_div_u16_boundaries cases/narrow_div_u16_boundaries.sotlas
 pass ui_snapshot_values cases/ui_snapshot_values.sotlas
 pass ui_snapshot_reject cases/ui_snapshot_reject.sotlas
 pass ui_invalid_views cases/ui_invalid_views.sotlas
+pass ui_caret cases/ui_caret.sotlas

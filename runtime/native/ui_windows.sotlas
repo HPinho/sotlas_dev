@@ -37,7 +37,25 @@ pub fn ui_windows_paint(view:*const UiView) -> bool {
             if !converted.valid { okay=false; }
             else { units=converted.units; }
         }
-        if okay { okay=native_window_text(bounds.x+12,bounds.y+12,unsafe { text as *const u16 },units as u32,color); }
+        let text_data:*const u16=unsafe { text as *const u16 };
+        let mut start:usize=0;let mut caret_width:i32=0;
+        let focused:bool=item.kind == 3 && current.focus == item.id;
+        if okay && focused {
+            let prefix:NativeUnicodeResult=native_utf8_measure_utf16(item.label,item.caret);
+            if !prefix.valid { okay=false; }
+            else {
+                let mut available:i32=0;if bounds.width > 26 { available=(bounds.width-26) as i32; }
+                caret_width=native_window_text_width(text_data,prefix.units as u32);
+                while caret_width > available && start < prefix.units {
+                    let unit:u16=unsafe { *(text_data+start) };start=start+1;
+                    if unit >= 55296 && unit <= 56319 && start < prefix.units { start=start+1; }
+                    caret_width=native_window_text_width(unsafe { text_data+start },(prefix.units-start) as u32);
+                }
+                if caret_width < 0 { okay=false; }
+            }
+        }
+        if okay { okay=native_window_text(bounds.x+12,bounds.y+12,unsafe { text_data+start },(units-start) as u32,color); }
+        if okay && focused { okay=native_window_box(bounds.x+12+caret_width,bounds.y+10,1,20,13); }
         if !native_window_unclip() { okay=false; }
         index=index+1;
     }

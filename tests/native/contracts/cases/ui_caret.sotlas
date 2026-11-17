@@ -1,0 +1,26 @@
+module ui_caret;
+import sotlas::runtime::ui::*;
+static mut items:[UiItem;2]=0;
+static mut copied:[UiItem;2]=0;
+static mut labels:[u8;16]=0;
+pub fn main_entry() -> u32 {
+    if !ui_caret_valid("AΩ😀",7,0) || !ui_caret_valid("AΩ😀",7,1) || !ui_caret_valid("AΩ😀",7,3)
+        || !ui_caret_valid("AΩ😀",7,7) || ui_caret_valid("AΩ😀",7,2) || ui_caret_valid("AΩ😀",7,4)
+        || ui_caret_valid("AΩ😀",7,5) || ui_caret_valid("AΩ😀",7,6) || ui_caret_valid("AΩ😀",7,8) { return 1; }
+    let storage:*mut UiItem=unsafe { items as *mut UiItem };
+    let mut view:UiView=ui_view(storage,2,1);let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    if !ui_text_field_at(scene,1,ui_rect(0,0,100,30),"AΩ😀",7,3) { return 2; }
+    let mut snapshot:UiView=ui_view(unsafe { copied as *mut UiItem },2,0);let output:*mut UiView=unsafe { (&mut snapshot) as *mut UiView };
+    if !ui_snapshot(unsafe { scene as *const UiView },output,unsafe { copied as *mut UiItem },2,unsafe { labels as *mut u8 },16) { return 3; }
+    let field:UiItem=unsafe { *snapshot.items };
+    if field.caret != 3 || field.length != 7 || !ui_view_valid(unsafe { output as *const UiView }) { return 4; }
+    if ui_text_field_at(scene,2,ui_rect(0,30,100,30),"AΩ😀",7,2) || view.count != 1 || view.error != 5 { return 5; }
+    view.error=0;let mut first:*mut UiItem=unsafe { items as *mut UiItem };unsafe { first.caret=2; }
+    if ui_view_valid(unsafe { scene as *const UiView }) || ui_click(scene,1,1) != 0
+        || ui_snapshot(unsafe { scene as *const UiView },output,unsafe { copied as *mut UiItem },2,unsafe { labels as *mut u8 },16) { return 6; }
+    let previous:UiItem=unsafe { *snapshot.items };if previous.caret != 3 { return 7; }
+    view=ui_view(storage,2,0);
+    if !ui_text_field(scene,1,ui_rect(0,0,100,30),"42",2) { return 8; }
+    let legacy:UiItem=unsafe { *storage };if legacy.caret != 2 { return 9; }
+    return 0;
+}
