@@ -85,6 +85,8 @@ pub fn calculator_ui_error() -> u32 { return unsafe { calculator_error }; }
 // Enter/Space; its later character event must not apply the button twice.
 pub fn calculator_ui_dispatch(mut view:*mut UiView,kind:u32,code:u32,x:i32,y:i32) -> bool {
     if view == null { return false; }
+    // Compact/minimized views are informational: hidden controls cannot edit.
+    if unsafe { view.count } != 23 || !ui_view_valid(unsafe { view as *const UiView }) { return false; }
     if kind == 3 {
         let action:u32=ui_click(view,x,y);
         if action != 0 { calculator_ui_action(action); }
@@ -102,10 +104,10 @@ pub fn calculator_ui_dispatch(mut view:*mut UiView,kind:u32,code:u32,x:i32,y:i32
     return false;
 }
 
-pub fn calculator_ui_view(mut view:*mut UiView) -> bool {
+fn calculator_ui_arrange(mut view:*mut UiView,bounds:UiRect,grid:UiRect) -> bool {
     if view == null { return false; }
     unsafe { view.count=0; view.error=0; }
-    let mut column:UiLayout=ui_column(ui_rect(24,20,344,472),8);
+    let mut column:UiLayout=ui_column(bounds,8);
     let layout:*mut UiLayout=unsafe { (&mut column) as *mut UiLayout };
     if !ui_text(view,2001,ui_cell(layout,28),"Sotlas Calculator",17) { return false; }
     let input:*const u8=unsafe { calculator_input as *const u8 };
@@ -115,12 +117,10 @@ pub fn calculator_ui_view(mut view:*mut UiView) -> bool {
     let labels:*const u8="789/456*123-C0=+().";
     let mut row_index:usize=0;
     while row_index < 5 {
-        let mut row:UiLayout=ui_row(ui_cell(layout,52),8);
-        let row_layout:*mut UiLayout=unsafe { (&mut row) as *mut UiLayout };
         let mut index:usize=0;
         while index < 4 {
             let position:usize=row_index*4+index;
-            let bounds:UiRect=ui_cell(row_layout,80);
+            let bounds:UiRect=ui_grid_cell(grid,4,5,8,index as u32,row_index as u32);
             if position == 19 {
                 if !ui_button(view,8,bounds,"←",3) { return false; }
             } else if position == 3 {
@@ -137,4 +137,23 @@ pub fn calculator_ui_view(mut view:*mut UiView) -> bool {
         row_index=row_index+1;
     }
     return true;
+}
+// Preserve the original reference scene for callers relying on its geometry.
+pub fn calculator_ui_view(view:*mut UiView) -> bool {
+    return calculator_ui_arrange(view,ui_rect(24,20,344,472),ui_rect(24,160,344,292));
+}
+pub fn calculator_ui_viewport(mut view:*mut UiView,width:u32,height:u32) -> bool {
+    if view == null { return false; }
+    unsafe { if view.items == null || view.capacity == 0 || view.capacity > 64 { return false; } }
+    let mut usable_width:u32=width;let mut usable_height:u32=height;
+    if usable_width > 4096 { usable_width=4096; }
+    if usable_height > 4096 { usable_height=4096; }
+    if usable_width == 0 || usable_height == 0 { unsafe { view.count=0;view.error=0; }return true; }
+    if usable_width < 280 || usable_height < 420 {
+        unsafe { view.count=0;view.error=0; }
+        return ui_text(view,2003,ui_rect(0,0,usable_width,usable_height),"Enlarge window to continue",26);
+    }
+    let content:UiRect=ui_rect(24,20,usable_width-48,usable_height-40);
+    let grid:UiRect=ui_rect(24,160,usable_width-48,usable_height-180);
+    return calculator_ui_arrange(view,content,grid);
 }

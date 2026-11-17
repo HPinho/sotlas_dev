@@ -13,6 +13,8 @@
 
 [Validated UI scenes and independent label storage](docs/native_ui_snapshots.md)
 
+[Adaptive UI grids and calculator resizing](docs/native_ui_layout.md)
+
 [Native configuration collection](examples/native_config_map/README.md)
 
 [Typed native record storage](examples/native_record_storage/README.md)

@@ -19,6 +19,27 @@ pub fn ui_row(bounds:UiRect,gap:u32) -> UiLayout {
 pub fn ui_column(bounds:UiRect,gap:u32) -> UiLayout {
     return UiLayout{bounds:bounds,gap:gap,cursor:0,horizontal:false};
 }
+// Equal grid tracks distribute leftover units from the leading edge. Geometry
+// is checked before subtraction/division; no storage or mutable cursor is used.
+pub fn ui_grid_cell(bounds:UiRect,columns:u32,rows:u32,gap:u32,column:u32,row:u32) -> UiRect {
+    let invalid:UiRect=ui_rect(0,0,0,0);
+    let checked:UiRect=ui_rect(bounds.x,bounds.y,bounds.width,bounds.height);
+    if !bounds.valid || !checked.valid || columns == 0 || columns > 64 || rows == 0 || rows > 64
+        || column >= columns || row >= rows || gap > 4096 { return invalid; }
+    if columns > 1 { if gap > bounds.width/(columns-1) { return invalid; } }
+    if rows > 1 { if gap > bounds.height/(rows-1) { return invalid; } }
+    let width:u32=bounds.width-gap*(columns-1);let height:u32=bounds.height-gap*(rows-1);
+    let mut cell_width:u32=width/columns;let mut cell_height:u32=height/rows;
+    if cell_width == 0 || cell_height == 0 { return invalid; }
+    let extra_x:u32=width%columns;let extra_y:u32=height%rows;
+    let mut leading_x:u32=extra_x;let mut leading_y:u32=extra_y;
+    if column < extra_x { leading_x=column; }
+    if row < extra_y { leading_y=row; }
+    let x:u32=(cell_width+gap)*column+leading_x;let y:u32=(cell_height+gap)*row+leading_y;
+    if column < extra_x { cell_width=cell_width+1; }
+    if row < extra_y { cell_height=cell_height+1; }
+    return ui_rect(bounds.x+x as i32,bounds.y+y as i32,cell_width,cell_height);
+}
 pub fn ui_cell(mut layout:*mut UiLayout, extent:u32) -> UiRect {
     if layout == null { return ui_rect(0,0,0,0); }
     unsafe {

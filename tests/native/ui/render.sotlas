@@ -6,6 +6,7 @@ import sotlas::runtime::window_windows::*;
 static mut render_items:[UiItem;32]=0;
 static mut snapshot_items:[UiItem;32]=0;
 static mut snapshot_labels:[u8;4096]=0;
+static mut resize_stage:u32=0;
 
 fn editor_key(scene:*mut UiView,key:u32,position:usize) -> bool {
     if !native_window_post(256,key as u64,0) { return false; }
@@ -21,6 +22,39 @@ fn editor_key(scene:*mut UiView,key:u32,position:usize) -> bool {
     return false;
 }
 
+fn resized_scene(scene:*mut UiView,snapshot:*mut UiView,width:u32,height:u32) -> bool {
+    unsafe { resize_stage=1; }
+    if !native_window_resize(width,height) { return false; }
+    let mut size:NativeWindowSize=NativeWindowSize{width:0,height:0};
+    unsafe { resize_stage=2; }
+    if !native_window_measure(unsafe { (&mut size) as *mut NativeWindowSize }) { return false; }
+    unsafe { resize_stage=3; }
+    if !calculator_ui_viewport(scene,size.width,size.height) { return false; }
+    unsafe { resize_stage=4; }
+    if !ui_snapshot(unsafe { scene as *const UiView },snapshot,unsafe { snapshot_items as *mut UiItem },32,unsafe { snapshot_labels as *mut u8 },4096) { return false; }
+    unsafe { resize_stage=5; }
+    if !native_window_invalidate() || !ui_windows_paint(unsafe { snapshot as *const UiView }) { return false; }
+    unsafe { resize_stage=6; }
+    let count:usize=unsafe { scene.count };
+    if size.width < 280 || size.height < 420 { return count == 1; }
+    if count != 23 { return false; }
+    let item:UiItem=unsafe { *(scene.items+3) };let bounds:UiRect=item.bounds;
+    let x:i32=bounds.x+(bounds.width/2) as i32;let y:i32=bounds.y+(bounds.height/2) as i32;
+    let detail:u64=((y as u64) << 16) | (x as u64);
+    unsafe { resize_stage=7; }
+    if !native_window_post(513,0,detail) { return false; }
+    let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
+    let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
+    let mut attempt:u32=0;
+    while attempt < 64 {
+        if native_window_next(events,false) {
+            if event.kind == 1 { if !ui_windows_paint(unsafe { snapshot as *const UiView }) { return false; } }
+            if event.kind == 3 { unsafe { resize_stage=8; }return event.x == x && event.y == y && ui_click(scene,event.x,event.y) == 55; }
+        }
+        attempt=attempt+1;
+    }
+    unsafe { resize_stage=9; }return false;
+}
 pub fn main_entry() -> u32 {
     if !native_window_start() { return 1; }
     let mut title:[u16;2]=0; title[0]=83;
@@ -54,6 +88,18 @@ pub fn main_entry() -> u32 {
     if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 17; }
     if !editor_key(scene,36,0) || !editor_key(scene,39,1) || !editor_key(scene,46,1)
         || calculator_ui_length() != 127 || !editor_key(scene,35,127) { native_window_stop(); return 20; }
+    iteration=0;
+    while iteration < 7 {
+        if !resized_scene(scene,snapshot,160,120) || !resized_scene(scene,snapshot,640,700)
+            || !resized_scene(scene,snapshot,320,480) || !resized_scene(scene,snapshot,1000,800) { native_window_stop(); return 100+unsafe { resize_stage }; }
+        // Calibrate after exercising every resize mode once, then require
+        // stable counts across six further complete resize/click cycles.
+        if iteration == 0 { gdi=native_window_resource_count(0);windows=native_window_resource_count(1); }
+        if iteration > 0 && (native_window_resource_count(0) > gdi || native_window_resource_count(1) > windows) { native_window_stop();return 110; }
+        if calculator_ui_length() != 127 || calculator_ui_cursor() != 127 { native_window_stop();return 111; }
+        iteration=iteration+1;
+    }
+    if !resized_scene(scene,snapshot,416,560) { native_window_stop(); return 22; }
     // Failed frame input must not leave a paint session or selected font behind.
     view.error=1;
     if ui_snapshot(frame,snapshot,unsafe { snapshot_items as *mut UiItem },32,unsafe { snapshot_labels as *mut u8 },4096)

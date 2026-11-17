@@ -1,0 +1,19 @@
+module ui_grid_reject;
+import sotlas::runtime::ui::*;
+pub fn main_entry() -> u32 {
+    let bounds:UiRect=ui_rect(0,0,100,100);
+    if ui_grid_cell(bounds,0,1,0,0,0).valid || ui_grid_cell(bounds,1,0,0,0,0).valid
+        || ui_grid_cell(bounds,65,1,0,0,0).valid || ui_grid_cell(bounds,1,65,0,0,0).valid { return 1; }
+    if ui_grid_cell(bounds,4,3,2,4,0).valid || ui_grid_cell(bounds,4,3,2,0,3).valid
+        || ui_grid_cell(bounds,4,3,4294967295,0,0).valid { return 2; }
+    if ui_grid_cell(ui_rect(0,0,5,10),3,1,2,0,0).valid
+        || ui_grid_cell(ui_rect(0,0,10,5),1,3,2,0,0).valid
+        || ui_grid_cell(ui_rect(0,0,10,10),2,2,10,0,0).valid { return 3; }
+    let mut forged:UiRect=UiRect{x:2147483647,y:0,width:10,height:10,valid:true};
+    if ui_grid_cell(forged,1,1,0,0,0).valid { return 4; }
+    forged=UiRect{x:0,y:0,width:4294967295,height:10,valid:true};
+    if ui_grid_cell(forged,1,1,0,0,0).valid || ui_grid_cell(ui_rect(0,0,0,10),1,1,0,0,0).valid { return 5; }
+    let single:UiRect=ui_grid_cell(bounds,1,1,4096,0,0);
+    if !single.valid || single.width != 100 || single.height != 100 { return 6; }
+    return 0;
+}
