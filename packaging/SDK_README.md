@@ -58,6 +58,12 @@ are described in `docs/native_ui_editing.md`.
 The calculator adapts to the client area and preserves its model while too
 small to show controls; see `docs/native_ui_layout.md` for its size/grid limits.
 
+## Use in VS Code
+
+For editor-based console projects, see `docs/native_vscode_sdk.md`. Install
+the VSIX from the same green workflow, select this SDK, then create/check/build/run
+through the native extension commands. The extension is a separate artifact.
+
 ## Build a kernel
 
 The installed SDK can generate all seven documented kernel profiles. From its

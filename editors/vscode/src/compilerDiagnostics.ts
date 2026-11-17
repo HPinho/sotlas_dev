@@ -23,7 +23,7 @@ export function parseCompilerDiagnostics(output: string): ParsedCompilerDiagnost
             line: lineNumber,
             column: columnNumber,
             message: detail.trim() || 'Compiler rejected this source location.',
-            severity: /^(?:aviso|warning)$/i.test(prefixSeverity) || /\bwarning\b/i.test(detail)
+            severity: /^(?:aviso|warning)$/i.test(prefixSeverity) || (!prefixSeverity && /^warning\b/i.test(detail))
                 ? 'warning'
                 : /^(?:note)$/i.test(prefixSeverity)
                     ? 'information'

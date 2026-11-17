@@ -7,9 +7,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.0.0] - Preview candidate
 
+### Added
+- Native SDK selection and empty-directory console project creation with copied runtime sources.
+- Native check/build/run commands, process tasks, source-positioned compiler diagnostics and failed-build protection against running stale executables.
+- Installed-VSIX native SDK validation on the three compiler hosts; the reference diagnostic scenario remains required.
+
 ### Changed
 - Pinned the VSIX test runtime and added bounded retries for transient download failures; clean-profile installation and diagnostic assertions remain mandatory.
-- Compiler check now invokes `sotlas check` and reports compiler output.
+- Compiler check uses the selected reference/native command profile and reports compiler output; native byte columns are mapped to editor UTF-16 positions.
 - Local diagnostics are described as structural hints rather than type checking.
 - Compiler commands use argument-safe process execution; WebAssembly uses the supported `dump-wasm` command.
 - Marked this editor package as a preview to match the Sotlas 1.0 candidate.

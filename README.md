@@ -17,6 +17,8 @@
 
 [Build and verify kernels from the installed SDK](docs/native_kernel_sdk.md)
 
+[Use the native SDK in VS Code](docs/native_vscode_sdk.md)
+
 [Native configuration collection](examples/native_config_map/README.md)
 
 [Typed native record storage](examples/native_record_storage/README.md)
