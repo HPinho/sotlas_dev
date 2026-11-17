@@ -1,0 +1,6 @@
+module kernel_hosted;
+@extern(C) fn sotlas_linux_write(fd:u64,data:*const u8,length:u64) -> i64;
+// The entry ABI is correct, but hosted syscalls cannot enter a kernel image.
+pub fn kernel_main(magic:u32,info:u32) -> u32 {
+    return unsafe { sotlas_linux_write(1,"x",1) } as u32;
+}

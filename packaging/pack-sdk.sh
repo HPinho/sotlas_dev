@@ -22,9 +22,16 @@ cp "$repository"/runtime/native/*.sotlas "$bundle/runtime/native/"
 for name in token ast lexer parser sema; do cp "$repository/bootstrap/sotlas/native_compiler/$name.sotlas" "$bundle/bootstrap/sotlas/native_compiler/"; done
 cp "$repository"/bootstrap/sotlas/native_compiler/backend/*.sotlas "$bundle/bootstrap/sotlas/native_compiler/backend/"
 cp "$repository"/bootstrap/sotlas/native_driver/{linux,windows,darwin}.sotlas "$bundle/bootstrap/sotlas/native_driver/"
-for name in build_native.sh build_native.ps1 test_native.sh test_native.ps1 verify_sdk.sh verify_sdk.ps1; do cp "$repository/scripts/$name" "$bundle/scripts/"; done
+for name in build_native.sh build_native.ps1 test_native.sh test_native.ps1 verify_sdk.sh verify_sdk.ps1 build_kernel.sh build_kernel.ps1 verify_kernel_sdk.sh verify_kernel_sdk.ps1; do cp "$repository/scripts/$name" "$bundle/scripts/"; done
 cp "$repository"/packaging/install-sdk.{sh,ps1} "$bundle/packaging/"
 for name in native_json.md native_narrow_division.md native_seed_workflow.md native_ui_snapshots.md native_ui_editing.md native_ui_layout.md; do cp "$repository/docs/$name" "$bundle/docs/"; done
+cp "$repository"/docs/native_kernel*.md "$bundle/docs/"
+for profile in boot interrupts memory heap collections vm foundation; do
+    mkdir -p "$bundle/examples/native_kernel_$profile"
+    cp "$repository/examples/native_kernel_$profile/"{main.sotlas,README.md} "$bundle/examples/native_kernel_$profile/"
+done
+mkdir -p "$bundle/tests/native/kernel_sdk"
+cp "$repository"/tests/native/kernel_sdk/*.sotlas "$bundle/tests/native/kernel_sdk/"
 cp "$repository/examples/calculator/src/calculator/main.sotlas" "$bundle/examples/calculator/src/calculator/"
 cp "$repository"/examples/calculator/platform/*.sotlas "$bundle/examples/calculator/platform/"
 cp "$repository"/examples/native_config_map/{main.sotlas,README.md} "$bundle/examples/native_config_map/"

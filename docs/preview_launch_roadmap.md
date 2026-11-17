@@ -120,7 +120,8 @@ Home/End, left/right navigation, capacity/error recovery and focused caret
 rendering with horizontal scrolling. The native UI record/snapshot validates
 UTF-8 scalar boundaries; the calculator grammar remains ASCII. Selection,
 clipboard, mouse caret placement, IME and responsive layout are outside this
-scope. The editing block awaits its own complete matrix result before closure.
+scope. **Closed:** CI #1393 passed for `7fafb3c`, and CI #1394 also passed with
+the editing behavior included in `a7f4ab3`.
 
 **Editing local evidence:** extracted SDK installation passed on Windows
 (PowerShell 7) and Linux/WSL: 54 native contracts, calculator editing/model and
@@ -135,9 +136,9 @@ and input dispatch, uses the grid for adaptive controls, and publishes a notice
 or empty scene for small/zero viewports without changing model state. Tests
 cover geometry, disabled hidden controls and restoring focus, cursor and errors.
 Windows exercises actual resize/paint/posted-mouse cycles and steady resource
-counts after warm-up. This block and the preceding editing delivery retain
-separate scopes; their complete matrix certification remains pending. No green
-result is inferred from the owner's request to continue.
+counts after warm-up. **Closed:** [CI #1394](https://github.com/HPinho/sotlas_dev/actions/runs/44092770531)
+completed successfully for `a7f4ab3`, verified directly on GitHub before the
+next implementation. The preceding editing and adaptive-grid scopes are closed.
 
 **Adaptive-layout local evidence:** extracted SDK installation passed 56
 native contracts plus model/Unicode fixtures on Windows (PowerShell 7) and
@@ -168,9 +169,28 @@ requires separate platform implementations and execution gates.
 
 ### P4 — applications and kernel documentation
 
-- [ ] Publish complete terminal and graphical calculator projects, expected behavior, build commands and troubleshooting instructions.
+- [x] Publish complete terminal and graphical calculator projects, expected behavior, build commands and troubleshooting instructions for the declared preview profiles.
 - [x] Publish a minimal kernel project with documented entry, target, boot environment, memory assumptions and diagnostic output; reproduce it in the selected emulator. See [native boot](native_kernel_boot.md), [interrupts](native_kernel_interrupts.md) and [physical pages](native_kernel_memory.md); local QEMU execution is covered, release certification still requires platform CI.
-- [ ] Document which compiler, library and ownership contracts each example exercises and automate its build/execution checks.
+- [x] Document which compiler, library and ownership contracts each example exercises and automate its build/execution checks. See the [installed kernel SDK guide](native_kernel_sdk.md); new kernel distribution certification awaits its own CI.
+
+**Next delivery — installed kernel SDK:** bundle all seven kernel examples,
+their runtime sources, POSIX/Windows image-build scripts and native link
+rejection fixtures. Installed SDK gates build all profiles on each CLI host;
+Linux QEMU executes the basic and integrated foundation profiles. Entry ABI,
+hosted-call boundaries, missing entries, malformed objects and output preservation
+are tested before certification. This closes the installed-example path when
+its new complete matrix is green; it does not certify a full OS or firmware.
+
+**Kernel SDK local evidence:** extracted installations in paths containing
+spaces passed all seven profile builds on Windows/PowerShell 7 and Linux/WSL.
+Their seven images and two boot modules are byte-identical across hosts.
+PowerShell 5 independently generated the identical foundation image/module.
+Both installed verifiers passed deterministic relinking and all four rejection
+checks with output preservation. Linux QEMU booted basic/foundation images,
+returned guest result 42 / emulator exit 85 and produced every required serial
+checkpoint. New native CI steps repeat these installed checks, with image
+generation on all three hosts and emulator execution on Linux. The new
+delivery remains pending its own complete green matrix.
 
 ### P5 — installation
 

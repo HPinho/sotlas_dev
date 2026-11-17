@@ -15,6 +15,8 @@
 
 [Adaptive UI grids and calculator resizing](docs/native_ui_layout.md)
 
+[Build and verify kernels from the installed SDK](docs/native_kernel_sdk.md)
+
 [Native configuration collection](examples/native_config_map/README.md)
 
 [Typed native record storage](examples/native_record_storage/README.md)

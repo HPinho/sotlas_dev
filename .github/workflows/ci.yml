@@ -325,6 +325,12 @@ jobs:
             artifact: native-macos-execution-probe
     steps:
     - uses: actions/checkout@v4
+    - name: Install QEMU for installed kernel SDK boot
+      if: matrix.target == 'linux'
+      shell: bash
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y --no-install-recommends qemu-system-x86
     - name: Download native compiler seed
       uses: actions/download-artifact@v4
       with:
@@ -378,6 +384,36 @@ jobs:
         catch { $rejected = $true }
         if (!$rejected -or (Test-Path ./build/sdk-must-not-exist)) { throw 'Corrupted SDK was not rejected before installation.' }
         Get-Content './build/sdk verification/summary.md' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+    - name: Verify installed kernel SDK on Linux or Intel macOS
+      if: matrix.target != 'windows'
+      shell: bash
+      run: |
+        set -euo pipefail
+        if [[ '${{ matrix.target }}' == linux ]]; then
+          bash 'build/sdk installed/scripts/verify_kernel_sdk.sh' 'build/sdk installed/bin/sotlas-native' 'build/sdk kernel verification' --boot
+        else
+          bash 'build/sdk installed/scripts/verify_kernel_sdk.sh' 'build/sdk installed/bin/sotlas-native' 'build/sdk kernel verification'
+        fi
+        cat 'build/sdk kernel verification/summary.md' >> "$GITHUB_STEP_SUMMARY"
+    - name: Verify installed kernel SDK on Windows
+      if: matrix.target == 'windows'
+      shell: pwsh
+      run: |
+        & './build/sdk installed/scripts/verify_kernel_sdk.ps1' './build/sdk installed/bin/sotlas-native.exe' './build/sdk kernel verification'
+        Get-Content './build/sdk kernel verification/summary.md' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+    - name: Upload kernel SDK evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: sotlas-kernel-sdk-${{ matrix.target }}
+        path: |
+          build/sdk kernel verification/summary.md
+          build/sdk kernel verification/images.sha256
+          build/sdk kernel verification/rejections.log
+          build/sdk kernel verification/*/kernel.elf
+          build/sdk kernel verification/*/boot-module.bin
+          build/sdk kernel verification/*/serial.log
+        if-no-files-found: warn
     - name: Upload terminal SDK candidate
       uses: actions/upload-artifact@v4
       with:

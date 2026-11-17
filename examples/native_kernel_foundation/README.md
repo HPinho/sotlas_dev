@@ -23,3 +23,7 @@ missing interrupt or leaked page causes a different guest exit.
 [Scope and evidence](../../docs/native_kernel_foundation.md) describes
 the exact contracts and limitations. This is a single-bootstrap-processor,
 ring-0 integration gate rather than a complete OS.
+
+The [installed SDK guide](../../docs/native_kernel_sdk.md) provides the same
+source/build path without a repository checkout, including Windows image
+generation and Linux QEMU execution. The SDK includes all seven kernel profiles.
