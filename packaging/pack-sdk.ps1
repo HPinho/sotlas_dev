@@ -21,7 +21,7 @@ foreach ($name in @('token','ast','lexer','parser','sema','backend/target_ir','b
 foreach ($name in @('linux','windows','darwin')) {Copy-Sdk "bootstrap/sotlas/native_driver/$name.sotlas"}
 foreach ($name in @('build_native.sh','build_native.ps1','test_native.sh','test_native.ps1','verify_sdk.sh','verify_sdk.ps1')) {Copy-Sdk "scripts/$name"}
 foreach ($name in @('install-sdk.sh','install-sdk.ps1')) {Copy-Sdk "packaging/$name"}
-foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md','native_ui_snapshots.md')) {Copy-Sdk "docs/$name"}
+foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md','native_ui_snapshots.md','native_ui_editing.md')) {Copy-Sdk "docs/$name"}
 Copy-Sdk 'examples/calculator/src/calculator/main.sotlas'
 foreach ($name in @('linux','windows','darwin')) {Copy-Sdk "examples/calculator/platform/$name.sotlas"}
 Copy-Sdk 'examples/native_config.sotlas'

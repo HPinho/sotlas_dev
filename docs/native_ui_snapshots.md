@@ -59,8 +59,8 @@ application is `ui-main.exe` in the SDK verification output. These checks do not
 open a visible test window.
 
 Local Windows and Linux/WSL execution is recorded in the preview roadmap.
-Intel macOS and complete remote certification depend on the owner-reported
-matrix result. The bounded scene-storage/publication block closes on that
-green result. General responsive layout, caret/selection editing, IME,
+The owner reported the full matrix green for `c97c936` on 2026-11-16, closing
+the bounded scene-storage/publication block, including Intel macOS. Subsequent
+[keyboard editing](native_ui_editing.md) is a separate delivery. General responsive layout, selection editing, IME,
 accessibility, multiple windows, GPU rendering, Linux/macOS renderers and full
 language ownership parity are separate blocks.

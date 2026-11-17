@@ -17,13 +17,16 @@ powershell -NoProfile -File examples/graphical_calculator/build.ps1 build/native
 
 Choose a fresh output directory. Click numbers and operations, then `=`. The
 expression remains visible for correction or continued editing. `C` clears;
-`←` deletes the last character; `×` and `÷` select multiplication and division.
+`←` deletes before the cursor; `×` and `÷` select multiplication and division.
 The keyboard accepts the same arithmetic
-characters, Backspace and Enter. Tab moves focus in declaration order; Enter
+characters, Backspace and Enter. With the expression focused, Left/Right and
+Home/End move the cursor; Delete removes at the cursor. Characters insert at
+that position, and long expressions scroll to keep the caret visible.
+Tab moves focus in declaration order; Enter
 or Space activates a focused button. Escape closes the application.
 
 The expression buffer holds 128 ASCII bytes. Full input is rejected without
-modifying the expression. Invalid expressions display the evaluator's error
+modifying the expression or cursor. Invalid expressions display the evaluator's error
 and remain editable. Arithmetic follows the [terminal calculator contract](../calculator/README.md):
 precedence, parentheses, decimals, `f64`, bounded magnitude and six-place display.
 It is not exact financial decimal arithmetic.
@@ -43,7 +46,7 @@ compiler borrow proof. A failed snapshot preserves all previous scene bytes.
 |---|---|
 | `ui_text` | Read-only label |
 | `ui_button` | Label, focus and one action ID per activation |
-| `ui_text_field` | Focusable value display; this application implements append/Backspace editing |
+| `ui_text_field`, `ui_text_field_at` | Focusable value with validated caret; this application implements bounded keyboard insertion/deletion |
 | `ui_row`, `ui_column`, `ui_cell` | Fixed extents, spacing and checked container bounds |
 | `ui_click` | Hit testing with half-open bounds; gaps do not activate controls |
 | `ui_key` | Tab focus cycling; Enter/Space button activation |
@@ -90,12 +93,15 @@ The installed SDK now runs the same model/Unicode/render fixtures directly
 through shell orchestration, without invoking this Python adapter. It also runs
 the three native snapshot contracts and builds `ui-main.exe` on Windows.
 
+The [keyboard editing contract](../../docs/native_ui_editing.md) specifies
+cursor boundaries, event separation, capacity recovery and rendering limits.
+
 ## Remaining scope
 
 This first UI profile uses fixed layout and validated UTF-8 labels. The
 [encoding contract](../../docs/native_unicode_text.md) defines conversion,
 controls and capacity rules. It does not provide
-responsive reflow, general text selection/caret editing, complex text shaping/IME,
+responsive reflow, text selection, clipboard, mouse caret placement, complex text shaping/IME,
 accessibility, clipboard support, multiple windows, touch, animations, GPU
 rendering, a visual editor or hot reload. Narrow windows clip the fixed scene.
 These limits must remain visible in preview documentation. Linux/macOS

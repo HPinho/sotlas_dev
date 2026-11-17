@@ -5,7 +5,7 @@ import sotlas::runtime::unicode::*;
 // This first declarative profile is bounded to 64 items and 4096 layout units.
 pub struct UiRect { pub x:i32; pub y:i32; pub width:u32; pub height:u32; pub valid:bool; }
 pub struct UiLayout { pub bounds:UiRect; pub gap:u32; pub cursor:u32; pub horizontal:bool; }
-pub struct UiItem { pub id:u32; pub kind:u32; pub bounds:UiRect; pub label:*const u8; pub length:usize; }
+pub struct UiItem { pub id:u32; pub kind:u32; pub bounds:UiRect; pub label:*const u8; pub length:usize; pub caret:usize; }
 pub struct UiView { pub items:*mut UiItem; pub count:usize; pub capacity:usize; pub focus:u32; pub error:u32; }
 
 pub fn ui_rect(x:i32,y:i32,width:u32,height:u32) -> UiRect {
@@ -51,6 +51,12 @@ pub fn ui_label_valid(label:*const u8,length:usize) -> bool {
     }
     return true;
 }
+pub fn ui_caret_valid(label:*const u8,length:usize,caret:usize) -> bool {
+    if !ui_label_valid(label,length) || caret > length { return false; }
+    if caret == length { return true; }
+    let byte:u8=unsafe { *(label+caret) };
+    return byte < 128 || byte >= 192;
+}
 
 // Pointer shape checks do not prove accessibility. Caller storage must remain
 // live, correctly typed and exclusive to the UI thread for the entire call.
@@ -73,6 +79,8 @@ pub fn ui_view_valid(view:*const UiView) -> bool {
         let checked:UiRect=ui_rect(item.bounds.x,item.bounds.y,item.bounds.width,item.bounds.height);
         if item.id == 0 || item.kind < 1 || item.kind > 3 || !item.bounds.valid || !checked.valid
             || !ui_label_valid(item.label,item.length) { return false; }
+        if item.kind == 3 { if !ui_caret_valid(item.label,item.length,item.caret) { return false; } }
+        else { if item.caret != 0 { return false; } }
         let mut previous:usize=0;
         while previous < index {
             if unsafe { (*(current.items+previous)).id } == item.id { return false; }
@@ -132,7 +140,8 @@ fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,len
             index=index+1;
         }
         if !ui_label_valid(label,length) { view.error=4; return false; }
-        *(view.items+view.count)=UiItem{id:id,kind:kind,bounds:bounds,label:label,length:length};
+        let mut caret:usize=0;if kind == 3 { caret=length; }
+        *(view.items+view.count)=UiItem{id:id,kind:kind,bounds:bounds,label:label,length:length,caret:caret};
         view.count=view.count+1;
     }
     return true;
@@ -140,6 +149,15 @@ fn ui_add(mut view:*mut UiView,id:u32,kind:u32,bounds:UiRect,label:*const u8,len
 pub fn ui_text(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,1,bounds,label,length); }
 pub fn ui_button(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,2,bounds,label,length); }
 pub fn ui_text_field(view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize) -> bool { return ui_add(view,id,3,bounds,label,length); }
+pub fn ui_text_field_at(mut view:*mut UiView,id:u32,bounds:UiRect,label:*const u8,length:usize,caret:usize) -> bool {
+    if view == null { return false; }
+    if !ui_caret_valid(label,length,caret) {
+        unsafe { if view.error == 0 { view.error=5; } }return false;
+    }
+    if !ui_add(view,id,3,bounds,label,length) { return false; }
+    unsafe { let mut item:*mut UiItem=view.items+view.count-1;item.caret=caret; }
+    return true;
+}
 pub fn ui_click(mut view:*mut UiView,x:i32,y:i32) -> u32 {
     if view == null { return 0; }
     unsafe {

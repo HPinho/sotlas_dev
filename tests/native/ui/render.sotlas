@@ -7,6 +7,20 @@ static mut render_items:[UiItem;32]=0;
 static mut snapshot_items:[UiItem;32]=0;
 static mut snapshot_labels:[u8;4096]=0;
 
+fn editor_key(scene:*mut UiView,key:u32,position:usize) -> bool {
+    if !native_window_post(256,key as u64,0) { return false; }
+    let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
+    let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
+    let mut attempt:u32=0;
+    while attempt < 64 {
+        if native_window_next(events,false) && event.kind == 5 && event.code == key {
+            return calculator_ui_dispatch(scene,event.kind,event.code,event.x,event.y) && calculator_ui_cursor() == position;
+        }
+        attempt=attempt+1;
+    }
+    return false;
+}
+
 pub fn main_entry() -> u32 {
     if !native_window_start() { return 1; }
     let mut title:[u16;2]=0; title[0]=83;
@@ -29,6 +43,17 @@ pub fn main_entry() -> u32 {
         if iteration > 1 && (current > gdi || current_user > windows) { native_window_stop(); return 5; }
         calculator_ui_action(49); iteration=iteration+1;
     }
+    // Long input scrolls to the caret; Home and End remain renderable.
+    calculator_ui_reset();iteration=0;
+    while iteration < 128 { calculator_ui_action(49);iteration=iteration+1; }
+    view.focus=2000;
+    if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 15; }
+    calculator_ui_key(36);
+    if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 16; }
+    calculator_ui_key(35);calculator_ui_key(37);
+    if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 17; }
+    if !editor_key(scene,36,0) || !editor_key(scene,39,1) || !editor_key(scene,46,1)
+        || calculator_ui_length() != 127 || !editor_key(scene,35,127) { native_window_stop(); return 20; }
     // Failed frame input must not leave a paint session or selected font behind.
     view.error=1;
     if ui_snapshot(frame,snapshot,unsafe { snapshot_items as *mut UiItem },32,unsafe { snapshot_labels as *mut u8 },4096)
@@ -38,13 +63,16 @@ pub fn main_entry() -> u32 {
     let mut first:*mut UiItem=unsafe { render_items as *mut UiItem };
     let international:*const u8="ação Ω 文 😀";
     let bounds:UiRect=ui_rect(24,20,344,28);
-    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:international,length:18}; }
+    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:international,length:18,caret:0}; }
     if !ui_windows_paint(frame) { native_window_stop(); return 12; }
     let invalid:*const u8="\0";
-    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:invalid,length:1}; }
+    unsafe { *first=UiItem{id:2001,kind:1,bounds:bounds,label:invalid,length:1,caret:0}; }
     if ui_windows_paint(frame) || native_window_end() || native_window_unclip() { native_window_stop(); return 10; }
     if !calculator_ui_view(scene) || !ui_windows_paint(frame) { native_window_stop(); return 11; }
+    if native_window_text_width(unsafe { title as *const u16 },1) != -1 { native_window_stop(); return 18; }
     if !native_window_begin() || native_window_begin() { native_window_stop(); return 7; }
+    if native_window_text_width(unsafe { title as *const u16 },1) <= 0
+        || native_window_text_width(unsafe { title as *const u16 },0) != 0 { native_window_stop(); return 19; }
     if !native_window_stop() || !native_window_stop() { return 8; }
     iteration=0;
     while iteration < 3 {

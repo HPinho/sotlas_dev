@@ -24,7 +24,7 @@ cp "$repository"/bootstrap/sotlas/native_compiler/backend/*.sotlas "$bundle/boot
 cp "$repository"/bootstrap/sotlas/native_driver/{linux,windows,darwin}.sotlas "$bundle/bootstrap/sotlas/native_driver/"
 for name in build_native.sh build_native.ps1 test_native.sh test_native.ps1 verify_sdk.sh verify_sdk.ps1; do cp "$repository/scripts/$name" "$bundle/scripts/"; done
 cp "$repository"/packaging/install-sdk.{sh,ps1} "$bundle/packaging/"
-for name in native_json.md native_narrow_division.md native_seed_workflow.md native_ui_snapshots.md; do cp "$repository/docs/$name" "$bundle/docs/"; done
+for name in native_json.md native_narrow_division.md native_seed_workflow.md native_ui_snapshots.md native_ui_editing.md; do cp "$repository/docs/$name" "$bundle/docs/"; done
 cp "$repository/examples/calculator/src/calculator/main.sotlas" "$bundle/examples/calculator/src/calculator/"
 cp "$repository"/examples/calculator/platform/*.sotlas "$bundle/examples/calculator/platform/"
 cp "$repository"/examples/native_config_map/{main.sotlas,README.md} "$bundle/examples/native_config_map/"
