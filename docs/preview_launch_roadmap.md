@@ -1,6 +1,6 @@
 # Public preview launch roadmap
 
-**Date:** 2026-11-16
+**Date:** 2026-11-17
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Scope:** a usable native preview for terminal applications, a declarative GUI
 calculator and a documented minimal kernel example. This is a release plan;
@@ -127,6 +127,23 @@ scope. The editing block awaits its own complete matrix result before closure.
 Unicode fixtures. Windows also passed posted keydown events through the native
 window event queue, focused caret/scroll rendering, active/inactive font-width
 measurement, existing resource-count and cleanup checks, and GUI compilation.
+
+**2026-11-17 delivery — adaptive viewport and uniform grids:**
+[Grid layout](native_ui_layout.md) supplies balanced tracks with validated
+bounds/counts/gaps. The calculator measures its client rectangle before painting
+and input dispatch, uses the grid for adaptive controls, and publishes a notice
+or empty scene for small/zero viewports without changing model state. Tests
+cover geometry, disabled hidden controls and restoring focus, cursor and errors.
+Windows exercises actual resize/paint/posted-mouse cycles and steady resource
+counts after warm-up. This block and the preceding editing delivery retain
+separate scopes; their complete matrix certification remains pending. No green
+result is inferred from the owner's request to continue.
+
+**Adaptive-layout local evidence:** extracted SDK installation passed 56
+native contracts plus model/Unicode fixtures on Windows (PowerShell 7) and
+Linux/WSL. Windows also passed native resize/paint/posted-mouse sequences,
+six steady four-size cycles after warm-up, preserved model state, existing
+cleanup checks and compilation of the updated GUI application.
 
 **P3 first application (2026-10-16):** the [graphical calculator](../examples/graphical_calculator/README.md)
 now executes through the native Windows backend. Model/layout tests passed on

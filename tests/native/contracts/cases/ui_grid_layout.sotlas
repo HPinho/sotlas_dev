@@ -1,0 +1,46 @@
+module ui_grid_layout;
+import sotlas::runtime::ui::*;
+pub fn main_entry() -> u32 {
+    let bounds:UiRect=ui_rect(10,20,103,98);
+    let first:UiRect=ui_grid_cell(bounds,4,3,3,0,0);let last:UiRect=ui_grid_cell(bounds,4,3,3,3,2);
+    if !first.valid || first.x != 10 || first.y != 20 || first.width != 24 || first.height != 31
+        || last.x != 90 || last.y != 88 || last.width != 23 || last.height != 30 { return 1; }
+    let mut columns:u32=1;
+    while columns <= 8 {
+        let mut rows:u32=1;
+        while rows <= 5 {
+            let mut gap:u32=0;
+            while gap <= 3 {
+                let mut row:u32=0;
+                while row < rows {
+                    let mut column:u32=0;
+                    while column < columns {
+                        let cell:UiRect=ui_grid_cell(bounds,columns,rows,gap,column,row);
+                        if !cell.valid || cell.width == 0 || cell.height == 0 || cell.x < bounds.x || cell.y < bounds.y
+                            || cell.x+cell.width as i32 > bounds.x+bounds.width as i32 || cell.y+cell.height as i32 > bounds.y+bounds.height as i32 { return 2; }
+                        if column == 0 && cell.x != bounds.x { return 3; }
+                        if row == 0 && cell.y != bounds.y { return 4; }
+                        if column+1 == columns && cell.x+cell.width as i32 != bounds.x+bounds.width as i32 { return 5; }
+                        if row+1 == rows && cell.y+cell.height as i32 != bounds.y+bounds.height as i32 { return 6; }
+                        if column != 0 {
+                            let previous:UiRect=ui_grid_cell(bounds,columns,rows,gap,column-1,row);
+                            if cell.x != previous.x+previous.width as i32+gap as i32 || previous.width < cell.width || previous.width > cell.width+1 { return 7; }
+                        }
+                        if row != 0 {
+                            let previous:UiRect=ui_grid_cell(bounds,columns,rows,gap,column,row-1);
+                            if cell.y != previous.y+previous.height as i32+gap as i32 || previous.height < cell.height || previous.height > cell.height+1 { return 8; }
+                        }
+                        column=column+1;
+                    }
+                    row=row+1;
+                }
+                gap=gap+1;
+            }
+            rows=rows+1;
+        }
+        columns=columns+1;
+    }
+    let edge:UiRect=ui_grid_cell(ui_rect(4032,4032,64,64),64,64,0,63,63);
+    if !edge.valid || edge.x != 4095 || edge.y != 4095 || edge.width != 1 || edge.height != 1 { return 9; }
+    return 0;
+}

@@ -8,6 +8,13 @@ static mut calculator_items:[UiItem;32]=0;
 static mut calculator_frame_items:[UiItem;32]=0;
 static mut calculator_frame_labels:[u8;4096]=0;
 
+fn calculator_refresh(scene:*mut UiView,snapshot:*mut UiView) -> bool {
+    let mut size:NativeWindowSize=NativeWindowSize{width:0,height:0};
+    if !native_window_measure(unsafe { (&mut size) as *mut NativeWindowSize }) { return false; }
+    return calculator_ui_viewport(scene,size.width,size.height)
+        && ui_snapshot(unsafe { scene as *const UiView },snapshot,unsafe { calculator_frame_items as *mut UiItem },32,unsafe { calculator_frame_labels as *mut u8 },4096);
+}
+
 pub fn main_entry() -> u32 {
     if !native_window_start() { return 1; }
     let mut title:[u16;18]=0;
@@ -20,19 +27,22 @@ pub fn main_entry() -> u32 {
     let mut display:UiView=ui_view(unsafe { calculator_frame_items as *mut UiItem },32,2000);
     let snapshot:*mut UiView=unsafe { (&mut display) as *mut UiView };
     calculator_ui_reset();
-    if !calculator_ui_view(scene) || !ui_snapshot(unsafe { scene as *const UiView },snapshot,unsafe { calculator_frame_items as *mut UiItem },32,unsafe { calculator_frame_labels as *mut u8 },4096) { native_window_stop(); return 3; }
+    if !calculator_refresh(scene,snapshot) { native_window_stop(); return 3; }
     let mut event:NativeWindowEvent=NativeWindowEvent{kind:0,code:0,x:0,y:0};
     let events:*mut NativeWindowEvent=unsafe { (&mut event) as *mut NativeWindowEvent };
     let mut status:u32=0;
     while native_window_alive() {
         if !native_window_next(events,true) { continue; }
         if event.kind == 4 || (event.kind == 5 && event.code == 27) { break; }
+        // Measure before both painting and hit testing: a mouse message can
+        // precede the lower-priority paint queued after a synchronous resize.
+        if !calculator_refresh(scene,snapshot) { status=3;break; }
         if event.kind == 1 {
             let frame:*const UiView=unsafe { (&display) as *const UiView };
             if !ui_windows_paint(frame) { status=4; break; }
         }
         if calculator_ui_dispatch(scene,event.kind,event.code,event.x,event.y) {
-            if !calculator_ui_view(scene) || !ui_snapshot(unsafe { scene as *const UiView },snapshot,unsafe { calculator_frame_items as *mut UiItem },32,unsafe { calculator_frame_labels as *mut u8 },4096) { status=3; break; }
+            if !calculator_refresh(scene,snapshot) { status=3; break; }
             if !native_window_invalidate() { status=4; break; }
         }
     }

@@ -31,6 +31,11 @@ and remain editable. Arithmetic follows the [terminal calculator contract](../ca
 precedence, parentheses, decimals, `f64`, bounded magnitude and six-place display.
 It is not exact financial decimal arithmetic.
 
+The window adapts its button grid to the measured client area. At least
+280 × 420 client units shows the controls; smaller positive sizes show an
+enlarge-window message and disable hidden input. Enlarging restores expression,
+cursor, result and focus. See the [layout contract](../../docs/native_ui_layout.md).
+
 ## UI library contract
 
 `runtime/native/ui.sotlas` is independent of the platform renderer. A `UiView`
@@ -48,6 +53,7 @@ compiler borrow proof. A failed snapshot preserves all previous scene bytes.
 | `ui_button` | Label, focus and one action ID per activation |
 | `ui_text_field`, `ui_text_field_at` | Focusable value with validated caret; this application implements bounded keyboard insertion/deletion |
 | `ui_row`, `ui_column`, `ui_cell` | Fixed extents, spacing and checked container bounds |
+| `ui_grid_cell` | Checked uniform grid with balanced remainder tracks, used for adaptive button geometry |
 | `ui_click` | Hit testing with half-open bounds; gaps do not activate controls |
 | `ui_key` | Tab focus cycling; Enter/Space button activation |
 | `ui_windows_paint` | Event-driven Windows drawing and per-item clipping |
@@ -62,8 +68,9 @@ an error. Raw view/item pointers must remain valid; fabricating pointers is
 outside the safe contract. A renderer failure always attempts to close its
 clip/paint scope and restore the previous font.
 
-The calculator declares 23 items using these functions: title, input, result
-and twenty buttons. Its model owns one session. State changes rebuild the
+The normal calculator scene declares 23 items: title, input, result and twenty
+buttons. Compact/zero-sized viewports publish a notice/empty scene instead.
+Its model owns one session. State changes and client-size changes rebuild the
 view and request repaint; button activation and translated character events
 are handled separately so Enter/Space do not apply an action twice.
 
@@ -98,11 +105,12 @@ cursor boundaries, event separation, capacity recovery and rendering limits.
 
 ## Remaining scope
 
-This first UI profile uses fixed layout and validated UTF-8 labels. The
+This UI profile uses adaptive uniform grids and validated UTF-8 labels. The
 [encoding contract](../../docs/native_unicode_text.md) defines conversion,
 controls and capacity rules. It does not provide
-responsive reflow, text selection, clipboard, mouse caret placement, complex text shaping/IME,
+general flex/content-based layout, text selection, clipboard, mouse caret placement, complex text shaping/IME,
 accessibility, clipboard support, multiple windows, touch, animations, GPU
-rendering, a visual editor or hot reload. Narrow windows clip the fixed scene.
+rendering, a visual editor or hot reload. Small windows show a bounded notice;
+text still clips within each component.
 These limits must remain visible in preview documentation. Linux/macOS
 renderer ports and full language/ownership parity are separate work.

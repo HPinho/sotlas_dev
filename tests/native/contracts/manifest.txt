@@ -53,3 +53,5 @@ pass ui_snapshot_values cases/ui_snapshot_values.sotlas
 pass ui_snapshot_reject cases/ui_snapshot_reject.sotlas
 pass ui_invalid_views cases/ui_invalid_views.sotlas
 pass ui_caret cases/ui_caret.sotlas
+pass ui_grid_layout cases/ui_grid_layout.sotlas
+pass ui_grid_reject cases/ui_grid_reject.sotlas

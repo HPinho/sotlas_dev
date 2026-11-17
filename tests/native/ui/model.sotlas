@@ -57,6 +57,46 @@ fn editing_tests() -> u32 {
     calculator_ui_action(67);if !expression_is("",0,0) { return 46; }
     return 0;
 }
+fn viewport_tests() -> u32 {
+    calculator_ui_reset();calculator_ui_action(49);calculator_ui_action(47);calculator_ui_action(48);calculator_ui_action(61);calculator_ui_seek(1);
+    let mut view:UiView=ui_view(unsafe { test_items as *mut UiItem },32,55);let scene:*mut UiView=unsafe { (&mut view) as *mut UiView };
+    let mut iteration:u32=0;
+    while iteration < 6 {
+        let mut width:u32=280;let mut height:u32=420;
+        if iteration == 1 { width=281;height=421; }
+        if iteration == 2 { width=392;height=472; }
+        if iteration == 3 { width=800;height=600; }
+        if iteration == 4 { width=4096;height=4096; }
+        if iteration == 5 { width=4294967295;height=4294967295; }
+        if !calculator_ui_viewport(scene,width,height) || !ui_view_valid(unsafe { scene as *const UiView }) || view.count != 23 || view.focus != 55 { return 60; }
+        if width > 4096 { width=4096; }if height > 4096 { height=4096; }
+        let mut index:usize=0;
+        while index < view.count {
+            let item:UiItem=unsafe { *(view.items+index) };
+            let bounds:UiRect=item.bounds;
+            if bounds.x < 0 || bounds.y < 0 || (bounds.x as u32)+bounds.width > width || (bounds.y as u32)+bounds.height > height { return 61; }
+            if item.kind == 2 {
+                if ui_click(scene,bounds.x+(bounds.width/2) as i32,bounds.y+(bounds.height/2) as i32) != item.id { return 62; }
+                if (index-3)%4 != 3 && ui_click(scene,bounds.x+bounds.width as i32,bounds.y+1) != 0 { return 63; }
+            }
+            index=index+1;
+        }
+        view.focus=55;iteration=iteration+1;
+    }
+    if !calculator_ui_viewport(scene,279,420) || view.count != 1 || view.focus != 55 || view.error != 0
+        || calculator_ui_dispatch(scene,2,57,0,0) || calculator_ui_dispatch(scene,3,0,30,170) || calculator_ui_dispatch(scene,5,13,0,0)
+        || calculator_ui_length() != 3 || calculator_ui_cursor() != 1 || calculator_ui_error() != 4 { return 64; }
+    if !calculator_ui_viewport(scene,280,419) || view.count != 1 || !calculator_ui_viewport(scene,1,1) || view.count != 1
+        || !calculator_ui_viewport(scene,0,600) || view.count != 0 || !calculator_ui_viewport(scene,600,0) || view.count != 0 { return 65; }
+    if !calculator_ui_viewport(scene,640,700) || view.count != 23 || view.focus != 55 || calculator_ui_cursor() != 1
+        || !result_is("division by zero",16) || !expression_is("1/0",3,1) { return 66; }
+    if calculator_ui_viewport(null,640,700) { return 67; }
+    view=ui_view(null,32,55);
+    if calculator_ui_viewport(scene,0,0) || view.error != 1 { return 68; }
+    view=ui_view(unsafe { test_items as *mut UiItem },0,55);
+    if calculator_ui_viewport(scene,1,1) || view.error != 1 { return 69; }
+    return 0;
+}
 pub fn main_entry() -> u32 {
     if ui_rect(-1,0,10,10).valid || ui_rect(4090,0,20,20).valid { return 1; }
     let mut row:UiLayout=ui_row(ui_rect(10,20,30,40),5);
@@ -103,5 +143,6 @@ pub fn main_entry() -> u32 {
     view=ui_view(null,32,0);
     if ui_button(scene,1,bounds,"ok",2) || view.error != 1 { return 19; }
     let editing:u32=editing_tests();if editing != 0 { return editing; }
+    let viewport:u32=viewport_tests();if viewport != 0 { return viewport; }
     return 42;
 }

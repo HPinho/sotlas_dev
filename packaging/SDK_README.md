@@ -2,7 +2,7 @@
 
 This preview contains a native x86-64 compiler, its original Sotlas sources,
 native runtime modules, a terminal calculator, a JSON configuration application,
-a Windows graphical calculator and 54 executable/rejection/fault contract tests
+a Windows graphical calculator and 56 executable/rejection/fault contract tests
 written in Sotlas. UI model and Unicode tests run on every CLI target; Windows
 also runs hidden-window rendering/cleanup tests and builds the GUI executable.
 
@@ -49,10 +49,12 @@ directory; the contract runner also writes JUnit. The calculator executable is
 `calculator` (`calculator.exe` on Windows). Enter one expression per line;
 EOF ends the session. `configuration` exits with code 42 on success.
 On Windows, launch `ui-main.exe` from the verification output for the graphical
-calculator. It uses Windows desktop drawing services and a fixed layout; see
+calculator. It uses Windows desktop drawing services and adaptive grid layout; see
 `examples/graphical_calculator/README.md` and `docs/native_ui_snapshots.md`.
 Keyboard editing, a visible caret and horizontal scrolling of long expressions
 are described in `docs/native_ui_editing.md`.
+The calculator adapts to the client area and preserves its model while too
+small to show controls; see `docs/native_ui_layout.md` for its size/grid limits.
 
 ## Compile a project
 
