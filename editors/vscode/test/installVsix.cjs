@@ -39,7 +39,7 @@ async function main() {
   const extensionsDir = path.join(temporary, 'extensions');
   const testExtensionsDir = path.join(temporary, 'test-extensions');
   const userDataDir = path.join(temporary, 'user-data');
-  const workspaceDir = path.join(temporary, 'workspace');
+  const workspaceDir = path.join(temporary, 'workspace with spaces');
   try {
     const isolatedProfile = [`--user-data-dir=${userDataDir}`, `--extensions-dir=${extensionsDir}`];
     const localCli = process.env.SOTLAS_VSCODE_CLI;
@@ -88,9 +88,15 @@ async function main() {
       .find(candidate => candidate.toLowerCase().includes('sotlas-lang.vscode-sotlas'));
     assert.ok(installedExtension, 'VS Code installed the generated Sotlas VSIX');
 
-    fs.mkdirSync(path.join(workspaceDir, '.vscode'), { recursive: true });
+    const nativeSdk = process.env.SOTLAS_NATIVE_SDK;
+    if (nativeSdk) {
+      fs.mkdirSync(workspaceDir, { recursive: true });
+    } else {
+      fs.mkdirSync(path.join(workspaceDir, '.vscode'), { recursive: true });
+    }
     fs.mkdirSync(testExtensionsDir, { recursive: true });
-    const sourcePath = path.join(workspaceDir, 'main.sotlas');
+    const sourcePath = path.join(workspaceDir, nativeSdk ? 'src/main.sotlas' : 'main.sotlas');
+    if (!nativeSdk) {
     fs.writeFileSync(sourcePath, 'module smoke;\npub fn main() -> i64 { return 0; }\n');
     // Use Node itself as the configured compiler so this fixture works on
     // Windows as well as Unix without relying on shell-script execution.
@@ -102,18 +108,21 @@ async function main() {
     );
     fs.writeFileSync(
       path.join(workspaceDir, '.vscode', 'settings.json'),
-      JSON.stringify({ 'sotlas.compilerPath': process.execPath }, null, 2),
+      JSON.stringify({ 'sotlas.compilerPath': process.execPath, 'sotlas.toolchain': 'reference' }, null, 2),
     );
+    }
 
     const testExitCode = await runTests({
       vscodeExecutablePath: executable,
       extensionDevelopmentPath: installedExtension,
-      extensionTestsPath: path.join(__dirname, 'vscodeSmokeSuite.cjs'),
-      launchArgs: [workspaceDir, '--disable-gpu', `--user-data-dir=${userDataDir}`, `--extensions-dir=${testExtensionsDir}`],
-      extensionTestsEnv: { SOTLAS_SMOKE_SOURCE: sourcePath },
+      extensionTestsPath: path.join(__dirname, nativeSdk ? 'nativeSmokeSuite.cjs' : 'vscodeSmokeSuite.cjs'),
+      launchArgs: [workspaceDir, '--disable-gpu', '--disable-workspace-trust', '--skip-welcome', `--user-data-dir=${userDataDir}`, `--extensions-dir=${testExtensionsDir}`],
+      extensionTestsEnv: { SOTLAS_SMOKE_SOURCE: sourcePath, ...(nativeSdk ? { SOTLAS_NATIVE_SDK: path.resolve(nativeSdk) } : {}) },
     });
     assert.equal(testExitCode, 0, 'the installed VSIX activates and publishes compiler diagnostics');
   } finally {
+    assert.equal(path.dirname(path.resolve(temporary)), path.resolve(os.tmpdir()));
+    assert.ok(path.basename(temporary).startsWith('sotlas-vsix-install-'));
     fs.rmSync(temporary, {
       recursive: true,
       force: true,

@@ -21,7 +21,7 @@ foreach ($name in @('token','ast','lexer','parser','sema','backend/target_ir','b
 foreach ($name in @('linux','windows','darwin')) {Copy-Sdk "bootstrap/sotlas/native_driver/$name.sotlas"}
 foreach ($name in @('build_native.sh','build_native.ps1','test_native.sh','test_native.ps1','verify_sdk.sh','verify_sdk.ps1','build_kernel.sh','build_kernel.ps1','verify_kernel_sdk.sh','verify_kernel_sdk.ps1')) {Copy-Sdk "scripts/$name"}
 foreach ($name in @('install-sdk.sh','install-sdk.ps1')) {Copy-Sdk "packaging/$name"}
-foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md','native_ui_snapshots.md','native_ui_editing.md','native_ui_layout.md')) {Copy-Sdk "docs/$name"}
+foreach ($name in @('native_json.md','native_narrow_division.md','native_seed_workflow.md','native_ui_snapshots.md','native_ui_editing.md','native_ui_layout.md','native_vscode_sdk.md')) {Copy-Sdk "docs/$name"}
 foreach ($file in Get-ChildItem (Join-Path $repository 'docs') -Filter 'native_kernel*.md') {Copy-Sdk ('docs/'+$file.Name)}
 foreach ($kernelProfile in @('boot','interrupts','memory','heap','collections','vm','foundation')) {
     Copy-Sdk "examples/native_kernel_$kernelProfile/main.sotlas";Copy-Sdk "examples/native_kernel_$kernelProfile/README.md"

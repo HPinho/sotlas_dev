@@ -19,6 +19,11 @@ test('skips compiler output without a source location', () => {
   assert.deepEqual(parseCompilerDiagnostics('sotlas: erro: file not found'), []);
 });
 
+test('an explicit error remains an error when the rejected name contains warning', () => {
+  const [diagnostic] = parseCompilerDiagnostics('sotlas: error: /tmp/main.sotlas:2:3: unknown name: warning');
+  assert.equal(diagnostic.severity, 'error');
+});
+
 test('parses more than one diagnostic from mixed output', () => {
   const parsed = parseCompilerDiagnostics([
     'noise from compiler',

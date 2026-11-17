@@ -190,7 +190,28 @@ checks with output preservation. Linux QEMU booted basic/foundation images,
 returned guest result 42 / emulator exit 85 and produced every required serial
 checkpoint. New native CI steps repeat these installed checks, with image
 generation on all three hosts and emulator execution on Linux. The new
-delivery remains pending its own complete green matrix.
+delivery is **closed**: [CI #1395](https://github.com/HPinho/sotlas_dev/actions/runs/44134890716)
+completed successfully for `e6c36ed`, verified directly on GitHub before the
+next block. Installed image generation passed on all three CLI hosts and Linux
+boot verification passed for the declared basic/foundation scope.
+
+**Next delivery — native SDK in VS Code:** [native editor commands](native_vscode_sdk.md)
+select the installed SDK, create a console project, check/build/run it and
+publish compiler locations in Problems. Native builds use the native compiler;
+reference commands remain a separate compatible profile. The installed-VSIX
+test exercises actual program execution, ownership rejection after Unicode
+text, stale-artifact prevention and project preservation. Its new full matrix
+certification remains pending.
+
+**Native editor local evidence:** all 16 editor unit tests and TypeScript
+compilation passed. On Linux/WSL, the packaged VSIX passed both the reference
+diagnostics test and the installed native SDK test in isolated VS Code
+profiles. The native test starts with an empty workspace, creates a project,
+checks/builds/runs the real executable, maps a Unicode ownership diagnostic,
+blocks execution after a failed build and preserves existing project files.
+The generated console project also checked, built and ran on Windows using
+the installed SDK. Installed-VSIX execution on Windows and Intel macOS remains
+for the new three-host CI gate; local Linux results do not certify those hosts.
 
 ### P5 — installation
 

@@ -25,8 +25,20 @@
   "keywords": ["sotlas", "systems", "game-engine", "compiler", "language", "bare-metal", "general-purpose"],
   "main": "./out/extension.js",
   "activationEvents": [
-    "onLanguage:sotlas"
+    "onLanguage:sotlas",
+    "onCommand:sotlas.selectNativeSdk",
+    "onCommand:sotlas.createNativeProject",
+    "onCommand:sotlas.build",
+    "onCommand:sotlas.check",
+    "onCommand:sotlas.run"
   ],
+  "capabilities": {
+    "untrustedWorkspaces": {
+      "supported": "limited",
+      "description": "Structural hints are available; compiler and program execution require workspace trust.",
+      "restrictedConfigurations": ["sotlas.compilerPath", "sotlas.toolchain", "sotlas.nativeSdkPath"]
+    }
+  },
   "scripts": {
     "vscode:prepublish": "npm run compile",
     "compile": "tsc -p ./",
@@ -70,6 +82,9 @@
       }
     ],
     "commands": [
+      { "command": "sotlas.selectNativeSdk", "title": "Sotlas: Select Native SDK" },
+      { "command": "sotlas.createNativeProject", "title": "Sotlas: Create Native Console Project" },
+      { "command": "sotlas.run", "title": "Sotlas: Run Native Project" },
       {
         "command": "sotlas.build",
         "title": "Sotlas: Build Workspace"
@@ -103,6 +118,15 @@
       "type": "object",
       "title": "Sotlas Configuration",
       "properties": {
+        "sotlas.toolchain": {
+          "type": "string", "enum": ["reference", "native"], "default": "reference",
+          "description": "Compiler command profile. Select Native SDK configures the native profile."
+        },
+        "sotlas.nativeSdkPath": { "type": "string", "default": "", "description": "Installed native SDK directory used to create console projects." },
+        "sotlas.nativeSourceRoot": { "type": "string", "default": "src", "description": "Native source directory relative to the workspace folder." },
+        "sotlas.nativeEntry": { "type": "string", "default": "src/main.sotlas", "description": "Native project entry relative to the workspace folder." },
+        "sotlas.nativeOutput": { "type": "string", "default": "build/app", "description": "Native executable path under the workspace build directory. Windows adds .exe when needed." },
+        "sotlas.nativeRunArguments": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Program arguments for Run Native Project; passed directly without a shell." },
         "sotlas.compilerPath": {
           "type": "string",
           "default": "sotlas",

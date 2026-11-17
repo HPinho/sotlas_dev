@@ -308,7 +308,7 @@ jobs:
 
   sotlas-native-tests:
     name: Sotlas tests (${{ matrix.os }})
-    needs: native-linux-package
+    needs: [native-linux-package, vscode-extension-build]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -401,6 +401,35 @@ jobs:
       run: |
         & './build/sdk installed/scripts/verify_kernel_sdk.ps1' './build/sdk installed/bin/sotlas-native.exe' './build/sdk kernel verification'
         Get-Content './build/sdk kernel verification/summary.md' | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Append
+    - name: Set up Node.js for installed native VSIX validation
+      uses: actions/setup-node@v4
+      with:
+        node-version: "22"
+    - name: Download the VSIX from the same revision
+      uses: actions/download-artifact@v4
+      with:
+        name: sotlas-vscode-preview
+        path: editors/vscode
+    - name: Install editor test dependencies
+      working-directory: editors/vscode
+      run: npm install --no-package-lock --no-audit --no-fund
+    - name: Cache pinned native editor test runtime
+      uses: actions/cache@v4
+      with:
+        path: editors/vscode/.vscode-test/vscode-*
+        key: ${{ runner.os }}-vscode-smoke-${{ hashFiles('editors/vscode/test/vscode-version.json') }}
+    - name: Verify installed VSIX with the installed native SDK
+      timeout-minutes: 10
+      working-directory: editors/vscode
+      shell: bash
+      env:
+        SOTLAS_NATIVE_SDK: ${{ github.workspace }}/build/sdk installed
+      run: |
+        if [[ '${{ matrix.target }}' == linux ]]; then
+          xvfb-run -a npm run test:vsix
+        else
+          npm run test:vsix
+        fi
     - name: Upload kernel SDK evidence
       if: always()
       uses: actions/upload-artifact@v4

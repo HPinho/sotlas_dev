@@ -20,6 +20,12 @@ advanced examples remain experimental or planned.
 
 ## Key Features
 
+- **Native SDK projects**:
+  - Select an installed x86-64 SDK and create a console project in an empty directory.
+  - Check, build and run with the Sotlas-written native compiler. No Python, C compiler or external linker is required after obtaining the seed.
+  - Report native compiler errors in Problems, including UTF-8 byte-column conversion to editor UTF-16 positions.
+  - A failed build preserves the old executable and does not run it.
+
 - **Local structural hints**:
   - Checks delimiters and selected declaration patterns while editing.
   - These hints are not the Sotlas parser or type checker. Use **Sotlas: Check Active File** to run the configured compiler for authoritative diagnostics.
@@ -50,7 +56,9 @@ advanced examples remain experimental or planned.
 
 ## Requirements
 
-Compiler commands require a Sotlas toolchain installation and a working C compiler for native builds. For the current preview, install the toolchain using the instructions in the [main README](https://github.com/HPinho/sotlas_dev#-quickstart-verified-preview-subset), then ensure `sotlas` is accessible in your `PATH`.
+For native projects, install the matching Linux x86-64, Windows x86-64 or Intel macOS SDK and select it with **Sotlas: Select Native SDK**. The compiler and its runtime sources come from that SDK. VS Code itself remains an editor dependency; it is not part of the compiler bootstrap.
+
+The existing reference profile remains the default for compatibility. Its commands use the separately installed `sotlas` toolchain; backend/tool requirements depend on that installation. Native selection does not change the global reference-toolchain settings.
 
 The local structural hints work without the compiler. Compiler checks and the
 optional LSP report an error when the configured compiler cannot be started.
@@ -62,6 +70,36 @@ optional LSP report an error when the configured compiler cannot be started.
 | Setting | Default | Description |
 | :--- | :--- | :--- |
 | `sotlas.compilerPath` | `"sotlas"` | Path to the executable Sotlas compiler binary. |
+| `sotlas.toolchain` | `"reference"` | `reference` command syntax or the `native` SDK command profile. |
+| `sotlas.nativeSdkPath` | empty | Installed SDK used for new project sources. Select Native SDK sets this for an existing project. |
+| `sotlas.nativeSourceRoot` | `"src"` | Source directory relative to the workspace folder. |
+| `sotlas.nativeEntry` | `"src/main.sotlas"` | Entry for native build/run. Check uses the active saved source. |
+| `sotlas.nativeOutput` | `"build/app"` | Executable under the workspace build directory; Windows appends `.exe`. |
+| `sotlas.nativeRunArguments` | `[]` | Program arguments passed directly to the process, without a shell. |
+
+## Start a native console project
+
+1. Install the SDK and the VSIX from the same fully green development workflow.
+2. Run **Sotlas: Select Native SDK** and select the SDK directory containing `sdk.json` and `bin`.
+3. Run **Sotlas: Create Native Console Project** and choose an empty directory. Selecting an SDK in an empty workspace leaves that directory empty until project creation.
+4. Choose **Open Project** when offered, or keep the current folder if it is the one just created. Open `src/main.sotlas`.
+5. Run **Sotlas: Check Active File**, **Sotlas: Build Workspace**, then **Sotlas: Run Native Project**. The sample prints `Hello from Sotlas!` in the terminal.
+
+The generated project copies the SDK runtime sources and a console I/O adapter
+for the current host. Existing project directories are rejected rather than
+overwritten. The SDK path is machine-specific; selecting a new SDK does not
+silently replace a project's copied runtime or platform adapter.
+
+Native check saves the active file. Build/run save open source files in the
+selected source directory. Run builds first and launches a process task only
+after success; source edits during compilation require another build. Compiler
+output is available in the Sotlas channel. These are explicit compiler commands,
+not automatic semantic checking while typing or a native LSP implementation.
+
+Native formatting, REPL, Studio, WebAssembly and LSP are not provided by this
+SDK command profile; the extension explains that limit rather than invoking
+incompatible commands. Kernel images use the SDK kernel scripts. Local
+structural hints and the optional reference LSP retain their separate scope.
 
 ---
 
@@ -99,6 +137,13 @@ To run it offline on Windows with an existing VS Code installation,
 set `SOTLAS_VSCODE_CLI`, `SOTLAS_VSCODE_EXECUTABLE`, and
 `SOTLAS_VSCODE_CLI_SCRIPT` to the installed `Code.exe` and its
 `resources/app/out/cli.js`, then run `npm run test:vsix`.
+
+Set `SOTLAS_NATIVE_SDK` to an installed native SDK directory to run the native
+VSIX smoke scenario. It creates a project through the installed extension,
+compiles and executes the real program, verifies native ownership diagnostics
+after Unicode text, confirms that a failed build cannot execute a stale image,
+and checks error clearing and existing-directory preservation. CI runs this
+scenario on the three SDK hosts. Linux uses a virtual display.
 
 ---
 
