@@ -5,6 +5,8 @@ native runtime modules, a terminal calculator, a JSON configuration application,
 a Windows graphical calculator and 56 executable/rejection/fault contract tests
 written in Sotlas. UI model and Unicode tests run on every CLI target; Windows
 also runs hidden-window rendering/cleanup tests and builds the GUI executable.
+Seven native kernel profiles, their original sources and cross-host image build
+scripts are included. Linux QEMU boot checks are separate from hosted examples.
 
 The compiler builds and links the bundled examples and rebuilds itself after
 receiving this seed. These operations do not invoke Python, a C compiler or an
@@ -55,6 +57,15 @@ Keyboard editing, a visible caret and horizontal scrolling of long expressions
 are described in `docs/native_ui_editing.md`.
 The calculator adapts to the client area and preserves its model while too
 small to show controls; see `docs/native_ui_layout.md` for its size/grid limits.
+
+## Build a kernel
+
+The installed SDK can generate all seven documented kernel profiles. From its
+directory, use `bash scripts/build_kernel.sh "$PWD/bin/sotlas-native" /fresh/output --foundation`,
+or PowerShell `./scripts/build_kernel.ps1 ./bin/sotlas-native.exe C:/fresh/output -KernelProfile foundation`.
+See `docs/native_kernel_sdk.md` for fresh-directory rules, QEMU boot commands,
+rejection checks, artifacts and platform limits. QEMU is optional for image
+generation and is not bundled. Linux/WSL is the boot certification environment.
 
 ## Compile a project
 
