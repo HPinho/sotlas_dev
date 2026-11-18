@@ -93,3 +93,10 @@ path instead of adding another Python-generated program.
 Local migration validation passed all 50 cases on native Linux and Windows
 compilers. Deliberately failing programs also produced a failing gate and JUnit
 failure on both hosts. Intel macOS and the new Actions wiring await CI.
+
+The suite now has 58 cases. Two new Sotlas programs cover CPU tensor row
+reductions/broadcasting, including numerical edge cases, empty dimensions,
+range/shape/alias rejection and output preservation. Fresh installed SDK
+verification passed all 58 cases on Windows and Linux for this delivery;
+the new complete CI matrix remains pending. See the
+[tensor contract](../../../docs/native_tensor_ops.md) for the exact API scope.

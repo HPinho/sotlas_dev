@@ -51,6 +51,8 @@
 
 [Native f32 CPU projection](examples/native_numeric_projection/README.md)
 
+[Native tensor row statistics and broadcasts](examples/native_tensor_rows/README.md)
+
 [Build and boot a native x86-64 kernel](examples/native_kernel_boot/README.md)
 
 [Native kernel exceptions and timer interrupts](examples/native_kernel_interrupts/README.md)

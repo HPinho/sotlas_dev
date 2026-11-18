@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Compiler commands use argument-safe process execution; WebAssembly uses the supported `dump-wasm` command.
 - Marked this editor package as a preview to match the Sotlas 1.0 candidate.
 
+### Fixed
+- Updated the installed-VSIX test runner for current macOS application bundles and normalized Windows URI paths in native project checks. Compilation, execution and diagnostic assertions remain required on all three hosts.
+
 ## [0.5.1] - 2026-09-16
 
 ### Fixed

@@ -8,8 +8,10 @@ const vscode = require('vscode');
 exports.run = async function run() {
   const extension = vscode.extensions.getExtension('sotlas-lang.vscode-sotlas');
   assert.ok(extension); await extension.activate();
-  const source = process.env.SOTLAS_SMOKE_SOURCE;
-  const sdk = process.env.SOTLAS_NATIVE_SDK;
+  // Use the extension host's URI representation, including its normalized
+  // Windows drive letter. A drive-case difference is not a different SDK.
+  const source = vscode.Uri.file(process.env.SOTLAS_SMOKE_SOURCE).fsPath;
+  const sdk = vscode.Uri.file(process.env.SOTLAS_NATIVE_SDK).fsPath;
   const directory = path.dirname(path.dirname(source));
   assert.equal(await vscode.commands.executeCommand('sotlas.selectNativeSdk', vscode.Uri.file(sdk)), sdk);
   assert.deepEqual(fs.readdirSync(directory), [], 'selecting an SDK preserves the empty project directory');

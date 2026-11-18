@@ -1,0 +1,120 @@
+module sotlas::runtime::tensor_ops;
+import sotlas::runtime::tensor_cpu::*;
+
+// Caller-backed, contiguous row-major f32 operations. Callers must keep each
+// range live and provide exclusive writable output access for the whole call.
+// Metadata checks do not prove pointer provenance, allocation size or lifetime.
+// Status: 0 success, 1 invalid range, 2 incompatible shape, 3 unsafe overlap.
+
+fn tensor_ops_overlap(a:*const f32,an:usize,b:*const f32,bn:usize)->bool {
+    if an==0 || bn==0 { return false; }
+    let start_a:usize=unsafe{a as usize};
+    let start_b:usize=unsafe{b as usize};
+    return start_a<start_b+bn*4 && start_b<start_a+an*4;
+}
+
+fn tensor_rows_status(output:NativeF32MutView,input:NativeF32View,
+    rows:usize,columns:usize,allow_empty:bool)->u32 {
+    let destination:*const f32=unsafe{output.data as *const f32};
+    if !native_f32_range_valid(destination,output.length)
+        || !native_f32_range_valid(input.data,input.length) { return 1; }
+    if columns!=0 && rows>18446744073709551615/columns { return 2; }
+    if output.length!=rows || input.length!=rows*columns { return 2; }
+    if !allow_empty && rows!=0 && columns==0 { return 2; }
+    if tensor_ops_overlap(destination,output.length,input.data,input.length) { return 3; }
+    return 0;
+}
+
+// mode 0 = sum, 1 = mean, 2 = max. Only the checked public entry points call it.
+fn tensor_rows_reduce(output:NativeF32MutView,input:NativeF32View,
+    rows:usize,columns:usize,mode:u32)->u32 {
+    let status:u32=tensor_rows_status(output,input,rows,columns,mode==0);
+    if status!=0 || rows==0 { return status; }
+    let mut row:usize=0;
+    unsafe {
+        while row<rows {
+            let mut value:f32=0.0;
+            let mut column:usize=0;
+            if mode==2 { value= *(input.data+row*columns);column=1; }
+            while column<columns {
+                let element:f32= *(input.data+row*columns+column);
+                if mode==2 {
+                    // Propagate the first NaN. Equal maxima preserve the first
+                    // value, including its signed zero bit pattern.
+                    if value==value && (element!=element || element>value) { value=element; }
+                } else { value+=element; }
+                column+=1;
+            }
+            if mode==1 { value=value/columns as f32; }
+            *(output.data+row)=value;
+            row+=1;
+        }
+    }
+    return 0;
+}
+
+// Sequential left-to-right addition starting at +0. Empty rows sum to +0.
+pub fn native_f32_row_sum_cpu(output:NativeF32MutView,input:NativeF32View,
+    rows:usize,columns:usize)->u32 {
+    return tensor_rows_reduce(output,input,rows,columns,0);
+}
+
+// Sequential row sum followed by one f32 division. A nonempty set of rows
+// must have at least one column; rejecting undefined means preserves output.
+pub fn native_f32_row_mean_cpu(output:NativeF32MutView,input:NativeF32View,
+    rows:usize,columns:usize)->u32 {
+    return tensor_rows_reduce(output,input,rows,columns,1);
+}
+
+pub fn native_f32_row_max_cpu(output:NativeF32MutView,input:NativeF32View,
+    rows:usize,columns:usize)->u32 {
+    return tensor_rows_reduce(output,input,rows,columns,2);
+}
+
+fn tensor_broadcast_status(output:NativeF32MutView,input:NativeF32View,
+    vector:NativeF32View,rows:usize,columns:usize)->u32 {
+    let destination:*const f32=unsafe{output.data as *const f32};
+    if !native_f32_range_valid(destination,output.length)
+        || !native_f32_range_valid(input.data,input.length)
+        || !native_f32_range_valid(vector.data,vector.length) { return 1; }
+    if columns!=0 && rows>18446744073709551615/columns { return 2; }
+    if output.length!=rows*columns || input.length!=output.length
+        || vector.length!=columns { return 2; }
+    // Exact input/output alias is safe: each input element is read once before
+    // it is replaced. Partial aliases and a writable broadcast vector are not.
+    if destination!=input.data && tensor_ops_overlap(destination,output.length,input.data,input.length) { return 3; }
+    if tensor_ops_overlap(destination,output.length,vector.data,vector.length) { return 3; }
+    return 0;
+}
+
+fn tensor_broadcast(output:NativeF32MutView,input:NativeF32View,
+    vector:NativeF32View,rows:usize,columns:usize,multiply:bool)->u32 {
+    let status:u32=tensor_broadcast_status(output,input,vector,rows,columns);
+    if status!=0 || output.length==0 { return status; }
+    let mut row:usize=0;
+    unsafe {
+        while row<rows {
+            let mut column:usize=0;
+            while column<columns {
+                let index:usize=row*columns+column;
+                if multiply { *(output.data+index)= *(input.data+index)* *(vector.data+column); }
+                else { *(output.data+index)= *(input.data+index)+ *(vector.data+column); }
+                column+=1;
+            }
+            row+=1;
+        }
+    }
+    return 0;
+}
+
+// output[rows,columns] = input[rows,columns] + vector[columns].
+pub fn native_f32_broadcast_add_cpu(output:NativeF32MutView,input:NativeF32View,
+    vector:NativeF32View,rows:usize,columns:usize)->u32 {
+    return tensor_broadcast(output,input,vector,rows,columns,false);
+}
+
+// output[rows,columns] = input[rows,columns] * vector[columns].
+pub fn native_f32_broadcast_mul_cpu(output:NativeF32MutView,input:NativeF32View,
+    vector:NativeF32View,rows:usize,columns:usize)->u32 {
+    return tensor_broadcast(output,input,vector,rows,columns,true);
+}

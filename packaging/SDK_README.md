@@ -2,11 +2,14 @@
 
 This preview contains a native x86-64 compiler, its original Sotlas sources,
 native runtime modules, a terminal calculator, a JSON configuration application,
-a Windows graphical calculator and 56 executable/rejection/fault contract tests
+a Windows graphical calculator and 58 executable/rejection/fault contract tests
 written in Sotlas. UI model and Unicode tests run on every CLI target; Windows
 also runs hidden-window rendering/cleanup tests and builds the GUI executable.
 Seven native kernel profiles, their original sources and cross-host image build
 scripts are included. Linux QEMU boot checks are separate from hosted examples.
+The CPU tensor library also provides row reductions and row-vector broadcasts;
+`examples/native_tensor_rows` demonstrates preprocessing with caller-owned
+storage. See `docs/native_tensor_ops.md` for shape, alias and numerical rules.
 
 The compiler builds and links the bundled examples and rebuilds itself after
 receiving this seed. These operations do not invoke Python, a C compiler or an

@@ -76,6 +76,11 @@ reject use after move, report its Unicode-positioned diagnostic, preserve the
 old executable without running it, clear fixed diagnostics and reject an
 occupied project directory. The reference diagnostic smoke remains required.
 
+The runner is pinned to `@vscode/test-electron` 3.1.0 for the current macOS
+application bundle layout. A platform-independent fixture checks its executable
+resolution. Native smoke paths use VS Code URI normalization so Windows drive
+letter case does not turn a successful SDK selection into a test failure.
+
 The native SDK matrix installs the VSIX from the same revision and runs this
 scenario on each advertised host. Local evidence and complete CI certification
 are recorded in the [preview roadmap](preview_launch_roadmap.md). Native builds

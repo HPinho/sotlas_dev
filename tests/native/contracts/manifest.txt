@@ -55,3 +55,5 @@ pass ui_invalid_views cases/ui_invalid_views.sotlas
 pass ui_caret cases/ui_caret.sotlas
 pass ui_grid_layout cases/ui_grid_layout.sotlas
 pass ui_grid_reject cases/ui_grid_reject.sotlas
+pass tensor_ops_values cases/tensor_ops_values.sotlas
+pass tensor_ops_reject cases/tensor_ops_reject.sotlas

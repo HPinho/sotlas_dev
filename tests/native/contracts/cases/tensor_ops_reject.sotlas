@@ -1,0 +1,55 @@
+module tensor_ops_reject;
+import sotlas::runtime::tensor_cpu::*;
+import sotlas::runtime::tensor_ops::*;
+
+pub fn main_entry()->u32 {
+    let mut data:[f32;8]=[1.0,2.0,3.0,4.0,5.0,6.0,7.0,8.0];
+    let pointer:*mut f32=unsafe{data as *mut f32};
+    let input:NativeF32View=NativeF32View{data:unsafe{pointer as *const f32},length:6};
+    let vector:NativeF32View=NativeF32View{data:unsafe{(pointer+6) as *const f32},length:2};
+    let exact:NativeF32MutView=NativeF32MutView{data:pointer,length:6};
+    let partial:NativeF32MutView=NativeF32MutView{data:unsafe{pointer+1},length:6};
+    let reduction:NativeF32MutView=NativeF32MutView{data:pointer,length:3};
+    if native_f32_row_sum_cpu(reduction,input,3,2)!=3
+        || native_f32_row_mean_cpu(reduction,input,3,2)!=3
+        || native_f32_row_max_cpu(reduction,input,3,2)!=3 { return 1; }
+    if native_f32_broadcast_add_cpu(partial,input,vector,3,2)!=3
+        || native_f32_broadcast_mul_cpu(partial,input,vector,3,2)!=3 { return 2; }
+    let overlapping:NativeF32View=NativeF32View{data:input.data,length:2};
+    if native_f32_broadcast_add_cpu(exact,input,overlapping,3,2)!=3
+        || native_f32_broadcast_mul_cpu(exact,input,overlapping,3,2)!=3 { return 3; }
+
+    let mut saved:[f32;3]=[71.0,72.0,73.0];
+    let output:NativeF32MutView=NativeF32MutView{data:unsafe{saved as *mut f32},length:3};
+    let empty:NativeF32View=NativeF32View{data:null,length:0};
+    if native_f32_row_mean_cpu(output,empty,3,0)!=2
+        || native_f32_row_max_cpu(output,empty,3,0)!=2
+        || native_f32_row_sum_cpu(output,input,3,3)!=2 { return 4; }
+    let invalid:NativeF32View=NativeF32View{data:null,length:6};
+    if native_f32_row_sum_cpu(output,invalid,3,2)!=1
+        || native_f32_row_mean_cpu(output,invalid,3,2)!=1
+        || native_f32_row_max_cpu(output,invalid,3,2)!=1
+        || native_f32_broadcast_add_cpu(exact,invalid,vector,3,2)!=1
+        || native_f32_broadcast_mul_cpu(exact,invalid,vector,3,2)!=1 { return 5; }
+    let unaligned:NativeF32View=NativeF32View{data:unsafe{5 as *const f32},length:1};
+    let wrapping:NativeF32View=NativeF32View{data:unsafe{18446744073709551612 as *const f32},length:1};
+    let excessive:NativeF32View=NativeF32View{data:unsafe{4 as *const f32},length:4611686018427387904};
+    if native_f32_row_sum_cpu(output,unaligned,3,2)!=1
+        || native_f32_row_mean_cpu(output,wrapping,3,2)!=1
+        || native_f32_row_max_cpu(output,excessive,3,2)!=1 { return 6; }
+    let nowhere:NativeF32MutView=NativeF32MutView{data:null,length:0};
+    if native_f32_row_sum_cpu(nowhere,empty,18446744073709551615,2)!=2
+        || native_f32_row_mean_cpu(nowhere,empty,18446744073709551615,2)!=2
+        || native_f32_row_max_cpu(nowhere,empty,18446744073709551615,2)!=2
+        || native_f32_broadcast_add_cpu(nowhere,empty,empty,18446744073709551615,2)!=2
+        || native_f32_broadcast_mul_cpu(nowhere,empty,empty,18446744073709551615,2)!=2 { return 7; }
+    if native_f32_broadcast_add_cpu(exact,input,empty,3,2)!=2
+        || native_f32_broadcast_mul_cpu(exact,input,vector,2,3)!=2 { return 8; }
+    let invalid_output:NativeF32MutView=NativeF32MutView{data:null,length:3};
+    if native_f32_row_sum_cpu(invalid_output,input,3,2)!=1
+        || native_f32_broadcast_add_cpu(invalid_output,input,vector,3,2)!=1 { return 9; }
+    let mut index:usize=0;
+    while index<8 { if data[index]!=(index+1) as f32 { return 10; }index+=1; }
+    if saved[0]!=71.0 || saved[1]!=72.0 || saved[2]!=73.0 { return 11; }
+    return 0;
+}
