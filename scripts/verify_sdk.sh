@@ -14,6 +14,8 @@ cp "$sdk"/runtime/native/*.sotlas "$output/src/sotlas/runtime/"
 cp "$sdk/examples/calculator/src/calculator/main.sotlas" "$output/src/calculator/"
 cp "$sdk/examples/calculator/platform/$platform.sotlas" "$output/src/calculator/platform.sotlas"
 cp "$sdk/examples/native_config_map/main.sotlas" "$output/src/configuration/main.sotlas"
+mkdir -p "$output/src/tensor_rows"
+cp "$sdk/examples/native_tensor_rows/main.sotlas" "$output/src/tensor_rows/main.sotlas"
 cp "$sdk/tests/native/calculator/model.sotlas" "$output/src/calculator_model.sotlas"
 cp "$sdk"/examples/graphical_calculator/src/calculator_app/*.sotlas "$output/src/calculator_app/"
 cp "$sdk/tests/native/ui/model.sotlas" "$output/src/calculator_app/tests.sotlas"
@@ -22,7 +24,7 @@ environment="$(command -v env)"
 native() { "$environment" -i PATH="$output/no-host-tools" "$@"; }
 compiler="$sdk/bin/sotlas-native"
 native "$compiler" --self-test
-for name in calculator configuration; do
+for name in calculator configuration tensor_rows; do
     native "$compiler" --check-build "$output/src" "$output/src/$name/main.sotlas"
     native "$compiler" "$build" "$output/$name" "$output/src" "$output/src/$name/main.sotlas"
 done
@@ -44,6 +46,7 @@ for program in configuration model; do
     set -e
     [[ $status -eq 42 ]] || { echo "$program returned $status; expected 42." >&2; exit 1; }
 done
+native "$output/tensor_rows"
 for name in tests unicode_tests; do
     native "$compiler" --check-build "$output/src" "$output/src/calculator_app/$name.sotlas"
     native "$compiler" "$build" "$output/ui-$name" "$output/src" "$output/src/calculator_app/$name.sotlas"
@@ -57,6 +60,6 @@ bash "$sdk/scripts/test_native.sh" "$compiler" "$output/contracts"
 if [[ "${2:-}" == --rebuild ]]; then
     bash "$sdk/scripts/build_native.sh" "$compiler" "$output/rebuild"
 fi
-printf '# Installed native SDK verification\n\nCalculator, error recovery, JSON configuration, UI model/Unicode and installed Sotlas contracts passed.\n' > "$output/summary.md"
+printf '# Installed native SDK verification\n\nCalculator, error recovery, JSON configuration, tensor row preprocessing, UI model/Unicode and installed Sotlas contracts passed.\n' > "$output/summary.md"
 if [[ "${2:-}" == --rebuild ]]; then printf '\nOriginal compiler sources rebuilt with Stage 2/3 byte identity.\n' >> "$output/summary.md"; fi
 echo "Installed SDK verified: $output"

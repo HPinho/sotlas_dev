@@ -126,7 +126,11 @@ through the existing native Stage 3 on both Windows and Linux. Compiler sources
 and the strict self-build identity check were unchanged by this test correction.
 Full CI certification of the correction remains pending.
 
-GPU and NPU execution, tensor language types, batching, attention, model
+The [row operation module](native_tensor_ops.md) extends this storage profile
+with row sum/mean/max and row-vector broadcasts. Its preprocessing example and
+two original Sotlas contract programs ship with the native SDK.
+
+GPU and NPU execution, tensor language types, general batching, attention, model
 formats, tokenization, autodifferentiation, FP16/BF16 and quantization remain
 outside this package. The CPU reference establishes a testable result for
 future device dispatch; it does not route work to an accelerator today.

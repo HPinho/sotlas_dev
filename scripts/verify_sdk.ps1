@@ -4,13 +4,14 @@ if ($env:OS -ne 'Windows_NT') {throw 'Use verify_sdk.sh on Linux or Intel macOS.
 $sdk=Split-Path -Parent $PSScriptRoot
 $output=[IO.Path]::GetFullPath($OutputDirectory)
 if (Test-Path -LiteralPath $output) {throw 'Choose a fresh verification output directory.'}
-foreach ($relative in @('src/sotlas/runtime','src/calculator','src/configuration','src/calculator_app')) {
+foreach ($relative in @('src/sotlas/runtime','src/calculator','src/configuration','src/calculator_app','src/tensor_rows')) {
     New-Item -ItemType Directory -Path (Join-Path $output $relative) -Force | Out-Null
 }
 Get-ChildItem (Join-Path $sdk 'runtime/native') -Filter '*.sotlas' | Copy-Item -Destination (Join-Path $output 'src/sotlas/runtime')
 Copy-Item (Join-Path $sdk 'examples/calculator/src/calculator/main.sotlas') (Join-Path $output 'src/calculator/main.sotlas')
 Copy-Item (Join-Path $sdk 'examples/calculator/platform/windows.sotlas') (Join-Path $output 'src/calculator/platform.sotlas')
 Copy-Item (Join-Path $sdk 'examples/native_config_map/main.sotlas') (Join-Path $output 'src/configuration/main.sotlas')
+Copy-Item (Join-Path $sdk 'examples/native_tensor_rows/main.sotlas') (Join-Path $output 'src/tensor_rows/main.sotlas')
 Copy-Item (Join-Path $sdk 'tests/native/calculator/model.sotlas') (Join-Path $output 'src/calculator_model.sotlas')
 foreach ($name in @('main','model')) {Copy-Item (Join-Path $sdk "examples/graphical_calculator/src/calculator_app/$name.sotlas") (Join-Path $output "src/calculator_app/$name.sotlas")}
 foreach ($pair in @(@('model','tests'),@('unicode','unicode_tests'),@('render','render_tests'))) {
@@ -37,7 +38,7 @@ function Invoke-Sdk([string]$Executable,[string[]]$Arguments,[int]$Expected=0,[s
 }
 $compiler=Join-Path $sdk 'bin/sotlas-native.exe';$source=Join-Path $output 'src'
 Invoke-Sdk $compiler @('--self-test')
-foreach ($name in @('calculator','configuration')) {
+foreach ($name in @('calculator','configuration','tensor_rows')) {
     $entry=Join-Path $source "$name/main.sotlas";$image=Join-Path $output "$name.exe"
     Invoke-Sdk $compiler @('--check-build',$source,$entry)
     Invoke-Sdk $compiler @('--build-win',$image,$source,$entry)
@@ -46,6 +47,7 @@ Invoke-Sdk (Join-Path $output 'calculator.exe') @() 0 "6*7`n" "42`n"
 Invoke-Sdk (Join-Path $output 'calculator.exe') @() 2 "1/0`n42`n" "error: division by zero at byte 1`n42`n"
 Invoke-Sdk $compiler @('--build-win',(Join-Path $output 'model.exe'),$source,(Join-Path $source 'calculator_model.sotlas'))
 foreach ($name in @('configuration','model')) {Invoke-Sdk (Join-Path $output "$name.exe") @() 42}
+Invoke-Sdk (Join-Path $output 'tensor_rows.exe') @() 0
 foreach ($name in @('tests','unicode_tests','render_tests','main')) {
     $entry=Join-Path $source "calculator_app/$name.sotlas";$image=Join-Path $output "ui-$name.exe"
     Invoke-Sdk $compiler @('--check-build',$source,$entry)
@@ -58,7 +60,7 @@ $global:LASTEXITCODE=0
 & (Join-Path $sdk 'scripts/test_native.ps1') $compiler (Join-Path $output 'contracts')
 if ($global:LASTEXITCODE -ne 0) {throw 'Installed Sotlas contract tests failed.'}
 if ($Rebuild) {& (Join-Path $sdk 'scripts/build_native.ps1') $compiler (Join-Path $output 'rebuild')}
-$summary="# Installed native SDK verification`n`nCalculator, error recovery, JSON configuration, UI model/Unicode, Windows rendering/cleanup and installed Sotlas contracts passed. GUI executable: ui-main.exe.`n"
+$summary="# Installed native SDK verification`n`nCalculator, error recovery, JSON configuration, tensor row preprocessing, UI model/Unicode, Windows rendering/cleanup and installed Sotlas contracts passed. GUI executable: ui-main.exe.`n"
 if ($Rebuild) {$summary+="`nOriginal compiler sources rebuilt with Stage 2/3 byte identity.`n"}
 [IO.File]::WriteAllText((Join-Path $output 'summary.md'),$summary,(New-Object Text.UTF8Encoding($false)))
 Write-Output "Installed SDK verified: $output"

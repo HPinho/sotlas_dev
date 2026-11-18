@@ -1,6 +1,6 @@
 # Public preview launch roadmap
 
-**Date:** 2026-11-17
+**Date:** 2026-11-18
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Scope:** a usable native preview for terminal applications, a declarative GUI
 calculator and a documented minimal kernel example. This is a release plan;
@@ -212,6 +212,29 @@ blocks execution after a failed build and preserves existing project files.
 The generated console project also checked, built and ran on Windows using
 the installed SDK. Installed-VSIX execution on Windows and Intel macOS remains
 for the new three-host CI gate; local Linux results do not certify those hosts.
+
+**2026-11-18 editor repair:** [CI #1397](https://github.com/HPinho/sotlas_dev/actions/runs/44280684297)
+failed the installed-VSIX gates on Windows and Intel macOS. Windows compared
+equivalent SDK paths with differently cased drive letters; macOS used an older
+runner expecting the obsolete application executable name. All other executed
+jobs passed, including the Linux native editor gate, native SDK reconstruction,
+the reference matrix and C11. The repair normalizes paths through VS Code URIs
+and pins the upstream runner with current macOS bundle resolution. Local
+installed-VSIX native scenarios now pass on Windows and Linux; 17 editor unit
+tests include macOS executable-resolution coverage. Actual macOS execution and
+the complete repair matrix still require the new CI run.
+
+**Parallel feature delivery — CPU tensor row operations:** the
+[new module](native_tensor_ops.md) implements sum/mean/max by row and
+row-vector addition/multiplication with checked ranges, shapes and overlaps.
+The [preprocessing example](../examples/native_tensor_rows/README.md) composes
+offsets, scales, statistics and matrix-vector projection. Fresh installed SDKs
+on Windows and Linux built and executed the example and all 58 native Sotlas
+contracts with zero failures. Their native subprocesses ran without host build
+tools in PATH. The SDK includes the module, example, documentation and cases;
+the installed verifier repeats this coverage on every native CI host. Intel
+macOS execution and full CI certification remain pending. This extends the CPU
+library; it does not close tensor language types or physical GPU/NPU dispatch.
 
 ### P5 — installation
 
