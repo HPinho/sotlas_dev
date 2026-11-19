@@ -13,6 +13,7 @@ Copy-Item (Join-Path $sdk 'examples/calculator/platform/windows.sotlas') (Join-P
 Copy-Item (Join-Path $sdk 'examples/native_config_map/main.sotlas') (Join-Path $output 'src/configuration/main.sotlas')
 Copy-Item (Join-Path $sdk 'examples/native_tensor_rows/main.sotlas') (Join-Path $output 'src/tensor_rows/main.sotlas')
 Copy-Item (Join-Path $sdk 'examples/native_csv/main.sotlas') (Join-Path $output 'src/csv_app/main.sotlas')
+Copy-Item (Join-Path $sdk 'examples/native_csv/normalize.sotlas') (Join-Path $output 'src/csv_app/normalize.sotlas')
 Copy-Item (Join-Path $sdk 'tests/native/calculator/model.sotlas') (Join-Path $output 'src/calculator_model.sotlas')
 foreach ($name in @('main','model')) {Copy-Item (Join-Path $sdk "examples/graphical_calculator/src/calculator_app/$name.sotlas") (Join-Path $output "src/calculator_app/$name.sotlas")}
 foreach ($pair in @(@('model','tests'),@('unicode','unicode_tests'),@('render','render_tests'))) {
@@ -50,6 +51,19 @@ Invoke-Sdk $compiler @('--build-win',(Join-Path $output 'model.exe'),$source,(Jo
 foreach ($name in @('configuration','model')) {Invoke-Sdk (Join-Path $output "$name.exe") @() 42}
 Invoke-Sdk (Join-Path $output 'tensor_rows.exe') @() 0
 Invoke-Sdk (Join-Path $output 'csv_app.exe') @() 0
+$csvEntry=Join-Path $source 'csv_app/normalize.sotlas'
+$csvNormalizer=Join-Path $output 'csv-normalize.exe'
+Invoke-Sdk $compiler @('--check-build',$source,$csvEntry)
+Invoke-Sdk $compiler @('--build-win',$csvNormalizer,$source,$csvEntry)
+$csvInput='item,count'+"`n"+'"a,b","7"'+"`n"+'"two'+"`n"+'lines",'+"`n"
+$csvExpected='item,count'+"`r`n"+'"a,b",7'+"`r`n"+'"two'+"`n"+'lines",""'+"`r`n"
+Invoke-Sdk $csvNormalizer @() 0 $csvInput $csvExpected
+Invoke-Sdk $csvNormalizer @() 0 $csvExpected $csvExpected
+Invoke-Sdk $csvNormalizer @() 0 '' ''
+$csvMaximum='x'.PadLeft(4096)
+Invoke-Sdk $csvNormalizer @() 0 $csvMaximum ($csvMaximum+"`r`n")
+Invoke-Sdk $csvNormalizer @() 2 ('ok'+"`n"+'"unfinished') ''
+Invoke-Sdk $csvNormalizer @() 4 ('x'.PadLeft(4097)) ''
 foreach ($name in @('tests','unicode_tests','render_tests','main')) {
     $entry=Join-Path $source "calculator_app/$name.sotlas";$image=Join-Path $output "ui-$name.exe"
     Invoke-Sdk $compiler @('--check-build',$source,$entry)

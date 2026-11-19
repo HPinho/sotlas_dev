@@ -18,6 +18,7 @@ mkdir -p "$output/src/tensor_rows"
 cp "$sdk/examples/native_tensor_rows/main.sotlas" "$output/src/tensor_rows/main.sotlas"
 mkdir -p "$output/src/csv_app"
 cp "$sdk/examples/native_csv/main.sotlas" "$output/src/csv_app/main.sotlas"
+cp "$sdk/examples/native_csv/normalize.sotlas" "$output/src/csv_app/normalize.sotlas"
 cp "$sdk/tests/native/calculator/model.sotlas" "$output/src/calculator_model.sotlas"
 cp "$sdk"/examples/graphical_calculator/src/calculator_app/*.sotlas "$output/src/calculator_app/"
 cp "$sdk/tests/native/ui/model.sotlas" "$output/src/calculator_app/tests.sotlas"
@@ -50,6 +51,24 @@ for program in configuration model; do
 done
 native "$output/tensor_rows"
 native "$output/csv_app"
+native "$compiler" --check-build "$output/src" "$output/src/csv_app/normalize.sotlas"
+native "$compiler" "$build" "$output/csv-normalize" "$output/src" "$output/src/csv_app/normalize.sotlas"
+printf 'item,count\n"a,b","7"\n"two\nlines",\n' | native "$output/csv-normalize" > "$output/csv-normalized.out"
+printf 'item,count\r\n"a,b",7\r\n"two\nlines",""\r\n' > "$output/csv-expected.out"
+cmp "$output/csv-expected.out" "$output/csv-normalized.out"
+native "$output/csv-normalize" < "$output/csv-normalized.out" > "$output/csv-repeat.out"
+cmp "$output/csv-expected.out" "$output/csv-repeat.out"
+native "$output/csv-normalize" < /dev/null > "$output/csv-empty.out"
+[[ ! -s "$output/csv-empty.out" ]]
+printf '%4096s' x | native "$output/csv-normalize" > "$output/csv-limit.out"
+printf '%4096s\r\n' x > "$output/csv-limit-expected.out"
+cmp "$output/csv-limit-expected.out" "$output/csv-limit.out"
+status=0
+printf 'ok\n"unfinished' | native "$output/csv-normalize" > "$output/csv-invalid.out" || status=$?
+[[ $status -eq 2 && ! -s "$output/csv-invalid.out" ]]
+status=0
+printf '%4097s' x | native "$output/csv-normalize" > "$output/csv-oversized.out" || status=$?
+[[ $status -eq 4 && ! -s "$output/csv-oversized.out" ]]
 for name in tests unicode_tests; do
     native "$compiler" --check-build "$output/src" "$output/src/calculator_app/$name.sotlas"
     native "$compiler" "$build" "$output/ui-$name" "$output/src" "$output/src/calculator_app/$name.sotlas"

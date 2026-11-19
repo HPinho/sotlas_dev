@@ -33,6 +33,7 @@ Copy-Sdk 'examples/native_config.sotlas'
 Copy-Sdk 'examples/native_config_map/main.sotlas';Copy-Sdk 'examples/native_config_map/README.md'
 Copy-Sdk 'examples/native_tensor_rows/main.sotlas';Copy-Sdk 'examples/native_tensor_rows/README.md'
 Copy-Sdk 'examples/native_csv/main.sotlas';Copy-Sdk 'examples/native_csv/README.md'
+Copy-Sdk 'examples/native_csv/normalize.sotlas'
 Copy-Sdk 'tests/native/use_after_move.sotlas';Copy-Sdk 'tests/native/calculator/model.sotlas'
 foreach ($name in @('model','unicode','render')) {Copy-Sdk "tests/native/ui/$name.sotlas"}
 foreach ($name in @('main','model')) {Copy-Sdk "examples/graphical_calculator/src/calculator_app/$name.sotlas"}

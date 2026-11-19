@@ -246,14 +246,19 @@ blocks are closed; wider frontend, ownership and release gates remain separate.
 and canonical CRLF writing, with explicit metadata/capacity/alias errors and
 output preservation on rejected operations. The installed inventory example
 checks the complete read/decode/parse/write/read path. Six original Sotlas
-cases extend the native suite to 64. New full-platform CI certification remains
-pending; this is a byte-oriented in-memory API, not general I/O or encoding
-inference.
+cases extend the native suite to 64. The API operates on byte buffers supplied
+by the caller.
 
 **CSV local evidence:** fresh-prefix SDK verification passed all 64 contracts
 and the original inventory example on Windows and Linux/WSL, with host build
 tools absent from the native subprocess PATH. The installed Windows VSIX
-scenario also passed using this new SDK. New full CI remains pending.
+scenario also passed using this SDK before the three-host certification.
+
+**CSV certification:** [CI #1400](https://github.com/HPinho/sotlas_dev/actions/runs/44545711063)
+passed for `f0d7fad`, closing the CSV library and inventory example delivery.
+The next SDK adds a [CSV terminal utility](../examples/native_csv/README.md#normalize-a-csv-file).
+Its installed verifier checks exact output, repeat conversion, empty and
+maximum-size input, and zero output on malformed or oversized input.
 
 ### P5 — installation
 
