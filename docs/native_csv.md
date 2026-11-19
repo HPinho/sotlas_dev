@@ -109,5 +109,9 @@ with host build tools absent from its native subprocess PATH.
 Local fresh-prefix SDK verification passed all 64 contracts and the inventory
 example on Windows and Linux/WSL. The installed VSIX also passed its native
 project creation, compilation, execution and diagnostic scenario with the new
-Windows SDK. Complete CI and Intel macOS execution for this new delivery remain
-pending; the previous editor/tensor baseline is certified by CI #1399.
+Windows SDK. The three-host matrix subsequently passed
+[CI #1400](https://github.com/HPinho/sotlas_dev/actions/runs/44545711063).
+
+The SDK also includes a [terminal normalizer](../examples/native_csv/README.md#normalize-a-csv-file)
+that reads a bounded document from standard input and emits canonical CSV after
+the entire input passes validation.

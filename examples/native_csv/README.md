@@ -1,5 +1,39 @@
 # Native CSV inventory round trip
 
+## Normalize a CSV file
+
+The installed SDK verifier builds a second executable, `csv-normalize`, from
+`normalize.sotlas`. It reads CSV from standard input and writes canonical CSV
+to standard output. Run it from the fresh directory produced by SDK verification.
+On Linux and Intel macOS:
+
+```bash
+./csv-normalize < input.csv > normalized.csv
+```
+
+On Windows, run this in Command Prompt:
+
+```cmd
+csv-normalize.exe < input.csv > normalized.csv
+```
+
+The command accepts up to 4,096 input bytes. It keeps field bytes and record
+boundaries, writes CRLF between records and quotes fields as needed. Embedded
+line breaks inside quoted fields are preserved. The command buffers the result
+until it has validated the whole document. Invalid CSV or input beyond the
+limit produces no bytes on standard output. Use a distinct output path because
+shell redirection opens the destination before the program runs.
+
+| Exit code | Meaning |
+| --- | --- |
+| 0 | Complete conversion, including empty input |
+| 2 | Malformed CSV |
+| 3 | Standard input or output error |
+| 4 | Input exceeds 4,096 bytes |
+| 5 | Internal CSV buffer or metadata error |
+
+## Build the inventory example
+
 This original Sotlas application reads two inventory records, including a
 quoted name containing a comma and a quoted count. It validates the two-column
 header, decodes names/counts into caller storage, parses strict unsigned

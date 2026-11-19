@@ -13,6 +13,9 @@ storage. See `docs/native_tensor_ops.md` for shape, alias and numerical rules.
 Caller-backed CSV reading/writing and an inventory round-trip example are
 included in `examples/native_csv`; see `docs/native_csv.md` for quoting,
 line-ending, byte-preservation and buffer contracts.
+SDK verification also builds `csv-normalize` (`csv-normalize.exe` on Windows)
+for converting CSV files through standard input and output. Usage and exit
+codes are in `examples/native_csv/README.md`.
 
 The compiler builds and links the bundled examples and rebuilds itself after
 receiving this seed. These operations do not invoke Python, a C compiler or an

@@ -38,7 +38,7 @@ cp "$repository"/examples/native_config_map/{main.sotlas,README.md} "$bundle/exa
 mkdir -p "$bundle/examples/native_tensor_rows"
 cp "$repository"/examples/native_tensor_rows/{main.sotlas,README.md} "$bundle/examples/native_tensor_rows/"
 mkdir -p "$bundle/examples/native_csv"
-cp "$repository"/examples/native_csv/{main.sotlas,README.md} "$bundle/examples/native_csv/"
+cp "$repository"/examples/native_csv/{main.sotlas,normalize.sotlas,README.md} "$bundle/examples/native_csv/"
 cp "$repository/examples/native_config.sotlas" "$bundle/examples/"
 cp -R "$repository/tests/native/contracts/." "$bundle/tests/native/contracts/"
 cp "$repository/tests/native/use_after_move.sotlas" "$bundle/tests/native/"

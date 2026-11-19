@@ -1,0 +1,57 @@
+module csv_app::normalize;
+import calculator::platform::*;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv::*;
+import sotlas::runtime::csv_writer::*;
+
+// The command runs once per process. Keep its buffers in static storage.
+static mut input:[u8;4097]=0;
+static mut scratch:[u8;4096]=0;
+// Each byte can expand to at most four bytes (a blank LF-only record).
+// Reserve four more for a final empty field after a trailing comma.
+static mut output:[u8;16388]=0;
+
+fn write_output(value:NativeByteSlice)->bool {
+    if !native_text_valid(value) { return false; }
+    let mut offset:usize=0;
+    while offset<value.length {
+        let written:i64=calculator_write(unsafe{value.data+offset},value.length-offset);
+        if written<=0 || written as usize>value.length-offset { return false; }
+        offset+=written as usize;
+    }
+    return true;
+}
+
+pub fn main_entry()->u32 {
+    // One extra byte distinguishes EOF at the limit from oversized input.
+    let source:*mut u8=unsafe{input as *mut u8};
+    let mut length:usize=0;
+    while length<4097 {
+        let received:i64=calculator_read(unsafe{source+length},4097-length);
+        if received<0 || received as usize>4097-length { return 3; }
+        if received==0 { break; }
+        length+=received as usize;
+    }
+    if length>4096 { return 4; }
+
+    let mut reader:NativeCsvReader=native_csv_open(native_text_open(source,length));
+    let r:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+    let decoded:*mut u8=unsafe{scratch as *mut u8};
+    let destination:*mut u8=unsafe{output as *mut u8};
+    let mut writer:NativeCsvWriter=native_csv_writer_open(destination,16388);
+    let w:*mut NativeCsvWriter=unsafe{(&mut writer) as *mut NativeCsvWriter};
+    loop {
+        let field:NativeCsvField=native_csv_next(r);
+        if field.status==2 { break; }
+        if field.status==3 { return 2; }
+        if field.status!=0 { return 5; }
+        let value:NativeCsvDecoded=native_csv_decode(field,decoded,4096);
+        if value.status!=0 || native_csv_writer_field(w,native_text_open(decoded,value.length))!=0 {
+            return 5;
+        }
+        if field.row_end && native_csv_writer_end_row(w)!=0 { return 5; }
+    }
+    // Publish only after the complete document has been accepted.
+    if !write_output(native_csv_writer_view(w)) { return 3; }
+    return 0;
+}
