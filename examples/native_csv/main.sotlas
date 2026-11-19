@@ -1,0 +1,56 @@
+module csv_app::main;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv::*;
+import sotlas::runtime::csv_writer::*;
+
+// Read a small inventory, validate its header and numeric counts, serialize
+// canonical rows, then read the generated data again. No host parser is used.
+pub fn main_entry()->u32 {
+    let source:NativeByteSlice=native_text_open("item,count\r\nalpha,7\r\n\"beta,quoted\",\"35\"\n",40);
+    let mut reader:NativeCsvReader=native_csv_open(source);
+    let r:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+    let first:NativeCsvField=native_csv_next(r);
+    let second:NativeCsvField=native_csv_next(r);
+    if first.status!=0 || second.status!=0 || first.row_end || !second.row_end
+        || !native_text_equal(first.raw,native_text_open("item",4))
+        || !native_text_equal(second.raw,native_text_open("count",5)) { return 1; }
+    let mut bytes:[u8;128]=0;
+    let mut scratch:[u8;32]=0;
+    let data:*mut u8=unsafe{bytes as *mut u8};
+    let decoded:*mut u8=unsafe{scratch as *mut u8};
+    let mut writer:NativeCsvWriter=native_csv_writer_open(data,128);
+    let w:*mut NativeCsvWriter=unsafe{(&mut writer) as *mut NativeCsvWriter};
+    if native_csv_writer_field(w,first.raw)!=0 || native_csv_writer_field(w,second.raw)!=0
+        || native_csv_writer_end_row(w)!=0 { return 2; }
+    let mut sum:u64=0;let mut records:u32=0;
+    loop {
+        let name:NativeCsvField=native_csv_next(r);
+        if name.status==2 { break; }
+        if name.status!=0 || name.column!=0 || name.row_end { return 3; }
+        let copied:NativeCsvDecoded=native_csv_decode(name,decoded,32);
+        if copied.status!=0 || native_csv_writer_field(w,native_text_open(decoded,copied.length))!=0 { return 4; }
+        let count:NativeCsvField=native_csv_next(r);
+        if count.status!=0 || count.column!=1 || !count.row_end { return 5; }
+        let number:NativeCsvDecoded=native_csv_decode(count,decoded,32);
+        let mut amount:u64=0;
+        if number.status!=0 || !native_text_parse_u64(native_text_open(decoded,number.length),unsafe{(&mut amount) as *mut u64})
+            || amount>18446744073709551615-sum { return 6; }
+        if native_csv_writer_field(w,native_text_open(decoded,number.length))!=0
+            || native_csv_writer_end_row(w)!=0 { return 7; }
+        sum+=amount;records+=1;
+    }
+    let output:NativeByteSlice=native_csv_writer_view(w);
+    if sum!=42 || records!=2 || !native_text_equal(output,
+        native_text_open("item,count\r\nalpha,7\r\n\"beta,quoted\",35\r\n",39)) { return 8; }
+    reader=native_csv_open(output);
+    let mut fields:u32=0;
+    loop {
+        let field:NativeCsvField=native_csv_next(r);
+        if field.status==2 { break; }
+        if field.status!=0 || field.column!=fields as usize%2
+            || field.row_end!=(fields%2==1) { return 9; }
+        fields+=1;
+    }
+    if fields!=6 || reader.row!=3 { return 10; }
+    return 0;
+}

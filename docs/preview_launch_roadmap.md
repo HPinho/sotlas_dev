@@ -1,6 +1,6 @@
 # Public preview launch roadmap
 
-**Date:** 2026-11-18
+**Date:** 2026-11-19
 **Repository:** [HPinho/sotlas_dev](https://github.com/HPinho/sotlas_dev)  
 **Scope:** a usable native preview for terminal applications, a declarative GUI
 calculator and a documented minimal kernel example. This is a release plan;
@@ -235,6 +235,25 @@ tools in PATH. The SDK includes the module, example, documentation and cases;
 the installed verifier repeats this coverage on every native CI host. Intel
 macOS execution and full CI certification remain pending. This extends the CPU
 library; it does not close tensor language types or physical GPU/NPU dispatch.
+
+**2026-11-19 certification:** [CI #1399](https://github.com/HPinho/sotlas_dev/actions/runs/44502271454)
+completed successfully for `402e1d0`, following green push run #1398. This
+certifies the declared tensor row operations, installed native VSIX scenario
+and 58-case SDK scope across Linux, Windows and Intel macOS. Those delivery
+blocks are closed; wider frontend, ownership and release gates remain separate.
+
+**Next delivery — native CSV:** caller-backed field iteration, quote decoding
+and canonical CRLF writing, with explicit metadata/capacity/alias errors and
+output preservation on rejected operations. The installed inventory example
+checks the complete read/decode/parse/write/read path. Six original Sotlas
+cases extend the native suite to 64. New full-platform CI certification remains
+pending; this is a byte-oriented in-memory API, not general I/O or encoding
+inference.
+
+**CSV local evidence:** fresh-prefix SDK verification passed all 64 contracts
+and the original inventory example on Windows and Linux/WSL, with host build
+tools absent from the native subprocess PATH. The installed Windows VSIX
+scenario also passed using this new SDK. New full CI remains pending.
 
 ### P5 — installation
 

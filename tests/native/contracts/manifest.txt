@@ -57,3 +57,9 @@ pass ui_grid_layout cases/ui_grid_layout.sotlas
 pass ui_grid_reject cases/ui_grid_reject.sotlas
 pass tensor_ops_values cases/tensor_ops_values.sotlas
 pass tensor_ops_reject cases/tensor_ops_reject.sotlas
+pass csv_reader_values cases/csv_reader_values.sotlas
+pass csv_reader_reject cases/csv_reader_reject.sotlas
+pass csv_reader_metadata cases/csv_reader_metadata.sotlas
+pass csv_writer_values cases/csv_writer_values.sotlas
+pass csv_writer_reject cases/csv_writer_reject.sotlas
+pass csv_roundtrip cases/csv_roundtrip.sotlas

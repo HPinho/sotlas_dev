@@ -21,6 +21,8 @@
 
 [Native configuration collection](examples/native_config_map/README.md)
 
+[Read and write CSV with the native SDK](examples/native_csv/README.md)
+
 [Typed native record storage](examples/native_record_storage/README.md)
 
 [Native interior storage](examples/native_projected_storage/README.md)

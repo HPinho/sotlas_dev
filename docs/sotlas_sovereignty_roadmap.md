@@ -14,13 +14,19 @@ publishes reports without Python in the test job. It starts after native seed
 production, independently of the reference Python matrix. Bootstrap seed
 production still uses Stage 0; this is not full toolchain independence.
 
-The installed suite now contains 58 cases, including UI contracts and the
+The installed suite now contains 64 cases, including UI contracts and the
 [tensor row operations](native_tensor_ops.md). Those new CPU operations provide
 row sum/mean/max and row-vector add/multiply using caller-owned storage. The
 installed SDK builds and executes the preprocessing example on every native
-host. The latest editor CI failures are tracked in the
+host. Installed editor and SDK certification is tracked in the
 [preview roadmap](preview_launch_roadmap.md); a green reference matrix alone
 does not certify the installed editor workflow.
+
+The prior editor/tensor delivery passed the complete matrix in CI #1399. The
+next [CSV block](native_csv.md) adds field iteration, quote decoding and
+canonical writing in original Sotlas, with six native cases and a packaged
+inventory example. Its new platform certification is tracked separately in
+the preview roadmap.
 
 [Unsigned byte/word division](native_narrow_division.md) closes native `u8`/`u16`
 `/` and `%`, including expression casts and compound places. The JSON writer

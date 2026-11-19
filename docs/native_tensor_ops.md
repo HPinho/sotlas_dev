@@ -81,5 +81,6 @@ native compiler, with no Python test generator.
 Fresh SDK installation and verification passed both programs and the complete
 58-case suite on Windows and Linux/WSL. The installed preprocessing example
 also checked, compiled and exited successfully on both hosts, with host build
-tools absent from the native subprocess PATH. Intel macOS execution and the
-new complete CI result remain pending.
+tools absent from the native subprocess PATH. The declared three-host scope,
+including Intel macOS execution, subsequently passed
+[CI #1399](https://github.com/HPinho/sotlas_dev/actions/runs/44502271454).

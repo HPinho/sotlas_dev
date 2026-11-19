@@ -94,9 +94,13 @@ Local migration validation passed all 50 cases on native Linux and Windows
 compilers. Deliberately failing programs also produced a failing gate and JUnit
 failure on both hosts. Intel macOS and the new Actions wiring await CI.
 
-The suite now has 58 cases. Two new Sotlas programs cover CPU tensor row
+The tensor delivery expanded the suite to 58 cases. Two Sotlas programs cover CPU tensor row
 reductions/broadcasting, including numerical edge cases, empty dimensions,
 range/shape/alias rejection and output preservation. Fresh installed SDK
-verification passed all 58 cases on Windows and Linux for this delivery;
-the new complete CI matrix remains pending. See the
+verification passed all 58 cases on Windows and Linux for that delivery;
+the complete three-host matrix subsequently passed CI #1399. See the
 [tensor contract](../../../docs/native_tensor_ops.md) for the exact API scope.
+
+The suite now has 64 cases. Six [CSV contracts](../../../docs/native_csv.md)
+cover reading, quote decoding, writing, metadata/range/alias rejections and
+all-byte round trips. New complete CI certification is pending for this block.

@@ -1,0 +1,78 @@
+module csv_writer_reject;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv_writer::*;
+
+fn unchanged(p:*const NativeCsvWriter,data:*const u8,capacity:usize,length:usize,columns:usize)->bool {
+    unsafe { return p.data==data && p.capacity==capacity && p.length==length && p.columns==columns; }
+}
+
+pub fn main_entry()->u32 {
+    let mut bytes:[u8;16]=[99;16];
+    let data:*mut u8=unsafe{bytes as *mut u8};
+    let mut writer:NativeCsvWriter=native_csv_writer_open(data,16);
+    let p:*mut NativeCsvWriter=unsafe{(&mut writer) as *mut NativeCsvWriter};
+    if native_csv_writer_end_row(p)!=8 || native_csv_writer_field(p,native_text_invalid())!=1
+        || native_csv_writer_field(p,NativeByteSlice{data:null,length:1,valid:true})!=1 { return 1; }
+    if native_csv_writer_field(p,native_text_open(data,1))!=7
+        || native_csv_writer_field(p,native_text_open(unsafe{(p as usize) as *const u8},1))!=7 { return 2; }
+    if !unchanged(p,data,16,0,0) { return 3; }
+    let mut i:usize=0;while i<16 { if bytes[i]!=99 { return 4; }i+=1; }
+
+    writer.capacity=5;
+    if native_csv_writer_field(p,native_text_open("a,b",3))!=0 || writer.length!=5 || writer.columns!=1 { return 5; }
+    if native_csv_writer_field(p,native_text_open(null,0))!=6
+        || native_csv_writer_end_row(p)!=6 || !unchanged(p,data,5,5,1) { return 6; }
+    if bytes[0]!=34 || bytes[1]!=97 || bytes[2]!=44 || bytes[3]!=98 || bytes[4]!=34 || bytes[5]!=99 { return 7; }
+    writer=native_csv_writer_open(data,3);
+    if native_csv_writer_field(p,native_text_open("\"",1))!=6
+        || !unchanged(p,data,3,0,0) || bytes[0]!=34 || bytes[1]!=97 || bytes[2]!=44 { return 8; }
+    writer=native_csv_writer_open(data,2);
+    if native_csv_writer_field(p,native_text_open(null,0))!=0 || writer.length!=2
+        || writer.columns!=1 || native_csv_writer_end_row(p)!=6 { return 9; }
+    writer=native_csv_writer_open(data,4);
+    if native_csv_writer_field(p,native_text_open("a",1))!=0
+        || native_csv_writer_field(p,native_text_open("b,c",3))!=6
+        || !unchanged(p,data,4,1,1) || bytes[0]!=97 { return 10; }
+    if native_csv_writer_end_row(p)!=0 || !native_csv_writer_view(p).valid || writer.length!=3 { return 11; }
+
+    // Forged shapes reject before touching the data buffer.
+    writer.length=5;
+    if native_csv_writer_shape(p) || native_csv_writer_view(p).valid
+        || native_csv_writer_field(p,native_text_open("x",1))!=1
+        || native_csv_writer_end_row(p)!=1 || writer.length!=5 { return 12; }
+    writer=native_csv_writer_open(data,16);writer.columns=1;
+    if native_csv_writer_shape(p) || native_csv_writer_end_row(p)!=1 || writer.columns!=1 { return 13; }
+    writer=native_csv_writer_open(null,1);
+    if native_csv_writer_shape(p) || native_csv_writer_field(p,native_text_open("x",1))!=1 { return 14; }
+    writer=native_csv_writer_open(unsafe{18446744073709551615 as *mut u8},1);
+    if native_csv_writer_shape(p) || native_csv_writer_end_row(p)!=1 { return 15; }
+    writer=native_csv_writer_open(unsafe{(p as usize) as *mut u8},1);
+    if native_csv_writer_shape(p) || native_csv_writer_view(p).valid { return 16; }
+    let unaligned:*mut NativeCsvWriter=unsafe{((p as usize)+1) as *mut NativeCsvWriter};
+    let wrapped:*mut NativeCsvWriter=unsafe{18446744073709551608 as *mut NativeCsvWriter};
+    if native_csv_writer_shape(null) || native_csv_writer_shape(unaligned) || native_csv_writer_shape(wrapped)
+        || native_csv_writer_field(null,native_text_open("x",1))!=1
+        || native_csv_writer_end_row(unaligned)!=1 || native_csv_writer_view(wrapped).valid { return 17; }
+    writer=native_csv_writer_open(null,0);
+    if !native_csv_writer_shape(p) || !native_csv_writer_view(p).valid
+        || native_csv_writer_field(p,native_text_open(null,0))!=6
+        || native_csv_writer_end_row(p)!=8 || !unchanged(p,null,0,0,0) { return 18; }
+    let mut short:[u8;4]=[88;4];
+    let short_data:*mut u8=unsafe{short as *mut u8};
+    writer=native_csv_writer_open(short_data,2);
+    if native_csv_writer_field(p,native_text_open("a",1))!=0
+        || native_csv_writer_end_row(p)!=6 || !unchanged(p,short_data,2,1,1)
+        || short[0]!=97 || short[1]!=88 || short[2]!=88 || short[3]!=88 { return 19; }
+    writer.capacity=3;
+    if native_csv_writer_field(p,native_text_open(null,0))!=6
+        || !unchanged(p,short_data,3,1,1) || short[1]!=88 || short[2]!=88 { return 20; }
+    // Overlap includes unused output capacity, not only the committed prefix.
+    if native_csv_writer_field(p,native_text_open(unsafe{short_data+2},1))!=7
+        || !unchanged(p,short_data,3,1,1) || short[1]!=88 || short[2]!=88 { return 21; }
+    let wrapped_source:NativeByteSlice=NativeByteSlice{data:unsafe{18446744073709551615 as *const u8},length:1,valid:true};
+    if native_csv_writer_field(p,wrapped_source)!=1 || !unchanged(p,short_data,3,1,1) { return 22; }
+    let huge_source:NativeByteSlice=native_text_open(unsafe{9223372036854775808 as *const u8},4611686018427387904);
+    if native_csv_writer_field(p,huge_source)!=6 || !unchanged(p,short_data,3,1,1)
+        || short[1]!=88 || short[2]!=88 { return 23; }
+    return 0;
+}

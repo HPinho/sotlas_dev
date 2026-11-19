@@ -1,0 +1,42 @@
+module csv_reader_reject;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv::*;
+fn source(index:u32)->NativeByteSlice {
+    if index==0 { return native_text_open("\"abc",4); }
+    if index==1 { return native_text_open("ab\"c",4); }
+    if index==2 { return native_text_open("\"a\"x",4); }
+    if index==3 { return native_text_open("a\rb",3); }
+    return native_text_open("a\r",2);
+}
+pub fn main_entry()->u32 {
+    let positions:[usize;5]=[4,2,3,1,1];
+    for index in 0..5 {
+        let mut reader:NativeCsvReader=native_csv_open(source(index));
+        let p:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+        let failure:NativeCsvField=native_csv_next(p);
+        if failure.status!=3 || failure.offset!=positions[index] || failure.raw.valid
+            || reader.offset!=0 || reader.row!=0 || reader.column!=0 || reader.finished { return 1; }
+        if native_csv_next(p).status!=3 { return 2; }
+    }
+    if native_csv_next(null).status!=1 { return 3; }
+    let mut invalid:NativeCsvReader=native_csv_open(native_text_open(null,3));
+    let p:*mut NativeCsvReader=unsafe{(&mut invalid) as *mut NativeCsvReader};
+    if native_csv_next(p).status!=1 { return 4; }
+    invalid=native_csv_open(native_text_open("a",1));invalid.offset=2;
+    if native_csv_next(p).status!=1 { return 5; }
+    invalid=native_csv_open(native_text_open("a",1));invalid.finished=true;
+    if native_csv_next(p).status!=1 { return 6; }
+    let mut storage:[u8;8]=[77;8];let out:*mut u8=unsafe{storage as *mut u8};
+    invalid=native_csv_open(native_text_open("\"a\"\"b\"",6));
+    let mut field:NativeCsvField=native_csv_next(p);
+    if native_csv_decode(field,out,2).status!=6 || storage[0]!=77 { return 7; }
+    if native_csv_decode(field,null,3).status!=1 { return 8; }
+    field.length=4;if native_csv_decode(field,out,8).status!=1 || storage[0]!=77 { return 9; }
+    field.length=3;field.raw=native_text_open("a\"b",3);
+    if native_csv_decode(field,out,8).status!=3 { return 10; }
+    field.raw=native_text_open(out,3);field.quoted=false;
+    if native_csv_decode(field,out,8).status!=7 || storage[0]!=77 { return 11; }
+    field.status=2;if native_csv_decode(field,out,8).status!=1 { return 12; }
+    let mut index:usize=0;while index<8 { if storage[index]!=77 { return 13; }index+=1; }
+    return 0;
+}
