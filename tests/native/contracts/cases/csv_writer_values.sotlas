@@ -1,0 +1,37 @@
+module csv_writer_values;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv_writer::*;
+
+pub fn main_entry()->u32 {
+    let mut bytes:[u8;128]=[165;128];
+    let mut writer:NativeCsvWriter=native_csv_writer_open(unsafe{bytes as *mut u8},128);
+    let p:*mut NativeCsvWriter=unsafe{(&mut writer) as *mut NativeCsvWriter};
+    if !native_csv_writer_shape(p) || !native_csv_writer_view(p).valid
+        || native_csv_writer_view(p).length!=0 { return 1; }
+    if native_csv_writer_field(p,native_text_open("plain",5))!=0
+        || native_csv_writer_field(p,native_text_open("a,b",3))!=0
+        || native_csv_writer_field(p,native_text_open("say \"hi\"",8))!=0
+        || native_csv_writer_field(p,native_text_open(null,0))!=0 { return 2; }
+    if writer.columns!=4 || native_csv_writer_view(p).valid { return 3; }
+    if native_csv_writer_end_row(p)!=0 || writer.columns!=0 { return 4; }
+    let first:NativeByteSlice=native_csv_writer_view(p);
+    if !native_text_equal(first,native_text_open("plain,\"a,b\",\"say \"\"hi\"\"\",\"\"\r\n",29)) { return 5; }
+    if native_csv_writer_field(p,native_text_open("line\r\nnext",10))!=0
+        || native_csv_writer_field(p,native_text_open("Ω😀",6))!=0
+        || native_csv_writer_field(p,native_text_open(" tail ",6))!=0
+        || native_csv_writer_end_row(p)!=0 { return 6; }
+    let final:NativeByteSlice=native_csv_writer_view(p);
+    if !native_text_equal(final,native_text_open("plain,\"a,b\",\"say \"\"hi\"\"\",\"\"\r\n\"line\r\nnext\",Ω😀, tail \r\n",57)) { return 7; }
+    if bytes[57]!=165 { return 8; }
+
+    // CSV is byte-oriented: embedded NUL and invalid UTF-8 pass unchanged.
+    let binary:[u8;4]=[0,255,34,0];
+    let mut raw:[u8;9]=[7;9];
+    let mut second:NativeCsvWriter=native_csv_writer_open(unsafe{raw as *mut u8},9);
+    let q:*mut NativeCsvWriter=unsafe{(&mut second) as *mut NativeCsvWriter};
+    if native_csv_writer_field(q,native_text_open(unsafe{binary as *const u8},4))!=0
+        || native_csv_writer_end_row(q)!=0 || second.length!=9 { return 9; }
+    let expected:[u8;9]=[34,0,255,34,34,0,34,13,10];
+    if !native_text_equal(native_csv_writer_view(q),native_text_open(unsafe{expected as *const u8},9)) { return 10; }
+    return 0;
+}

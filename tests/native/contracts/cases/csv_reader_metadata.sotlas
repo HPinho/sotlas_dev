@@ -1,0 +1,27 @@
+module csv_reader_metadata;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv::*;
+pub fn main_entry()->u32 {
+    let mut reader:NativeCsvReader=native_csv_open(native_text_open("a,b",3));
+    let p:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+    reader=native_csv_open(native_text_open(unsafe{(p as usize) as *const u8},span_of::<NativeCsvReader>()));
+    if native_csv_next(p).status!=1 || reader.offset!=0 || reader.column!=0 { return 1; }
+    reader=native_csv_open(native_text_open("a,b",3));reader.row=4;
+    if native_csv_next(p).status!=1 { return 2; }
+    reader.row=0;reader.column=4;
+    if native_csv_next(p).status!=1 { return 3; }
+    reader=native_csv_open(NativeByteSlice{data:unsafe{18446744073709551615 as *const u8},length:2,valid:true});
+    if native_csv_next(p).status!=1 { return 4; }
+    reader=native_csv_open(native_text_open("abc",3));
+    let field:NativeCsvField=native_csv_next(p);
+    let mut bytes:[u8;4]=[77;4];let out:*mut u8=unsafe{bytes as *mut u8};
+    if native_csv_decode(field,unsafe{18446744073709551615 as *mut u8},2).status!=1 { return 5; }
+    if native_csv_decode(field,out,2).status!=6 { return 6; }
+    let decoded:NativeCsvDecoded=native_csv_decode(field,out,3);
+    if decoded.status!=0 || decoded.length!=3 || bytes[3]!=77 { return 7; }
+    reader=native_csv_open(native_text_open("\"x\"\"y\"",6));
+    let mut forged:NativeCsvField=native_csv_next(p);
+    forged.raw=native_text_open("a,b",3);forged.quoted=false;
+    if native_csv_decode(forged,out,4).status!=3 || bytes[0]!=97 { return 8; }
+    return 0;
+}

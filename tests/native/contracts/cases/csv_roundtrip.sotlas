@@ -1,0 +1,36 @@
+module csv_roundtrip;
+import sotlas::runtime::text::*;
+import sotlas::runtime::csv::*;
+import sotlas::runtime::csv_writer::*;
+pub fn main_entry()->u32 {
+    let mut storage:[u8;16]=[77;16];
+    let mut scratch:[u8;4]=[88;4];
+    let mut byte:[u8;1]=0;
+    let output:*mut u8=unsafe{storage as *mut u8};
+    let destination:*mut u8=unsafe{scratch as *mut u8};
+    // Every byte, including NUL, delimiters, quotes and non-UTF-8 bytes,
+    // survives a complete writer -> reader -> decoder cycle.
+    for code in 0..256 {
+        byte[0]=code as u8;
+        let mut writer:NativeCsvWriter=native_csv_writer_open(output,16);
+        let w:*mut NativeCsvWriter=unsafe{(&mut writer) as *mut NativeCsvWriter};
+        if native_csv_writer_field(w,native_text_open(unsafe{byte as *const u8},1))!=0
+            || native_csv_writer_end_row(w)!=0 { return 1; }
+        let mut reader:NativeCsvReader=native_csv_open(native_csv_writer_view(w));
+        let r:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+        let field:NativeCsvField=native_csv_next(r);
+        let decoded:NativeCsvDecoded=native_csv_decode(field,destination,1);
+        if field.status!=0 || !field.row_end || decoded.status!=0 || decoded.length!=1
+            || scratch[0]!=code as u8 || scratch[1]!=88 || native_csv_next(r).status!=2 { return 2; }
+    }
+    let mut reader:NativeCsvReader=native_csv_open(native_text_open("a,\"bad",6));
+    let r:*mut NativeCsvReader=unsafe{(&mut reader) as *mut NativeCsvReader};
+    if native_csv_next(r).status!=0 { return 3; }
+    let failure:NativeCsvField=native_csv_next(r);
+    if failure.status!=3 || failure.offset!=6 || reader.offset!=2 || reader.column!=1 { return 4; }
+    // An explicitly empty field decodes into a null, zero-capacity buffer.
+    reader=native_csv_open(native_text_open("\"\"",2));
+    let empty:NativeCsvField=native_csv_next(r);
+    if native_csv_decode(empty,null,0).status!=0 || native_csv_next(r).status!=2 { return 5; }
+    return 0;
+}

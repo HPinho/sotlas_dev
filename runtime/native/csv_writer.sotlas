@@ -1,0 +1,108 @@
+module sotlas::runtime::csv_writer;
+import sotlas::runtime::text::*;
+
+// Caller-owned byte output. Never copy an active writer into a second writer
+// for the same storage. Shape checks do not prove allocation or lifetime.
+pub struct NativeCsvWriter {
+    pub data:*mut u8;
+    pub capacity:usize;
+    pub length:usize;
+    pub columns:usize;
+}
+
+pub fn native_csv_writer_open(data:*mut u8,capacity:usize)->NativeCsvWriter {
+    return NativeCsvWriter{data:data,capacity:capacity,length:0,columns:0};
+}
+
+fn csv_writer_overlap(a:usize,n:usize,b:usize,m:usize)->bool {
+    if n==0 || m==0 { return false; }
+    if a>=b { return a-b<m; }
+    return b-a<n;
+}
+
+pub fn native_csv_writer_shape(p:*const NativeCsvWriter)->bool {
+    if p==null { return false; }
+    let address:usize=unsafe{p as usize};
+    if address%align_of::<NativeCsvWriter>()!=0
+        || span_of::<NativeCsvWriter>()>18446744073709551615-address { return false; }
+    unsafe {
+        if p.length>p.capacity || p.columns>p.length
+            || !native_text_open(p.data,p.capacity).valid { return false; }
+        if csv_writer_overlap(address,span_of::<NativeCsvWriter>(),p.data as usize,p.capacity) { return false; }
+    }
+    return true;
+}
+
+fn csv_writer_alias(p:*const NativeCsvWriter,value:NativeByteSlice)->bool {
+    let source:usize=unsafe{value.data as usize};
+    return csv_writer_overlap(source,value.length,unsafe{p.data as usize},unsafe{p.capacity})
+        || csv_writer_overlap(source,value.length,unsafe{p as usize},span_of::<NativeCsvWriter>());
+}
+
+// Called only after complete validation of the current operation.
+fn csv_writer_put(mut p:*mut NativeCsvWriter,byte:u8)->void {
+    unsafe { *(p.data+p.length)=byte;p.length+=1; }
+    return;
+}
+
+// Append one byte-oriented CSV field. Status: 0 success, 1 invalid metadata,
+// 6 insufficient capacity, 7 forbidden alias, 8 invalid writer state.
+// Empty fields are quoted; commas, quotes and CR/LF require quoting, and a
+// quote inside a quoted field is doubled. Other bytes pass through unchanged.
+pub fn native_csv_writer_field(mut p:*mut NativeCsvWriter,value:NativeByteSlice)->u32 {
+    if !native_csv_writer_shape(p) || !native_text_valid(value) { return 1; }
+    if unsafe{p.columns}==18446744073709551615 { return 8; }
+    if csv_writer_alias(p,value) { return 7; }
+    let available:usize=unsafe{p.capacity-p.length};
+    let comma:bool=unsafe{p.columns}!=0;
+    let mut needed:usize=0;
+    if comma { needed=1; }
+    if needed>available || value.length>available-needed { return 6; }
+    needed+=value.length;
+    let mut quoted:bool=value.length==0;
+    let mut index:usize=0;
+    unsafe {
+        while index<value.length {
+            let byte:u8=*(value.data+index);
+            if byte==34 {
+                quoted=true;
+                if needed==available { return 6; }
+                needed+=1;
+            } else if byte==44 || byte==13 || byte==10 { quoted=true; }
+            index+=1;
+        }
+    }
+    if quoted && available-needed<2 { return 6; }
+    if comma { csv_writer_put(p,44); }
+    if quoted { csv_writer_put(p,34); }
+    index=0;
+    unsafe {
+        while index<value.length {
+            let byte:u8=*(value.data+index);
+            if byte==34 { csv_writer_put(p,34); }
+            csv_writer_put(p,byte);index+=1;
+        }
+    }
+    if quoted { csv_writer_put(p,34); }
+    unsafe { p.columns+=1; }
+    return 0;
+}
+
+// A complete row requires at least one field. CRLF is published atomically.
+pub fn native_csv_writer_end_row(mut p:*mut NativeCsvWriter)->u32 {
+    if !native_csv_writer_shape(p) { return 1; }
+    if unsafe{p.columns}==0 { return 8; }
+    if unsafe{p.capacity-p.length}<2 { return 6; }
+    csv_writer_put(p,13);csv_writer_put(p,10);
+    unsafe { p.columns=0; }
+    return 0;
+}
+
+// Only complete rows are exposed. The initial zero-row output is valid.
+pub fn native_csv_writer_view(p:*const NativeCsvWriter)->NativeByteSlice {
+    if !native_csv_writer_shape(p) { return native_text_invalid(); }
+    unsafe {
+        if p.columns!=0 { return native_text_invalid(); }
+        return native_text_open(p.data,p.length);
+    }
+}
