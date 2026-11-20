@@ -44,6 +44,9 @@ metadata at packaging time. Local builds may show `local` as their revision.
 The installer checks the compiler fingerprint against the extracted executable.
 Older format-1 bundles remain installable with their original file checksums.
 CI verifies the separate archive checksum before extracting the candidate.
+Windows SDK verification runs the GUI lifecycle check in a hidden native
+window. It closes and recreates the window with an active paint and clip
+region, then checks that process GDI and USER object counts stay stable.
 
 Linux and Intel macOS (run from the extracted bundle directory):
 
