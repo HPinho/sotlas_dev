@@ -29,6 +29,16 @@ done < <(find "$bundle" -type f)
 for required in bin/sotlas-native runtime/native/json.sotlas scripts/build_native.sh scripts/test_native.sh scripts/verify_sdk.sh tests/native/contracts/manifest.txt examples/calculator/src/calculator/main.sotlas examples/native_config_map/main.sotlas LICENSE; do
     [[ -f "$bundle/$required" ]] || { echo "Incomplete SDK: $required" >&2; exit 2; }
 done
+if grep -Eq '"(sdk_version|compiler_sha256)"[[:space:]]*:' "$bundle/sdk.json"; then
+    version="$(sed -n 's/.*"sdk_version":"\([^"]*\)".*/\1/p' "$bundle/sdk.json")"
+    compiler_hash="$(sed -n 's/.*"compiler_sha256":"\([^"]*\)".*/\1/p' "$bundle/sdk.json")"
+    if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ||
+          ! "$compiler_hash" =~ ^[0-9a-f]{64}$ ||
+          "$(digest "$bundle/bin/sotlas-native")" != "$compiler_hash" ]]; then
+        echo 'SDK version or compiler identity verification failed.' >&2
+        exit 2
+    fi
+fi
 mkdir -p "$destination"
 cp -R "$bundle/." "$destination/"
 chmod 755 "$destination/bin/sotlas-native"

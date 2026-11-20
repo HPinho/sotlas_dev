@@ -256,11 +256,19 @@ scenario also passed using this SDK before the three-host certification.
 
 **CSV certification:** [CI #1400](https://github.com/HPinho/sotlas_dev/actions/runs/44545711063)
 passed for `f0d7fad`, closing the CSV library and inventory example delivery.
-The next SDK adds a [CSV terminal utility](../examples/native_csv/README.md#normalize-a-csv-file).
-Its installed verifier checks exact output, repeat conversion, empty and
-maximum-size input, and zero output on malformed or oversized input.
+[CI #1401](https://github.com/HPinho/sotlas_dev/actions/runs/44623591711)
+passed for `1c45008`, including the installed
+[CSV terminal utility](../examples/native_csv/README.md#normalize-a-csv-file).
+The verifier checks exact output, repeat conversion, empty and maximum-size
+input, and zero output on malformed or oversized input.
 
 ### P5 — installation
+
+The SDK now records its version, source revision, platform and compiler
+fingerprint in `sdk.json`. Installers validate the compiler fingerprint when
+present and keep accepting earlier format-1 bundles. The native CI matrix
+checks the archive checksum before extraction and verifies the installed
+metadata against the build revision.
 
 - [ ] Package versioned compiler, native libraries, headers/bindings if needed, examples and licenses with checksums.
 - [ ] Install on a clean machine, then check, build and run the terminal example on every advertised CLI target and the GUI on Windows.

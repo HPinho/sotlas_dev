@@ -46,12 +46,24 @@ Copy-Item -LiteralPath (Join-Path $repository 'packaging/SDK_README.md') -Destin
 $revision='local';if ($env:GITHUB_SHA) {$revision=$env:GITHUB_SHA}
 if ($revision -notmatch '^[a-zA-Z0-9_-]+$') {throw 'Invalid source revision.'}
 $encoding=New-Object Text.UTF8Encoding($false)
-[IO.File]::WriteAllText((Join-Path $bundle 'sdk.json'),('{"format":1,"target":"windows-x64","source_revision":"'+$revision+'","channel":"preview"}'),$encoding)
 function Sdk-Hash([string]$Path) {
     $stream=[IO.File]::OpenRead($Path);$algorithm=[Security.Cryptography.SHA256]::Create()
     try {return ([BitConverter]::ToString($algorithm.ComputeHash($stream))).Replace('-','').ToLowerInvariant()}
     finally {$stream.Dispose();$algorithm.Dispose()}
 }
+$project = [regex]::Match((Get-Content -LiteralPath (Join-Path $repository 'pyproject.toml') -Raw),
+    '(?ms)^\[project\]\r?\n(?<body>.*?)(?=^\[|\z)')
+$version = [regex]::Match($project.Groups['body'].Value, '(?m)^version = "([0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?)"\r?$')
+if (!$version.Success) {throw 'Invalid project version for native SDK.'}
+$metadata = [ordered]@{
+    format = 1
+    target = 'windows-x64'
+    source_revision = $revision
+    channel = 'preview'
+    sdk_version = $version.Groups[1].Value
+    compiler_sha256 = Sdk-Hash (Join-Path $bundle 'bin/sotlas-native.exe')
+}
+[IO.File]::WriteAllText((Join-Path $bundle 'sdk.json'),($metadata | ConvertTo-Json -Compress),$encoding)
 $rows=foreach ($file in Get-ChildItem -LiteralPath $bundle -File -Recurse | Sort-Object FullName) {
     (Sdk-Hash $file.FullName)+'  '+$file.FullName.Substring($bundle.Length+1).Replace('\','/')
 }

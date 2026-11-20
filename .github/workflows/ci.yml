@@ -360,9 +360,18 @@ jobs:
         if [[ '${{ matrix.target }}' == linux ]]; then seed=build/native-test-seed/installed/bin/sotlas-native; fi
         bundle=build/sotlas-sdk-${{ matrix.target }}-x64
         bash packaging/pack-sdk.sh "$seed" "$bundle"
+        (
+          cd build
+          checksum="$(basename "$bundle").tar.gz.sha256"
+          if command -v sha256sum >/dev/null; then sha256sum -c "$checksum"
+          else shasum -a 256 -c "$checksum"; fi
+        )
         mkdir build/sdk-extracted
         tar -xzf "$bundle.tar.gz" -C build/sdk-extracted
         bash packaging/install-sdk.sh "build/sdk-extracted/$(basename "$bundle")" 'build/sdk installed'
+        grep -Fq "\"source_revision\":\"$GITHUB_SHA\"" 'build/sdk installed/sdk.json'
+        grep -Eq '"sdk_version":"[0-9]+\.[0-9]+\.[0-9]+' 'build/sdk installed/sdk.json'
+        grep -Eq '"compiler_sha256":"[0-9a-f]{64}"' 'build/sdk installed/sdk.json'
         bash 'build/sdk installed/scripts/verify_sdk.sh' 'build/sdk verification' --rebuild
         printf '\ncorrupted\n' >> "$bundle/README.md"
         if bash packaging/install-sdk.sh "$bundle" build/sdk-must-not-exist; then
@@ -375,8 +384,17 @@ jobs:
       shell: pwsh
       run: |
         & ./packaging/pack-sdk.ps1 ./build/native-test-seed/sotlas-native.exe ./build/sotlas-sdk-windows-x64
+        $archive = Get-Item ./build/sotlas-sdk-windows-x64.zip
+        $digest = (Get-FileHash -LiteralPath $archive.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+        if ((Get-Content -LiteralPath "$($archive.FullName).sha256" -Raw).TrimEnd() -cne "$digest  $($archive.Name)") {
+          throw 'SDK archive checksum mismatch.'
+        }
         Expand-Archive ./build/sotlas-sdk-windows-x64.zip ./build/sdk-extracted
         & ./packaging/install-sdk.ps1 ./build/sdk-extracted './build/sdk installed'
+        $metadata = Get-Content -LiteralPath './build/sdk installed/sdk.json' -Raw | ConvertFrom-Json
+        if ($metadata.source_revision -cne $env:GITHUB_SHA -or !$metadata.sdk_version -or !$metadata.compiler_sha256) {
+          throw 'SDK release metadata is incomplete or has the wrong source revision.'
+        }
         & './build/sdk installed/scripts/verify_sdk.ps1' './build/sdk verification' -Rebuild
         Add-Content ./build/sotlas-sdk-windows-x64/README.md 'corrupted'
         $rejected = $false
