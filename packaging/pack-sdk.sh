@@ -50,8 +50,11 @@ cp "$repository/LICENSE" "$bundle/LICENSE"
 cp "$repository/packaging/SDK_README.md" "$bundle/README.md"
 revision="${GITHUB_SHA:-local}"
 [[ "$revision" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo 'Invalid source revision.' >&2; exit 2; }
-printf '{"format":1,"target":"%s","source_revision":"%s","channel":"preview"}\n' "$target" "$revision" > "$bundle/sdk.json"
 digest() { if command -v sha256sum >/dev/null; then sha256sum "$1" | cut -d ' ' -f 1; else shasum -a 256 "$1" | cut -d ' ' -f 1; fi; }
+version="$(tr -d '\r' < "$repository/pyproject.toml" | sed -n '/^\[project\]$/,/^\[/s/^version = "\([0-9a-z.]*\)"$/\1/p')"
+[[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+(rc[0-9]+)?$ ]] || { echo 'Invalid project version for native SDK.' >&2; exit 2; }
+printf '{"format":1,"target":"%s","source_revision":"%s","channel":"preview","sdk_version":"%s","compiler_sha256":"%s"}\n' \
+    "$target" "$revision" "$version" "$(digest "$bundle/bin/sotlas-native")" > "$bundle/sdk.json"
 (cd "$bundle"; find . -type f ! -name SHA256SUMS | LC_ALL=C sort | while IFS= read -r path; do printf '%s  %s\n' "$(digest "$path")" "${path#./}"; done) > "$bundle/SHA256SUMS"
 tar -czf "$bundle.tar.gz" -C "$(dirname "$bundle")" "$(basename "$bundle")"
 printf '%s  %s\n' "$(digest "$bundle.tar.gz")" "$(basename "$bundle").tar.gz" > "$bundle.tar.gz.sha256"

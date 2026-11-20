@@ -38,6 +38,13 @@ installer verifies every bundled file and the target before copying to a fresh
 directory. Checksums detect corruption; they are not publisher signatures.
 No administrator privileges, registry edits or global PATH changes are needed.
 
+The installed `sdk.json` identifies the SDK version, build source revision,
+platform and SHA-256 of the bundled compiler. The version comes from the project
+metadata at packaging time. Local builds may show `local` as their revision.
+The installer checks the compiler fingerprint against the extracted executable.
+Older format-1 bundles remain installable with their original file checksums.
+CI verifies the separate archive checksum before extracting the candidate.
+
 Linux and Intel macOS (run from the extracted bundle directory):
 
 ```bash

@@ -33,6 +33,13 @@ foreach ($file in Get-ChildItem -LiteralPath $bundle -File -Recurse) {
 foreach ($required in @('bin/sotlas-native.exe','runtime/native/json.sotlas','scripts/build_native.ps1','scripts/test_native.ps1','scripts/verify_sdk.ps1','tests/native/contracts/manifest.txt','examples/calculator/src/calculator/main.sotlas','examples/native_config_map/main.sotlas','LICENSE')) {
     if (!(Test-Path -LiteralPath (Join-Path $bundle $required) -PathType Leaf)) {throw "Incomplete SDK: $required"}
 }
+if ($metadata.PSObject.Properties['sdk_version'] -or $metadata.PSObject.Properties['compiler_sha256']) {
+    if ($metadata.sdk_version -isnot [string] -or $metadata.sdk_version -cnotmatch '\A[0-9]+\.[0-9]+\.[0-9]+(?:rc[0-9]+)?\z' -or
+        $metadata.compiler_sha256 -isnot [string] -or $metadata.compiler_sha256 -cnotmatch '\A[0-9a-f]{64}\z' -or
+        (Sdk-Hash (Join-Path $bundle 'bin/sotlas-native.exe')) -cne $metadata.compiler_sha256) {
+        throw 'SDK version or compiler identity verification failed.'
+    }
+}
 New-Item -ItemType Directory -Path $destinationPath | Out-Null
 Copy-Item -Path (Join-Path $bundle '*') -Destination $destinationPath -Recurse
 Write-Output "Installed native SDK: $destinationPath"
