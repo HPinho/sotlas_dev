@@ -55,6 +55,29 @@ fn resized_scene(scene:*mut UiView,snapshot:*mut UiView,width:u32,height:u32) ->
     }
     unsafe { resize_stage=9; }return false;
 }
+fn window_lifecycle(title:*const u16)->u32 {
+    if native_window_alive() || native_window_dpi()!=0 || native_window_begin() { return 23; }
+    if !native_window_start() || !native_window_start() { return 24; }
+    if native_window_create(null,416,560,false) || native_window_create(title,159,560,false)
+        || native_window_create(title,416,4097,false) || native_window_alive() { return 25; }
+    let mut gdi:u32=0;
+    let mut user:u32=0;
+    for iteration in 0..10 {
+        if !native_window_create(title,416,560,false) || native_window_dpi()==0
+            || native_window_create(title,416,560,false) { return 26; }
+        if !native_window_invalidate() || !native_window_begin()
+            || !native_window_clip(0,0,32,32) { return 27; }
+        if !native_window_close() || native_window_alive() || native_window_dpi()!=0
+            || native_window_end() || native_window_unclip() || !native_window_close() { return 28; }
+        let current_gdi:u32=native_window_resource_count(0);
+        let current_user:u32=native_window_resource_count(1);
+        if iteration==0 { gdi=current_gdi;user=current_user; }
+        else if current_gdi>gdi || current_user>user { return 29; }
+    }
+    if !native_window_stop() || !native_window_stop() { return 30; }
+    return 42;
+}
+
 pub fn main_entry() -> u32 {
     if !native_window_start() { return 1; }
     let mut title:[u16;2]=0; title[0]=83;
@@ -126,5 +149,7 @@ pub fn main_entry() -> u32 {
             || !native_window_invalidate() || !ui_windows_paint(stable) || !native_window_stop() { return 14; }
         iteration=iteration+1;
     }
-    return 42;
+    let status:u32=window_lifecycle(unsafe { title as *const u16 });
+    if status!=42 { native_window_stop(); }
+    return status;
 }

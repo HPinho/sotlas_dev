@@ -45,19 +45,23 @@ fn window_resolve(index:usize, library:usize, name:*const u8) -> bool {
     return function != 0;
 }
 pub fn native_window_close() -> bool {
-    if unsafe { window_dc } != 0 { native_window_end(); }
+    let mut okay:bool=true;
+    if unsafe { window_dc } != 0 && !native_window_end() { okay=false; }
     let handle:u64=unsafe { window_handle };
-    if handle == 0 { return true; }
+    if handle == 0 { return okay; }
     let mut arguments:[u64;12]=0;
     arguments[0]=handle;
     if window_call(7,unsafe { arguments as *const u64 }) as u32 != 0 {
         if window_call(6,unsafe { arguments as *const u64 }) as u32 == 0 { return false; }
     }
     unsafe { window_handle=0; }
-    return true;
+    return okay;
 }
 pub fn native_window_stop() -> bool {
-    if !native_window_close() { return false; }
+    let closed:bool=native_window_close();
+    // A paint failure can be reported even after DestroyWindow succeeds.
+    // Keep releasing the class and libraries once the window is gone.
+    if unsafe { window_handle } != 0 { return false; }
     let mut arguments:[u64;12]=0;
     let values:*const u64=unsafe { arguments as *const u64 };
     if unsafe { window_registered } {
@@ -78,7 +82,7 @@ pub fn native_window_stop() -> bool {
     let mut index:usize=0;
     while index < 33 { unsafe { window_functions[index]=0; } index=index+1; }
     unsafe { window_instance=0; window_ready=false; }
-    return true;
+    return closed;
 }
 pub fn native_window_start() -> bool {
     if unsafe { window_ready } { return true; }
@@ -101,10 +105,12 @@ pub fn native_window_start() -> bool {
         && window_resolve(22,2,"SelectObject") && window_resolve(23,2,"SetTextColor")
         && window_resolve(24,2,"SetBkMode") && window_resolve(25,2,"TextOutW")
         && window_resolve(26,2,"SaveDC") && window_resolve(27,2,"IntersectClipRect")
-        && window_resolve(28,2,"RestoreDC") && window_resolve(29,1,"GetDpiForWindow")
+        && window_resolve(28,2,"RestoreDC")
         && window_resolve(30,1,"GetGuiResources") && window_resolve(31,0,"GetCurrentProcess")
         && window_resolve(32,2,"GetTextExtentPoint32W");
     if !ready { native_window_stop(); return false; }
+    // Use the default coordinate scale if the window DPI query is unavailable.
+    window_resolve(29,1,"GetDpiForWindow");
     let mut arguments:[u64;12]=0;
     unsafe { window_instance=window_call(1,arguments as *const u64); }
     if unsafe { window_instance } == 0 { native_window_stop(); return false; }
@@ -122,6 +128,7 @@ pub fn native_window_start() -> bool {
     let load_cursor:u64=sotlas_windows_get_proc_address(unsafe { window_modules[1] },"LoadCursorW");
     if load_cursor == 0 { native_window_stop(); return false; }
     descriptor[5]=sotlas_windows_call_scalar(load_cursor,unsafe { arguments as *const u64 });
+    if descriptor[5] == 0 { native_window_stop(); return false; }
     let class_data:*const u16=unsafe { window_class as *const u16 };
     descriptor[8]=unsafe { class_data as u64 };
     let description:*const u64=unsafe { descriptor as *const u64 };
@@ -339,8 +346,11 @@ pub fn native_window_unclip() -> bool {
     return result != 0;
 }
 pub fn native_window_dpi() -> u32 {
+    if !native_window_alive() { return 0; }
     let mut arguments:[u64;12]=0; arguments[0]=unsafe { window_handle };
-    return window_call(29,unsafe { arguments as *const u64 }) as u32;
+    let dpi:u32=window_call(29,unsafe { arguments as *const u64 }) as u32;
+    if dpi == 0 { return 96; }
+    return dpi;
 }
 pub fn native_window_measure(mut size:*mut NativeWindowSize) -> bool {
     if size == null || !native_window_alive() { return false; }

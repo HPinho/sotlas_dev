@@ -82,6 +82,14 @@ tracked separately; completion of this block does not certify them.
 - [x] Validate required scalar Win64 calls, record layouts and handles; the probe uses the OS procedure rather than Sotlas callbacks.
 - [ ] Exercise resize, display scaling, focus, Unicode input, allocation/initialization failures and repeated open/close without resource leaks.
 
+The hidden-window test closes an active clipped paint session and recreates
+the window ten times. It checks GDI and USER object counts and rejects invalid
+creation arguments even when the runtime is initialized. The runtime reports
+paint cleanup failures while continuing to release the class and DLLs after
+the window is destroyed. DPI queries return 0 without a window and use 96
+when Windows cannot report the DPI. Display scaling, real focus transitions
+and OS allocation failure injection remain open.
+
 **P2 first delivery (2026-10-16):** the [Windows window probe](../examples/native_window/README.md)
 passed local hidden-window lifecycle/input/resource gates and a visible drawing
 and text-update check. Resize, basic DPI queries and invalid-input rejection
@@ -268,11 +276,16 @@ The SDK now records its version, source revision, platform and compiler
 fingerprint in `sdk.json`. Installers validate the compiler fingerprint when
 present and keep accepting earlier format-1 bundles. The native CI matrix
 checks the archive checksum before extraction and verifies the installed
-metadata against the build revision.
+metadata against the build revision. [CI #1403](https://github.com/HPinho/sotlas_dev/actions/runs/44714484483)
+passed this packaging gate for Linux, Windows and Intel macOS.
 
-- [ ] Package versioned compiler, native libraries, headers/bindings if needed, examples and licenses with checksums.
+- [x] Package versioned compiler, native libraries, headers/bindings if needed, examples and licenses with checksums.
 - [ ] Install on a clean machine, then check, build and run the terminal example on every advertised CLI target and the GUI on Windows.
-- [ ] Verify GUI dependency discovery and native self-build from the installed seed without Python, a C compiler or an external linker.
+- [x] Verify GUI dependency discovery and native self-build from the installed seed without Python, a C compiler or an external linker.
+
+CI #1403 executed the Windows GUI dependency and render checks from the
+installed SDK. All three native hosts rebuilt the installed compiler twice
+with host build tools outside PATH and compared the resulting executables.
 
 ### P6 — publication gate
 
