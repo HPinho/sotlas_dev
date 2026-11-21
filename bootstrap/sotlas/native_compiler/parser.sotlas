@@ -2055,6 +2055,12 @@ impl Parser {
         if pattern == 0 || !self.match_token(TokenKind::Equal) { self.reject_current();return 0; }
         self.advance();
         let subject: usize = self.parse_expression();
+        let mut guard: usize = 0;
+        if self.match_token(TokenKind::KwIf) {
+            self.advance();
+            guard = self.parse_expression();
+            if guard == 0 { return 0; }
+        }
         if subject == 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
         let mut selected: usize = 0;
         if expression_mode { selected=self.parse_match_value_block(); }
@@ -2087,8 +2093,14 @@ impl Parser {
         let other: usize = self.alloc_node(AstKind::MatchArm,keyword.span);
         let capture: usize = self.alloc_text_node(AstKind::ExprIdent,binding);
         if choice == 0 || arm == 0 || other == 0 || capture == 0
-            || !self.append_child(arm,pattern) || !self.append_child(arm,selected)
-            || !self.append_child(other,capture) || !self.append_child(other,fallback)
+            || !self.append_child(arm,pattern) || !self.append_child(arm,selected) { return 0; }
+        // Reuse MatchArm's guard slot, so bindings, ownership validation and
+        // the false edge follow the same rules as a guarded match.
+        if guard != 0 {
+            if !self.append_child(arm,guard) { return 0; }
+            unsafe { (*(self.nodes+arm)).int_value=1; }
+        }
+        if !self.append_child(other,capture) || !self.append_child(other,fallback)
             || !self.append_child(choice,subject) || !self.append_child(choice,arm)
             || !self.append_child(choice,other) || !self.expand_match_patterns(choice) { return 0; }
         if !repeating { return choice; }
