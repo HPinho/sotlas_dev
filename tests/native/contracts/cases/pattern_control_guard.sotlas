@@ -1,0 +1,58 @@
+module pattern_control_guard;
+
+enum Item { End, Value(u32), Other(u32) }
+static mut reads:u32=0;
+static mut guards:u32=0;
+static mut cleaned:u32=0;
+
+fn next(value:u32)->Item {
+    unsafe { reads+=1; }
+    if value==0 { return Item::End; }
+    return Item::Value(value);
+}
+
+fn allowed(value:u32)->bool {
+    unsafe { guards+=1; }
+    return value<4;
+}
+
+fn record(value:u32)->void {
+    unsafe { cleaned=cleaned*10+value; }
+}
+
+fn select(item:Item)->u32 {
+    return if let Item::Value(x) | Item::Other(x) = item if x==42 {
+        x
+    } else if let Item::Other(x)=item if x==7 {
+        7
+    } else {
+        0
+    };
+}
+
+pub fn main_entry()->u32 {
+    if let Item::Value(value)=next(0) if allowed(value) { return 1; }
+    if unsafe { reads }!=1 || unsafe { guards }!=0 { return 2; }
+
+    if let Item::Value(value)=next(5) if allowed(value) {
+        return 3;
+    } else if unsafe { reads }!=2 || unsafe { guards }!=1 {
+        return 4;
+    }
+
+    let mut index:u32=1;
+    let mut sum:u32=0;
+    while let Item::Value(value)=next(index) if allowed(value) {
+        defer record(value);
+        index+=1;
+        if value==2 { continue; }
+        sum+=value;
+    }
+    if index!=4 || sum!=4 || unsafe { cleaned }!=123 { return 5; }
+    if unsafe { reads }!=6 || unsafe { guards }!=5 { return 6; }
+
+    if select(Item::Value(42))!=42 || select(Item::Other(42))!=42
+        || select(Item::Other(7))!=7 || select(Item::Value(7))!=0
+        || select(Item::End)!=0 { return 7; }
+    return 0;
+}

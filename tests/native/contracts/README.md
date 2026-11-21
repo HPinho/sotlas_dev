@@ -101,6 +101,10 @@ verification passed all 58 cases on Windows and Linux for that delivery;
 the complete three-host matrix subsequently passed CI #1399. See the
 [tensor contract](../../../docs/native_tensor_ops.md) for the exact API scope.
 
-The suite now has 64 cases. Six [CSV contracts](../../../docs/native_csv.md)
+Six [CSV contracts](../../../docs/native_csv.md)
 cover reading, quote decoding, writing, metadata/range/alias rejections and
-all-byte round trips. New complete CI certification is pending for this block.
+all-byte round trips.
+
+The suite now has 67 cases. Three
+[pattern guard contracts](../../../docs/native_pattern_control.md#guards) check
+success and fallback paths, loop cleanup, Boolean typing and ownership.

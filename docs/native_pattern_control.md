@@ -36,10 +36,38 @@ contract: reading an exclusive owner does not consume it. Unavailable owners
 and pointer/resource payload graphs remain rejected. This is not automatic
 resource destruction or general borrow checking.
 
-A bare capture or `_` as the entire condition is rejected; use `let` or `loop`
-for those forms. [Value-producing if-let](native_pattern_values.md) extends the
-statement contract. Mutable pattern bindings, `while let ... else`, pattern
-guards and chained conditions remain outside this profile.
+An unguarded bare capture or `_` as the entire condition is rejected.
+[Value-producing if-let](native_pattern_values.md) extends the statement
+contract. Mutable pattern bindings, `while let ... else` and chained pattern
+conditions remain outside this profile.
+
+## Guards
+
+Add `if predicate` after the subject to test the matched values before running
+the selected block:
+
+```sotlas
+enum Entry { End, Number(u32) }
+
+fn positive(entry: Entry) -> u32 {
+    return if let Entry::Number(value) = entry if value > 0 {
+        value
+    } else {
+        0
+    };
+}
+```
+
+The subject is evaluated once per decision. A guard runs only if the pattern
+matches, with access to that pattern's bindings. A false guard follows the
+same path as a failed pattern: an `if let` proceeds to its fallback and a
+`while let` exits before entering the body. Statement and value forms share
+this behavior, including alternatives with compatible bindings and else chains.
+
+The guard must return `bool` and preserve live owners. The compiler reuses
+the [match guard](native_match_guards.md) rules for short-circuit evaluation
+and ownership. Successful loop iterations retain the same defer behavior on
+ordinary completion and `continue`.
 Unreachable-code diagnostic parity remains a separate frontend task; this
 package does not claim a new exhaustive semantic pass over unreachable match
 patterns. The optional legacy C11 emitter is outside this native contract.

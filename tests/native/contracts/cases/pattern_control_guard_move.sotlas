@@ -1,0 +1,13 @@
+module pattern_control_guard_move;
+
+enum Item { End, Value(u32) }
+struct Owner { pub value:u32; }
+
+fn consume(owner:sole Owner)->bool { return owner.value!=0; }
+
+pub fn main_entry()->u32 {
+    let item:Item=Item::Value(1);
+    let owner:sole Owner=Owner{value:1};
+    if let Item::Value(value)=item if value==1 && consume(owner) { return 1; }
+    return owner.value;
+}

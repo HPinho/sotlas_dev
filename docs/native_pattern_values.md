@@ -23,6 +23,8 @@ selected branch executes. Tail values are snapshotted before branch defers
 run in LIFO order.
 
 Else chains can combine ordinary `else if` expressions and `else if let`.
+An `if let` can test its bindings with a
+[guard after the subject](native_pattern_control.md#guards).
 The current value-block grammar requires parentheses around a control
 expression used directly as another block's tail, for example
 `{ (if let Maybe::Some(n)=other { n } else { 0 }) }`. It is also valid to bind

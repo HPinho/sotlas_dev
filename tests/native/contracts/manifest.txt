@@ -63,3 +63,6 @@ pass csv_reader_metadata cases/csv_reader_metadata.sotlas
 pass csv_writer_values cases/csv_writer_values.sotlas
 pass csv_writer_reject cases/csv_writer_reject.sotlas
 pass csv_roundtrip cases/csv_roundtrip.sotlas
+pass pattern_control_guard cases/pattern_control_guard.sotlas
+reject pattern_control_guard_type cases/pattern_control_guard_type.sotlas
+reject pattern_control_guard_move cases/pattern_control_guard_move.sotlas
