@@ -1,0 +1,74 @@
+module pattern_control_else;
+
+enum Item { End, Value(u32) }
+enum ReadResult { Ok(Item), Err(u32) }
+static mut trace:u32=0;
+
+fn record(value:u32)->void {
+    unsafe { trace=trace*10+value; }
+}
+
+fn item(value:u32)->Item {
+    if value==0 { return Item::End; }
+    return Item::Value(value);
+}
+
+fn early_return()->u32 {
+    while let Item::Value(value)=item(7) {
+        defer record(7);
+        return value;
+    } else {
+        record(9);
+    }
+    return 0;
+}
+
+fn failed_read()->ReadResult { return ReadResult::Err(42); }
+
+fn propagate()->ReadResult {
+    defer record(8);
+    while let Item::Value(value)=failed_read()? {
+        record(value);
+    } else {
+        record(9);
+    }
+    return ReadResult::Ok(Item::End);
+}
+
+pub fn main_entry()->u32 {
+    while let Item::Value(value)=item(0) { return 1; } else { record(1); }
+    let mut remaining:u32=2;
+    while let Item::Value(value)=item(remaining) {
+        defer record(value);
+        remaining-=1;
+        continue;
+    } else {
+        record(3);
+    }
+    if unsafe { trace }!=1213 { return 2; }
+
+    while let Item::Value(value)=item(2) if value<2 {
+        return 3;
+    } else {
+        record(4);
+    }
+    while let Item::Value(value)=item(5) {
+        defer record(value);
+        break;
+    } else {
+        return 4;
+    }
+    if early_return()!=7 || unsafe { trace }!=1213457 { return 5; }
+    let result:ReadResult=propagate();
+    if let ReadResult::Err(code)=result {
+        if code!=42 || unsafe { trace }!=12134578 { return 8; }
+    } else { return 9; }
+
+    let mut outer:u32=0;
+    while outer<2 {
+        outer+=1;
+        while let Item::Value(value)=item(0) { return 6; } else { continue; }
+        return 7;
+    }
+    return 0;
+}

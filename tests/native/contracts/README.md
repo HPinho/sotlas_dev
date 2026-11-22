@@ -105,6 +105,10 @@ Six [CSV contracts](../../../docs/native_csv.md)
 cover reading, quote decoding, writing, metadata/range/alias rejections and
 all-byte round trips.
 
-The suite now has 67 cases. Three
+Three
 [pattern guard contracts](../../../docs/native_pattern_control.md#guards) check
 success and fallback paths, loop cleanup, Boolean typing and ownership.
+
+Three more cases cover `while let ... else` completion and bring the suite
+to 70 contracts. They check exhaustion, guard failure, defer order, early exits,
+outer loop jumps and rejection of out-of-scope bindings and jumps.

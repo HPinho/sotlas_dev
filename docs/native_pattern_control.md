@@ -38,8 +38,8 @@ resource destruction or general borrow checking.
 
 An unguarded bare capture or `_` as the entire condition is rejected.
 [Value-producing if-let](native_pattern_values.md) extends the statement
-contract. Mutable pattern bindings, `while let ... else` and chained pattern
-conditions remain outside this profile.
+contract. Mutable pattern bindings and chained pattern conditions remain
+outside this profile.
 
 ## Guards
 
@@ -68,6 +68,20 @@ The guard must return `bool` and preserve live owners. The compiler reuses
 the [match guard](native_match_guards.md) rules for short-circuit evaluation
 and ownership. Successful loop iterations retain the same defer behavior on
 ordinary completion and `continue`.
+
+## Loop completion
+
+A `while let` can run an `else { ... }` block when a pattern fails or its
+guard is false, including on the first decision. A `break` from the body,
+a function return or a propagated error bypasses the block. The block runs
+after the last iteration's defers and outside the loop's pattern scope.
+Jumps from it resolve in the enclosing scope, so an enclosing loop may receive
+a `break` or `continue`. The syntax requires braces around the completion
+block.
+
+The parser uses a scoped compiler-generated flag set only on the failed
+decision edge. The existing structured loop, branch and ownership checks
+apply to the resulting flow.
 Unreachable-code diagnostic parity remains a separate frontend task; this
 package does not claim a new exhaustive semantic pass over unreachable match
 patterns. The optional legacy C11 emitter is outside this native contract.

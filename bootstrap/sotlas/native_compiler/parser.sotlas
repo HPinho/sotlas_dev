@@ -2067,7 +2067,30 @@ impl Parser {
         else { selected=self.parse_block(); }
         let mut fallback: usize = self.alloc_node(AstKind::Block,keyword.span);
         if selected == 0 || fallback == 0 { return 0; }
+        let mut exhausted: usize = 0;
+        let mut completion: usize = 0;
         if repeating {
+            if self.match_token(TokenKind::KwElse) {
+                let marker: Token = self.advance();
+                if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+                let otherwise: usize = self.parse_block();
+                if otherwise == 0 { return 0; }
+                // Only the failed decision sets the hidden flag. A user break
+                // skips the completion block, which lives outside this loop.
+                exhausted=self.alloc_text_node(AstKind::LetStmt,marker);
+                let mark: usize = self.alloc_node(AstKind::AssignStmt,marker.span);
+                completion=self.alloc_node(AstKind::IfStmt,marker.span);
+                let mut equal: Token = marker;equal.kind=TokenKind::EqEq;
+                let condition: usize = self.make_binary(self.name_expression(marker),equal,self.generated_integer(marker.span,1));
+                if exhausted == 0 || mark == 0 || completion == 0 || condition == 0
+                    || !self.append_child(exhausted,self.generated_integer(marker.span,0))
+                    || !self.append_child(mark,self.name_expression(marker))
+                    || !self.append_child(mark,self.generated_integer(marker.span,1))
+                    || !self.append_child(fallback,mark)
+                    || !self.append_child(completion,condition)
+                    || !self.append_child(completion,otherwise) { return 0; }
+                unsafe{(*(self.nodes+exhausted)).int_value=1;}
+            }
             let stop: usize = self.alloc_node(AstKind::BreakStmt,keyword.span);
             if stop == 0 || !self.append_child(fallback,stop) { return 0; }
         } else if self.match_token(TokenKind::KwElse) {
@@ -2113,7 +2136,11 @@ impl Parser {
         if loop_node == 0 || body == 0 || condition == 0
             || !self.append_child(body,choice) || !self.append_child(loop_node,condition)
             || !self.append_child(loop_node,body) { return 0; }
-        return loop_node;
+        if exhausted == 0 { return loop_node; }
+        let scope: usize = self.alloc_node(AstKind::Block,keyword.span);
+        if scope == 0 || !self.append_child(scope,exhausted)
+            || !self.append_child(scope,loop_node) || !self.append_child(scope,completion) { return 0; }
+        return scope;
     }
 
     pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {

@@ -174,7 +174,7 @@ pub fn main_entry()->u32{let v:sole Box=Box{n:42};return choose(V::Some(1),v);}'
     def test_malformed_pattern_control_is_rejected(self):
         for i, body in enumerate(('if let V::Some(n) V::Some(42){}',
                                  'if let V::Some(n)=V::Some(42){}else return 1;',
-                                 'while let V::Some(n)=V::None{}else{}',
+                                 'while let V::Some(n)=V::None{}else return 1;',
                                  'if let mut n=V::None{}')):
             with self.subTest(body=body):
                 self.compile('pattern_syntax_'+str(i),'enum V{None,Some(u32)}pub fn main_entry()->u32{'+body+'return 42;}',False)

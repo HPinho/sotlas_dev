@@ -1,0 +1,9 @@
+module pattern_control_else_jump;
+
+enum Item { End, Value(u32) }
+
+pub fn main_entry()->u32 {
+    let item:Item=Item::End;
+    while let Item::Value(value)=item {} else { break; }
+    return 0;
+}

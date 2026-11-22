@@ -66,3 +66,6 @@ pass csv_roundtrip cases/csv_roundtrip.sotlas
 pass pattern_control_guard cases/pattern_control_guard.sotlas
 reject pattern_control_guard_type cases/pattern_control_guard_type.sotlas
 reject pattern_control_guard_move cases/pattern_control_guard_move.sotlas
+pass pattern_control_else cases/pattern_control_else.sotlas
+reject pattern_control_else_scope cases/pattern_control_else_scope.sotlas
+reject pattern_control_else_jump cases/pattern_control_else_jump.sotlas
