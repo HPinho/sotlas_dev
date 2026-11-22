@@ -109,6 +109,9 @@ Three
 [pattern guard contracts](../../../docs/native_pattern_control.md#guards) check
 success and fallback paths, loop cleanup, Boolean typing and ownership.
 
-Three more cases cover `while let ... else` completion and bring the suite
-to 70 contracts. They check exhaustion, guard failure, defer order, early exits,
+Three cases cover `while let ... else` completion. They check exhaustion,
+guard failure, defer order, early exits,
 outer loop jumps and rejection of out-of-scope bindings and jumps.
+The suite now has 73 contracts with three additional cases for ordinary
+`while ... else`, including condition evaluation, cleanup, early exit and
+rejection of non-Boolean conditions and jumps without a target.

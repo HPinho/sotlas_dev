@@ -1,0 +1,64 @@
+module while_completion;
+
+static mut calls:u32=0;
+static mut trace:u32=0;
+enum Decision { Ok(bool), Err(u32) }
+
+fn predicate(value:u32)->bool {
+    unsafe { calls+=1; }
+    return value>0;
+}
+
+fn record(value:u32)->void {
+    unsafe { trace=trace*10+value; }
+}
+
+fn exit_early()->u32 {
+    while predicate(1) {
+        defer record(7);
+        return 42;
+    } else {
+        record(9);
+    }
+    return 0;
+}
+
+fn failed_condition()->Decision { return Decision::Err(42); }
+
+fn propagate()->Decision {
+    defer record(8);
+    while failed_condition()? { record(9); } else { record(9); }
+    return Decision::Ok(false);
+}
+
+pub fn main_entry()->u32 {
+    while false && predicate(1) { return 1; } else { record(1); }
+    let mut remaining:u32=2;
+    while predicate(remaining) {
+        let current:u32=remaining;
+        defer record(current);
+        remaining-=1;
+        continue;
+    } else {
+        record(3);
+    }
+    if unsafe { trace }!=1213 || unsafe { calls }!=3 { return 2; }
+    while predicate(1) {
+        defer record(5);
+        break;
+    } else { return 3; }
+    if exit_early()!=42 || unsafe { trace }!=121357 || unsafe { calls }!=5 { return 4; }
+    let result:Decision=propagate();
+    if let Decision::Err(code)=result {
+        if code!=42 || unsafe { trace }!=1213578 { return 5; }
+    } else { return 6; }
+    let mut outer:u32=0;
+    while outer<2 {
+        outer+=1;
+        while false {} else { continue; }
+        return 7;
+    } else {
+        if outer!=2 { return 8; }
+    }
+    return 0;
+}

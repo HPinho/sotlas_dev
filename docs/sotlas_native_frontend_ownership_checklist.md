@@ -107,6 +107,8 @@ Boolean guards also work on those statements and on value-producing `if let`.
 They may use pattern bindings and follow the existing guard ownership rules.
 The native `while let ... else` block runs on a failed match or guard.
 It executes outside the loop's pattern scope, after iteration cleanup.
+Ordinary native `while ... else` shares that completion rule when the Boolean
+condition becomes false. An explicit break or a function exit bypasses it.
 The checked split cursor connects those decisions to native field iteration.
 General iterators and resource payloads remain open; if-let values are linked above.
 

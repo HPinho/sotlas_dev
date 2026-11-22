@@ -1000,20 +1000,19 @@ impl Parser {
         } else if tok.kind == TokenKind::KwWhile {
             self.advance();
             if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,true,false); }
-            let while_node: usize = self.alloc_node(AstKind::WhileStmt, tok.span);
-            if while_node == 0 {
-                return 0;
-            }
             let cond_node: usize = self.parse_expression();
-            if cond_node == 0 || !self.append_child(while_node, cond_node) {
-                return 0;
+            if cond_node == 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+            let body_node: usize = self.parse_block();
+            if body_node == 0 { return 0; }
+            if self.match_token(TokenKind::KwElse) {
+                let marker: Token = self.advance();
+                if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+                let otherwise: usize = self.parse_block();
+                if otherwise == 0 { return 0; }
+                return self.conditional_loop_completion(tok,cond_node,body_node,marker,otherwise);
             }
-            if self.match_token(TokenKind::OpenBrace) {
-                let body_node: usize = self.parse_block();
-                if body_node == 0 || !self.append_child(while_node, body_node) {
-                    return 0;
-                }
-            }
+            let while_node: usize = self.alloc_node(AstKind::WhileStmt,tok.span);
+            if !self.append_child(while_node,cond_node) || !self.append_child(while_node,body_node) { return 0; }
             return while_node;
         } else if tok.kind == TokenKind::KwDefer {
             self.advance();
@@ -2049,6 +2048,44 @@ impl Parser {
     // Pattern control shares the complete match decision tree and its scoped
     // payload snapshots. The reserved `let` spelling is an inaccessible fallback
     // binding; no fabricated source text or parallel pattern checker is needed.
+    // Both forms place completion outside the inner loop. Only a failed
+    // condition or pattern reaches the generated assignment before break.
+    pub fn loop_completion(mut self: &mut Self, loop_node: usize, failed: usize,
+        marker: Token, otherwise: usize) -> usize {
+        let exhausted: usize = self.alloc_text_node(AstKind::LetStmt,marker);
+        let mark: usize = self.alloc_node(AstKind::AssignStmt,marker.span);
+        let completion: usize = self.alloc_node(AstKind::IfStmt,marker.span);
+        let scope: usize = self.alloc_node(AstKind::Block,marker.span);
+        let stop: usize = self.alloc_node(AstKind::BreakStmt,marker.span);
+        let mut equal: Token = marker;equal.kind=TokenKind::EqEq;
+        let condition: usize = self.make_binary(self.name_expression(marker),equal,self.generated_integer(marker.span,1));
+        if exhausted == 0 || mark == 0 || completion == 0 || scope == 0 || stop == 0 || condition == 0
+            || !self.append_child(exhausted,self.generated_integer(marker.span,0))
+            || !self.append_child(mark,self.name_expression(marker))
+            || !self.append_child(mark,self.generated_integer(marker.span,1))
+            || !self.append_child(failed,mark) || !self.append_child(failed,stop)
+            || !self.append_child(completion,condition) || !self.append_child(completion,otherwise)
+            || !self.append_child(scope,exhausted) || !self.append_child(scope,loop_node)
+            || !self.append_child(scope,completion) { return 0; }
+        unsafe{(*(self.nodes+exhausted)).int_value=1;}
+        return scope;
+    }
+
+    pub fn conditional_loop_completion(mut self: &mut Self, keyword: Token, predicate: usize,
+        selected: usize, marker: Token, otherwise: usize) -> usize {
+        let decision: usize = self.alloc_node(AstKind::IfStmt,keyword.span);
+        let failed: usize = self.alloc_node(AstKind::Block,marker.span);
+        let body: usize = self.alloc_node(AstKind::Block,keyword.span);
+        let repeating: usize = self.alloc_node(AstKind::WhileStmt,keyword.span);
+        let mut equal: Token = keyword;equal.kind=TokenKind::EqEq;
+        let always: usize = self.make_binary(self.generated_integer(keyword.span,0),equal,self.generated_integer(keyword.span,0));
+        if decision == 0 || failed == 0 || body == 0 || repeating == 0 || always == 0
+            || !self.append_child(decision,predicate) || !self.append_child(decision,selected)
+            || !self.append_child(decision,failed) || !self.append_child(body,decision)
+            || !self.append_child(repeating,always) || !self.append_child(repeating,body) { return 0; }
+        return self.loop_completion(repeating,failed,marker,otherwise);
+    }
+
     pub fn parse_pattern_control(mut self: &mut Self, keyword: Token, repeating: bool, expression_mode: bool) -> usize {
         let binding: Token = self.advance();
         let pattern: usize = self.parse_match_pattern(0);
@@ -2067,32 +2104,18 @@ impl Parser {
         else { selected=self.parse_block(); }
         let mut fallback: usize = self.alloc_node(AstKind::Block,keyword.span);
         if selected == 0 || fallback == 0 { return 0; }
-        let mut exhausted: usize = 0;
+        let mut marker: Token = keyword;
         let mut completion: usize = 0;
         if repeating {
             if self.match_token(TokenKind::KwElse) {
-                let marker: Token = self.advance();
+                marker=self.advance();
                 if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
-                let otherwise: usize = self.parse_block();
-                if otherwise == 0 { return 0; }
-                // Only the failed decision sets the hidden flag. A user break
-                // skips the completion block, which lives outside this loop.
-                exhausted=self.alloc_text_node(AstKind::LetStmt,marker);
-                let mark: usize = self.alloc_node(AstKind::AssignStmt,marker.span);
-                completion=self.alloc_node(AstKind::IfStmt,marker.span);
-                let mut equal: Token = marker;equal.kind=TokenKind::EqEq;
-                let condition: usize = self.make_binary(self.name_expression(marker),equal,self.generated_integer(marker.span,1));
-                if exhausted == 0 || mark == 0 || completion == 0 || condition == 0
-                    || !self.append_child(exhausted,self.generated_integer(marker.span,0))
-                    || !self.append_child(mark,self.name_expression(marker))
-                    || !self.append_child(mark,self.generated_integer(marker.span,1))
-                    || !self.append_child(fallback,mark)
-                    || !self.append_child(completion,condition)
-                    || !self.append_child(completion,otherwise) { return 0; }
-                unsafe{(*(self.nodes+exhausted)).int_value=1;}
+                completion=self.parse_block();
+                if completion == 0 { return 0; }
+            } else {
+                let stop: usize = self.alloc_node(AstKind::BreakStmt,keyword.span);
+                if stop == 0 || !self.append_child(fallback,stop) { return 0; }
             }
-            let stop: usize = self.alloc_node(AstKind::BreakStmt,keyword.span);
-            if stop == 0 || !self.append_child(fallback,stop) { return 0; }
         } else if self.match_token(TokenKind::KwElse) {
             self.advance();
             let mut otherwise: usize = 0;
@@ -2136,11 +2159,8 @@ impl Parser {
         if loop_node == 0 || body == 0 || condition == 0
             || !self.append_child(body,choice) || !self.append_child(loop_node,condition)
             || !self.append_child(loop_node,body) { return 0; }
-        if exhausted == 0 { return loop_node; }
-        let scope: usize = self.alloc_node(AstKind::Block,keyword.span);
-        if scope == 0 || !self.append_child(scope,exhausted)
-            || !self.append_child(scope,loop_node) || !self.append_child(scope,completion) { return 0; }
-        return scope;
+        if completion == 0 { return loop_node; }
+        return self.loop_completion(loop_node,fallback,marker,completion);
     }
 
     pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {

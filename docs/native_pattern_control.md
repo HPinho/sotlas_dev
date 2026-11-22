@@ -71,10 +71,12 @@ ordinary completion and `continue`.
 
 ## Loop completion
 
-A `while let` can run an `else { ... }` block when a pattern fails or its
-guard is false, including on the first decision. A `break` from the body,
-a function return or a propagated error bypasses the block. The block runs
-after the last iteration's defers and outside the loop's pattern scope.
+A `while condition` can run an `else { ... }` block when its Boolean condition
+becomes false. For `while let`, a failed pattern or false guard triggers
+the same block. This includes failure on the first decision. A `break` from
+the body, a function return or a propagated error bypasses the block.
+The block runs after the last iteration's defers and outside the loop's
+body and pattern scopes.
 Jumps from it resolve in the enclosing scope, so an enclosing loop may receive
 a `break` or `continue`. The syntax requires braces around the completion
 block.

@@ -1,0 +1,7 @@
+module while_completion_type;
+
+pub fn main_entry()->u32 {
+    let value:u32=1;
+    while value {} else { return 1; }
+    return 0;
+}
