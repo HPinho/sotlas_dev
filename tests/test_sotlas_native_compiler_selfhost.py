@@ -3028,8 +3028,9 @@ class TestSotlasNativeCompilerSelfhost(unittest.TestCase):
         self.assertIn("self.append_child(if_node, cond_node)", text)
         self.assertIn("self.append_child(if_node, then_node)", text)
         self.assertIn("self.append_child(if_node, else_node)", text)
-        self.assertIn("self.append_child(while_node, cond_node)", text)
-        self.assertIn("self.append_child(while_node, body_node)", text)
+        for child in ("cond_node", "body_node"):
+            with self.subTest(while_child=child):
+                self.assertRegex(text, rf"\bself\.append_child\(\s*while_node\s*,\s*{child}\s*\)")
 
     def test_native_sema_module_compiles(self):
         sema_file = ROOT / "bootstrap" / "sotlas" / "native_compiler" / "sema.sotlas"
