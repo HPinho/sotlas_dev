@@ -610,6 +610,14 @@ impl Parser {
         let finish:usize=self.parse_expression();
         if start == 0 || finish == 0 || self.error_count != 0 || !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
         let user_body:usize=self.parse_block();if user_body == 0 { return 0; }
+        let mut completion_marker:Token=keyword;
+        let mut completion:usize=0;
+        if self.match_token(TokenKind::KwElse) {
+            completion_marker=self.advance();
+            if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+            completion=self.parse_block();
+            if completion == 0 { return 0; }
+        }
         let outer:usize=self.alloc_node(AstKind::Block,keyword.span);
         // Reserved keyword spellings are hygienic hidden binding names.
         let cursor:usize=self.alloc_text_node(AstKind::LetStmt,keyword);
@@ -635,16 +643,23 @@ impl Parser {
             || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
             || !self.append_child(outer,cursor) || !self.append_child(outer,limit) { return 0; }
         if inclusive {
-            if !self.inclusive_range_body(outer,body,binding,increment,keyword,separator,inclusive_marker) { return 0; }
+            if !self.inclusive_range_body(outer,body,binding,increment,keyword,separator,
+                inclusive_marker,completion_marker) { return 0; }
         } else if !self.append_child(body,binding) || !self.append_child(body,increment) { return 0; }
-        if !self.append_child(body,user_body)
-            || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
+        if !self.append_child(body,user_body) { return 0; }
+        if completion != 0 {
+            let completed:usize=self.conditional_loop_completion(repeating,keyword,condition,body,completion_marker,completion);
+            if !self.append_child(outer,completed) { return 0; }
+            return outer;
+        }
+        if !self.append_child(repeating,condition) || !self.append_child(repeating,body)
             || !self.append_child(outer,repeating) { return 0; }
         return outer;
     }
 
     pub fn inclusive_range_body(mut self: &mut Self, outer: usize, body: usize,
-        binding: usize, increment: usize, cursor: Token, limit: Token, marker: Token) -> bool {
+        binding: usize, increment: usize, cursor: Token, limit: Token, marker: Token,
+        completion_marker: Token) -> bool {
         let finished: usize = self.alloc_text_node(AstKind::LetStmt,marker);
         if finished == 0 { return false; }
         unsafe { (*(self.nodes+finished)).int_value=1; }
@@ -657,6 +672,7 @@ impl Parser {
         let mut unequal: Token = marker;
         unequal.kind=TokenKind::BangEq;
         let done: usize = self.make_binary(self.name_expression(marker),unequal,self.generated_integer(marker.span,0));
+        if completion_marker.kind == TokenKind::KwElse && !self.mark_loop_completion(stop,completion_marker) { return false; }
         if !self.append_child(stop,self.alloc_node(AstKind::BreakStmt,marker.span))
             || !self.append_child(guard,done) || !self.append_child(guard,stop)
             || !self.append_child(body,guard) || !self.append_child(body,binding) { return false; }
@@ -712,8 +728,18 @@ impl Parser {
         if condition == 0 || next == 0 || !self.append_child(binding,element)
             || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
             || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)
-            || !self.append_child(repeating,condition) || !self.append_child(repeating,body)
-            || !self.append_child(outer,snapshot) || !self.append_child(outer,cursor) || !self.append_child(outer,repeating) { return 0; }
+            || !self.append_child(outer,snapshot) || !self.append_child(outer,cursor) { return 0; }
+        if self.match_token(TokenKind::KwElse) {
+            let marker:Token=self.advance();
+            if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
+            let completion:usize=self.parse_block();
+            if completion == 0 { return 0; }
+            let completed:usize=self.conditional_loop_completion(repeating,keyword,condition,body,marker,completion);
+            if !self.append_child(outer,completed) { return 0; }
+            return outer;
+        }
+        if !self.append_child(repeating,condition) || !self.append_child(repeating,body)
+            || !self.append_child(outer,repeating) { return 0; }
         return outer;
     }
 
@@ -1009,7 +1035,8 @@ impl Parser {
                 if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
                 let otherwise: usize = self.parse_block();
                 if otherwise == 0 { return 0; }
-                return self.conditional_loop_completion(tok,cond_node,body_node,marker,otherwise);
+                let repeating:usize=self.alloc_node(AstKind::WhileStmt,tok.span);
+                return self.conditional_loop_completion(repeating,tok,cond_node,body_node,marker,otherwise);
             }
             let while_node: usize = self.alloc_node(AstKind::WhileStmt,tok.span);
             if !self.append_child(while_node,cond_node) || !self.append_child(while_node,body_node) { return 0; }
@@ -2050,20 +2077,24 @@ impl Parser {
     // binding; no fabricated source text or parallel pattern checker is needed.
     // Both forms place completion outside the inner loop. Only a failed
     // condition or pattern reaches the generated assignment before break.
+    pub fn mark_loop_completion(mut self: &mut Self, block: usize, marker: Token) -> bool {
+        let mark:usize=self.alloc_node(AstKind::AssignStmt,marker.span);
+        return self.append_child(mark,self.name_expression(marker))
+            && self.append_child(mark,self.generated_integer(marker.span,1))
+            && self.append_child(block,mark);
+    }
+
     pub fn loop_completion(mut self: &mut Self, loop_node: usize, failed: usize,
         marker: Token, otherwise: usize) -> usize {
         let exhausted: usize = self.alloc_text_node(AstKind::LetStmt,marker);
-        let mark: usize = self.alloc_node(AstKind::AssignStmt,marker.span);
         let completion: usize = self.alloc_node(AstKind::IfStmt,marker.span);
         let scope: usize = self.alloc_node(AstKind::Block,marker.span);
         let stop: usize = self.alloc_node(AstKind::BreakStmt,marker.span);
         let mut equal: Token = marker;equal.kind=TokenKind::EqEq;
         let condition: usize = self.make_binary(self.name_expression(marker),equal,self.generated_integer(marker.span,1));
-        if exhausted == 0 || mark == 0 || completion == 0 || scope == 0 || stop == 0 || condition == 0
+        if exhausted == 0 || completion == 0 || scope == 0 || stop == 0 || condition == 0
             || !self.append_child(exhausted,self.generated_integer(marker.span,0))
-            || !self.append_child(mark,self.name_expression(marker))
-            || !self.append_child(mark,self.generated_integer(marker.span,1))
-            || !self.append_child(failed,mark) || !self.append_child(failed,stop)
+            || !self.mark_loop_completion(failed,marker) || !self.append_child(failed,stop)
             || !self.append_child(completion,condition) || !self.append_child(completion,otherwise)
             || !self.append_child(scope,exhausted) || !self.append_child(scope,loop_node)
             || !self.append_child(scope,completion) { return 0; }
@@ -2071,18 +2102,22 @@ impl Parser {
         return scope;
     }
 
-    pub fn conditional_loop_completion(mut self: &mut Self, keyword: Token, predicate: usize,
+    pub fn conditional_loop_completion(mut self: &mut Self, repeating: usize, keyword: Token, predicate: usize,
         selected: usize, marker: Token, otherwise: usize) -> usize {
         let decision: usize = self.alloc_node(AstKind::IfStmt,keyword.span);
         let failed: usize = self.alloc_node(AstKind::Block,marker.span);
         let body: usize = self.alloc_node(AstKind::Block,keyword.span);
-        let repeating: usize = self.alloc_node(AstKind::WhileStmt,keyword.span);
         let mut equal: Token = keyword;equal.kind=TokenKind::EqEq;
         let always: usize = self.make_binary(self.generated_integer(keyword.span,0),equal,self.generated_integer(keyword.span,0));
         if decision == 0 || failed == 0 || body == 0 || repeating == 0 || always == 0
             || !self.append_child(decision,predicate) || !self.append_child(decision,selected)
             || !self.append_child(decision,failed) || !self.append_child(body,decision)
             || !self.append_child(repeating,always) || !self.append_child(repeating,body) { return 0; }
+        // Transfer the generated for-loop integer check to its actual predicate.
+        unsafe {
+            (*(self.nodes+decision)).int_value=(*(self.nodes+repeating)).int_value;
+            (*(self.nodes+repeating)).int_value=0;
+        }
         return self.loop_completion(repeating,failed,marker,otherwise);
     }
 

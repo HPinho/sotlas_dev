@@ -112,6 +112,9 @@ success and fallback paths, loop cleanup, Boolean typing and ownership.
 Three cases cover `while let ... else` completion. They check exhaustion,
 guard failure, defer order, early exits,
 outer loop jumps and rejection of out-of-scope bindings and jumps.
-The suite now has 73 contracts with three additional cases for ordinary
+Three additional cases cover ordinary
 `while ... else`, including condition evaluation, cleanup, early exit and
 rejection of non-Boolean conditions and jumps without a target.
+The suite now has 76 contracts with three cases for `for ... else`. They
+exercise range and array exhaustion, the inclusive integer limit, cleanup
+and explicit breaks, and reject invalid range types and escaped bindings.

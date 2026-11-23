@@ -62,6 +62,16 @@ For a `?` array source, failure returns before the loop begins and executes
 already-active function defers. A successful array is snapshotted once. The
 nominal result and POD restrictions on propagation remain unchanged.
 
+## Loop completion
+
+Both array and numeric range loops support a final `else { ... }` block.
+It runs after normal exhaustion, including a range that starts empty.
+The block runs after the final iteration's defers and outside the item
+binding's scope. A `break` from the body, return or propagated error bypasses
+it. A jump from the completion block refers to an enclosing loop, if present.
+Continuing at the final value of an inclusive range still completes the loop
+without advancing past the type's maximum value.
+
 An internal `ExprArrayLength` AST node carries the checked snapshot's constant
 bound as a u32; no public `.len` property or dynamic size operation is added.
 The parser appends existing element TypeRefs for item inference. Inference of

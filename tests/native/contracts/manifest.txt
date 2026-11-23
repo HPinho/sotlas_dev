@@ -72,3 +72,6 @@ reject pattern_control_else_jump cases/pattern_control_else_jump.sotlas
 pass while_completion cases/while_completion.sotlas
 reject while_completion_jump cases/while_completion_jump.sotlas
 reject while_completion_type cases/while_completion_type.sotlas
+pass for_completion cases/for_completion.sotlas
+reject for_completion_bounds cases/for_completion_bounds.sotlas
+reject for_completion_scope cases/for_completion_scope.sotlas

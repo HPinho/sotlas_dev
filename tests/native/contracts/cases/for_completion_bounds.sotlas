@@ -1,0 +1,8 @@
+module for_completion_bounds;
+
+pub fn main_entry()->u32 {
+    let low:f64=1.0;
+    let high:f64=2.0;
+    for value in low..high { return 1; } else { return 2; }
+    return 0;
+}

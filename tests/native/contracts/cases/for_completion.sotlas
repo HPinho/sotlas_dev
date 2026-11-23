@@ -1,0 +1,53 @@
+module for_completion;
+
+static mut trace:u32=0;
+static mut calls:u32=0;
+
+fn note(value:u32)->void {
+    unsafe { trace=trace*10+value; }
+}
+
+fn bound(value:u32)->u32 {
+    unsafe { calls=calls*10+value; }
+    return value;
+}
+
+fn items()->[u32;2] {
+    unsafe { calls=calls*10+4; }
+    return [5,6];
+}
+
+pub fn main_entry()->u32 {
+    for value in bound(1)..bound(3) {
+        defer note(value);
+        continue;
+    } else { note(3); }
+    if unsafe { trace }!=123 || unsafe { calls }!=13 { return 1; }
+    for value in 4..2 { return 2; } else { note(4); }
+
+    let max:u64=18446744073709551615;
+    for value in max..=max {
+        if value!=max { return 3; }
+        continue;
+    } else { note(5); }
+    for value in max..=max {
+        if value!=max { return 4; }
+        break;
+    } else { return 5; }
+
+    for value in items() {
+        defer note(value);
+    } else { note(7); }
+    if unsafe { trace }!=12345567 || unsafe { calls }!=134 { return 6; }
+    let values:[u32;2]=[8,9];
+    for value in values { note(value);break; } else { return 7; }
+    if unsafe { trace }!=123455678 { return 8; }
+
+    let mut outer:u32=0;
+    while outer<2 {
+        outer+=1;
+        for value in 0..0 { return 9; } else { continue; }
+        return 10;
+    }
+    return 0;
+}

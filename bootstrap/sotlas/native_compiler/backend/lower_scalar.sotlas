@@ -9619,6 +9619,10 @@ impl ScalarLowering {
             } else if stmt.kind == AstKind::IfStmt {
                 let condition_index: usize = stmt.first_child;
                 if condition_index == 0 || condition_index >= self.node_count { return self.reject(index); }
+                if stmt.int_value == 1 {
+                    let left:usize=unsafe{(*(self.nodes+condition_index)).first_child};
+                    if !target_type_is_integer(self.condition_expression_type(left,first_parameter,parameter_count)) { return self.reject(index); }
+                }
                 let then_index: usize = unsafe { (*(self.nodes + condition_index)).next_sibling };
                 if then_index == 0 || then_index >= self.node_count { return self.reject(index); }
                 let then_node: AstNode = unsafe { *(self.nodes + then_index) };
