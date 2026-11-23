@@ -119,5 +119,8 @@ rejection of non-Boolean conditions and jumps without a target.
 Three cases cover `for ... else`. They
 exercise range and array exhaustion, the inclusive integer limit, cleanup
 and explicit breaks, and reject invalid range types and escaped bindings.
-The suite now has 79 contracts. Three cases exercise indexed array iteration
+Three cases exercise indexed array iteration
 and reject writes to the index or two bindings on numeric ranges.
+Four more cover `array_len::<[T; N]>()` and bring the suite to 83 contracts.
+They verify literal and named dimensions and reject scalar queries, oversized
+arrays and unknown element types.

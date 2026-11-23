@@ -1,0 +1,5 @@
+module fixed_array_len_limit;
+
+fn unreachable_query()->usize { return array_len::<[u8;4097]>(); }
+
+pub fn main_entry()->u32 { return 0; }

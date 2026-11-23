@@ -2852,7 +2852,7 @@ impl ScalarLowering {
     pub fn layout_query_bits(self: &Self, index: usize, mut bits: *mut u64) -> bool {
         if index == 0 || index >= self.node_count || bits == null { return false; }
         let query: AstNode = unsafe{*(self.nodes+index)};
-        if query.kind != AstKind::ExprLayout || query.int_value < 1 || query.int_value > 4
+        if query.kind != AstKind::ExprLayout || query.int_value < 1 || query.int_value > 5
             || query.first_child == 0 || query.first_child >= self.node_count { return false; }
         let typ: usize = query.first_child;let mut declared: AstNode = unsafe{*(self.nodes+typ)};
         if declared.kind != AstKind::TypeRef || declared.int_value != 0 || declared.next_sibling != 0
@@ -2871,7 +2871,9 @@ impl ScalarLowering {
             if field == 0 { return false; }unsafe{*bits=self.field_offsets[field as usize-1] as u64;}return true;
         }
         let mut size: u64 = 0;let mut alignment: u64 = 0;
-        if unsafe{*(self.source+declared.str_offset)} == 91 {
+        let fixed_array:bool=unsafe{*(self.source+declared.str_offset)} == 91;
+        if query.int_value == 5 && !fixed_array { return false; }
+        if fixed_array {
             let count: usize = self.parse_array_element_count(declared.str_offset,declared.str_len);
             let element: TargetTypeTag = self.parse_array_element_type(declared.str_offset,declared.str_len);
             record=self.parse_array_element_struct(declared.str_offset,declared.str_len);
@@ -2884,7 +2886,9 @@ impl ScalarLowering {
                 size=self.scalar_memory_size(element) as u64;alignment=size;
             }
             let maximum: u64 = 18446744073709551615;
-            if size == 0 || (count as u64)>maximum/size { return false; }size=size*(count as u64);
+            if size == 0 || alignment == 0 || (count as u64)>maximum/size { return false; }
+            if query.int_value == 5 { unsafe{*bits=count as u64;}return true; }
+            size=size*(count as u64);
         } else if record != 0 {
             size=self.struct_sizes[record as usize-1] as u64;alignment=self.struct_alignments[record as usize-1] as u64;
         } else if enumeration != 0 {

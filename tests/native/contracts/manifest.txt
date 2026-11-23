@@ -78,3 +78,7 @@ reject for_completion_scope cases/for_completion_scope.sotlas
 pass for_array_index cases/for_array_index.sotlas
 reject for_array_index_immutable cases/for_array_index_immutable.sotlas
 syntax for_array_index_range cases/for_array_index_range.sotlas
+pass fixed_array_len cases/fixed_array_len.sotlas
+reject fixed_array_len_scalar cases/fixed_array_len_scalar.sotlas
+reject fixed_array_len_limit cases/fixed_array_len_limit.sotlas
+reject fixed_array_len_element cases/fixed_array_len_element.sotlas

@@ -1,0 +1,5 @@
+module fixed_array_len_scalar;
+
+pub fn main_entry()->u32 {
+    return array_len::<u32>() as u32;
+}

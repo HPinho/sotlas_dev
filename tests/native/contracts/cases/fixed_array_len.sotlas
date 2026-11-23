@@ -1,0 +1,17 @@
+module fixed_array_len;
+
+struct Pair { pub first:u32; pub second:u32; }
+const CAPACITY:usize=3;
+const LENGTH:usize=array_len::<[Pair;CAPACITY]>();
+
+fn array_len(value:u32)->u32 { return value+1; }
+fn check_count(value:usize)->bool { return value==4096; }
+
+pub fn main_entry()->u32 {
+    if LENGTH!=3 || span_of::<[Pair;CAPACITY]>()!=24 { return 1; }
+    if array_len::<[u16;1]>()!=1 || !check_count(array_len::<[u8;4096]>()) { return 2; }
+    if array_len::<[Pair;2]>()!=2 || array_len(41)!=42 { return 3; }
+    let array_len:u32=2;
+    if array_len<3 { return 0; }
+    return 4;
+}

@@ -13,12 +13,17 @@ addressing and the machine ABI. No C compiler or foreign layout helper is called
 | `stride_of::<T>()` | Distance between successive T values; complete sizeof-style storage size |
 | `align_of::<T>()` | Required native alignment of T |
 | `field_offset!(Record, field)` | Byte offset of a named struct field, including valid offset zero |
+| `array_len::<[T; N]>()` | Number of elements in a supported fixed-array type |
 
 The existing spelling without `::`, such as `span_of<T>()`, is also accepted.
 Results have the native `usize` representation, normalized to the backend's
 unsigned 64-bit scalar tag. Use an explicit conversion to a narrower integer.
 Ordinary calls to a function named `span_of` are still ordinary calls when no
 type-query syntax is present.
+The `array_len` query requires `::<…>()`. Ordinary calls and comparisons
+can still use the identifier `array_len`. The query works with named
+dimensions and in native module constants. It rejects scalar types and
+arrays outside the layout profile.
 
 The current profile covers scalar integers, bool and floats; known pointer
 types; registered record layouts; simple/payload enum size and alignment; and

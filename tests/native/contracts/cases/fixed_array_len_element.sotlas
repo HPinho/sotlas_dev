@@ -1,0 +1,5 @@
+module fixed_array_len_element;
+
+pub fn main_entry()->u32 {
+    return array_len::<[Missing;2]>() as u32;
+}

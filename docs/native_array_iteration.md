@@ -22,6 +22,10 @@ The index belongs to the snapshot, so changing the original array or
 continuing from the body preserves the sequence of indices. Nested loops
 each start at zero. This two-binding form applies to fixed arrays.
 
+Use `array_len::<[T; N]>()` to query the element count from a type without
+evaluating an array value. It returns a `usize` constant. See
+[native layout queries](native_layout_queries.md).
+
 The array expression is evaluated once when the loop is entered and copied to
 private loop storage. Updating the original array in the body does not change
 the iteration sequence. Each item is a scalar or POD value; `for mut item in

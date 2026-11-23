@@ -1517,10 +1517,15 @@ impl Parser {
             else if self.token_word(tok,"stride_of",9) { layout=2; }
             else if self.token_word(tok,"align_of",8) { layout=3; }
             else if self.token_word(tok,"field_offset",12) { layout=4; }
+            else if self.token_word(tok,"array_len",9) { layout=5; }
             if layout != 0 && self.cursor+1 < self.token_count {
                 let next: TokenKind = unsafe{(*(self.tokens+self.cursor+1)).kind};
+                if layout == 5 && next == TokenKind::DColon && self.cursor+2 < self.token_count
+                    && unsafe{(*(self.tokens+self.cursor+2)).kind} == TokenKind::Lt {
+                    return self.parse_layout_query(layout);
+                }
                 if (layout == 4 && next == TokenKind::Bang)
-                    || (layout != 4 && (next == TokenKind::Lt || next == TokenKind::DColon)) {
+                    || (layout < 4 && (next == TokenKind::Lt || next == TokenKind::DColon)) {
                     return self.parse_layout_query(layout);
                 }
             }
