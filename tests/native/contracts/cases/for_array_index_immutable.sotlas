@@ -1,0 +1,7 @@
+module for_array_index_immutable;
+
+pub fn main_entry()->u32 {
+    let values:[u32;2]=[1,2];
+    for index, mut value in values { index=0; }
+    return 0;
+}

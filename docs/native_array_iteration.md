@@ -15,6 +15,13 @@ fn total(values: [u32; 3]) -> u32 {
 
 ## Snapshot and item rules
 
+Use `for index, value in values` to bind a zero-based `u32` index together
+with the element. The index is immutable. Write `for index, mut value in
+values` for a mutable element copy. Both names are scoped to the iteration.
+The index belongs to the snapshot, so changing the original array or
+continuing from the body preserves the sequence of indices. Nested loops
+each start at zero. This two-binding form applies to fixed arrays.
+
 The array expression is evaluated once when the loop is entered and copied to
 private loop storage. Updating the original array in the body does not change
 the iteration sequence. Each item is a scalar or POD value; `for mut item in

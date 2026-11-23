@@ -111,6 +111,8 @@ Ordinary native `while ... else` shares that completion rule when the Boolean
 condition becomes false. An explicit break or a function exit bypasses it.
 Native `for ... else` supports the same completion behavior for integer ranges
 and fixed-array snapshots, including the inclusive upper boundary.
+Fixed-array `for index, value in array` exposes an immutable zero-based
+`u32` index alongside the existing element snapshot.
 The checked split cursor connects those decisions to native field iteration.
 General iterators and resource payloads remain open; if-let values are linked above.
 

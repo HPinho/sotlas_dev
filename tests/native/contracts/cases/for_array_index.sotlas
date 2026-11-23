@@ -1,0 +1,43 @@
+module for_array_index;
+
+struct Item { pub value:u32; }
+static mut calls:u32=0;
+static mut trace:u32=0;
+
+fn items()->[Item;3] {
+    unsafe { calls+=1; }
+    return [Item{value:4},Item{value:5},Item{value:6}];
+}
+
+fn note(value:u32)->void {
+    unsafe { trace=trace*10+value; }
+}
+
+pub fn main_entry()->u32 {
+    let index:u32=42;
+    let mut total:u32=0;
+    for index, mut entry in items() {
+        let position:u32=index;
+        defer note(position+1);
+        if position==1 { continue; }
+        entry.value+=position;
+        total+=entry.value;
+    } else {
+        if index!=42 { return 1; }
+        note(4);
+    }
+    if total!=12 || unsafe { calls }!=1 || unsafe { trace }!=1234 { return 2; }
+
+    let mut numbers:[u32;2]=[7,9];
+    for first, number in numbers {
+        numbers[1]=0;
+        if first==1 && number!=9 { return 3; }
+        let inner:[u32;2]=[10,11];
+        for second, element in inner {
+            if second==1 && element!=11 { return 4; }
+            total+=first+second;
+        }
+    }
+    if total!=16 || index!=42 { return 5; }
+    return 0;
+}

@@ -115,6 +115,8 @@ outer loop jumps and rejection of out-of-scope bindings and jumps.
 Three additional cases cover ordinary
 `while ... else`, including condition evaluation, cleanup, early exit and
 rejection of non-Boolean conditions and jumps without a target.
-The suite now has 76 contracts with three cases for `for ... else`. They
+Three cases cover `for ... else`. They
 exercise range and array exhaustion, the inclusive integer limit, cleanup
 and explicit breaks, and reject invalid range types and escaped bindings.
+The suite now has 79 contracts. Three cases exercise indexed array iteration
+and reject writes to the index or two bindings on numeric ranges.

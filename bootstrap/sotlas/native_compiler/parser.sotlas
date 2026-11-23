@@ -593,16 +593,27 @@ impl Parser {
 
     pub fn range_for_statement(mut self: &mut Self, keyword: Token) -> usize {
         self.advance();let mut mutable:bool=false;
-        if self.match_token(TokenKind::KwMut) || self.match_token(TokenKind::KwVar) || self.match_token(TokenKind::KwLet) {
+        let qualified:bool=self.match_token(TokenKind::KwMut) || self.match_token(TokenKind::KwVar) || self.match_token(TokenKind::KwLet);
+        if qualified {
             mutable=!self.match_token(TokenKind::KwLet);self.advance();
         }
-        let name:Token=self.expect(TokenKind::Ident);let separator:Token=self.expect(TokenKind::KwIn);
+        let mut name:Token=self.expect(TokenKind::Ident);
+        let mut index:Token=keyword;
+        if self.match_token(TokenKind::Comma) {
+            if qualified { self.reject_current();return 0; }
+            self.advance();
+            index=name;
+            if self.match_token(TokenKind::KwMut) { self.advance();mutable=true; }
+            name=self.expect(TokenKind::Ident);
+        }
+        let separator:Token=self.expect(TokenKind::KwIn);
         if self.error_count != 0 { return 0; }
         let start:usize=self.parse_expression();
         if start == 0 || self.error_count != 0 { return 0; }
         if !self.match_token(TokenKind::DotDot) {
-            return self.array_for_statement(keyword,name,separator,start,mutable);
+            return self.array_for_statement(keyword,name,separator,start,mutable,index);
         }
+        if index.kind == TokenKind::Ident { self.reject_current();return 0; }
         self.expect(TokenKind::DotDot);
         let inclusive: bool = self.match_token(TokenKind::Equal);
         let inclusive_marker: Token = self.current();
@@ -694,7 +705,7 @@ impl Parser {
     }
 
     pub fn array_for_statement(mut self: &mut Self, keyword: Token, name: Token,
-        separator: Token, source: usize, mutable: bool) -> usize {
+        separator: Token, source: usize, mutable: bool, position: Token) -> usize {
         if !self.match_token(TokenKind::OpenBrace) { self.reject_current();return 0; }
         let user_body: usize = self.parse_block();
         if user_body == 0 { return 0; }
@@ -725,6 +736,11 @@ impl Parser {
         let condition: usize = self.make_binary(self.name_expression(keyword),compare,length);
         let mut plus: Token = keyword;plus.kind=TokenKind::Plus;
         let next: usize = self.make_binary(self.name_expression(keyword),plus,self.generated_integer(keyword.span,1));
+        if position.kind == TokenKind::Ident {
+            let index_binding:usize=self.alloc_text_node(AstKind::LetStmt,position);
+            if !self.append_child(index_binding,self.name_expression(keyword))
+                || !self.append_child(body,index_binding) { return 0; }
+        }
         if condition == 0 || next == 0 || !self.append_child(binding,element)
             || !self.append_child(increment,self.name_expression(keyword)) || !self.append_child(increment,next)
             || !self.append_child(body,binding) || !self.append_child(body,increment) || !self.append_child(body,user_body)

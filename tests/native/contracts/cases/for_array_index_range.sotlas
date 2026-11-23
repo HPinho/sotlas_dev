@@ -1,0 +1,6 @@
+module for_array_index_range;
+
+pub fn main_entry()->u32 {
+    for index, value in 0..2 { return index+value; }
+    return 0;
+}

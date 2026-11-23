@@ -2,7 +2,7 @@
 
 This preview contains a native x86-64 compiler, its original Sotlas sources,
 native runtime modules, a terminal calculator, a JSON configuration application,
-a Windows graphical calculator and 76 executable/rejection/fault contract tests
+a Windows graphical calculator and 79 executable/rejection/fault contract tests
 written in Sotlas. UI model and Unicode tests run on every CLI target; Windows
 also runs hidden-window rendering/cleanup tests and builds the GUI executable.
 Seven native kernel profiles, their original sources and cross-host image build
