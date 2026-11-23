@@ -72,7 +72,7 @@ try {
         if ($parts.Count -ne 3) {throw 'Invalid native test manifest row.'}
         $mode,$id,$source=$parts
         if ($id -notmatch '^[a-z0-9_]+$' -or $source -cne "cases/$id.sotlas" -or $seen.ContainsKey($id)) {throw 'Invalid or duplicate test identifier.'}
-        if ($mode -cnotin @('pass','reject','fault')) {throw 'Unknown native test mode.'}
+        if ($mode -cnotin @('pass','reject','syntax','fault')) {throw 'Unknown native test mode.'}
         $seen[$id]=$true
         $original=Join-Path $suite $source
         if (!(Test-Path -LiteralPath $original -PathType Leaf)) {throw "Missing Sotlas test: $source"}
@@ -82,15 +82,18 @@ try {
         $image=Join-Path $output "$id.exe"
         $log=Join-Path $output "logs/$id.log"
         $failure=''
+        $rejection=@()
+        if ($mode -ceq 'reject') { $rejection=@(6,7) }
+        if ($mode -ceq 'syntax') { $rejection=@(5) }
         $checked=Invoke-Native $compilerPath @('--check-build',$sourceRoot,$entry) $log
-        if ($mode -ceq 'reject') {
-            if ($checked -notin @(6,7)) { $failure="check returned $checked; expected rejection 6 or 7" }
+        if ($rejection.Count -ne 0) {
+            if ($checked -notin $rejection) { $failure="check returned $checked; expected $($rejection -join ' or ')" }
             Copy-Item -LiteralPath $compilerPath -Destination $image
         } elseif ($checked -ne 0) { $failure="check returned $checked" }
         if (!$failure) {
             $compiled=Invoke-Native $compilerPath @('--build-win',$image,$sourceRoot,$entry) $log
-            if ($mode -ceq 'reject') {
-                if ($compiled -notin @(6,7)) { $failure="build returned $compiled; expected rejection 6 or 7" }
+            if ($rejection.Count -ne 0) {
+                if ($compiled -notin $rejection) { $failure="build returned $compiled; expected $($rejection -join ' or ')" }
                 elseif ((Native-Hash $image) -ne (Native-Hash $compilerPath)) { $failure='rejected build changed existing output' }
             } elseif ($compiled -ne 0) { $failure="build returned $compiled" }
             else {

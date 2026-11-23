@@ -77,4 +77,4 @@ reject for_completion_bounds cases/for_completion_bounds.sotlas
 reject for_completion_scope cases/for_completion_scope.sotlas
 pass for_array_index cases/for_array_index.sotlas
 reject for_array_index_immutable cases/for_array_index_immutable.sotlas
-reject for_array_index_range cases/for_array_index_range.sotlas
+syntax for_array_index_range cases/for_array_index_range.sotlas

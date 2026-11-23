@@ -36,6 +36,7 @@ another manifest using the same format. No recursive deletion is performed.
 | --- | --- |
 | `pass` | Native project check and build succeed; program exits zero |
 | `reject` | Check and build return semantic/backend rejection (6 or 7); an existing output remains unchanged |
+| `syntax` | Check and build return syntax rejection (5) and preserve an existing output |
 | `fault` | Check and build succeed; the child process raises integer divide by zero |
 
 Failed positive cases return their nonzero check number. Rejections cannot pass

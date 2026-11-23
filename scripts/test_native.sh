@@ -30,7 +30,7 @@ while read -r mode name source extra; do
     [[ -z "${extra:-}" && "$name" =~ ^[a-z0-9_]+$ && "$source" == "cases/$name.sotlas" ]] || { echo 'Invalid native test manifest row.' >&2; exit 2; }
     case "$seen" in *"|$name|"*) echo "Duplicate test: $name" >&2; exit 2 ;; esac
     seen="$seen$name|"
-    case "$mode" in pass|reject|fault) ;; *) echo "Unknown test mode: $mode" >&2; exit 2 ;; esac
+    case "$mode" in pass|reject|syntax|fault) ;; *) echo "Unknown test mode: $mode" >&2; exit 2 ;; esac
     [[ -f "$suite/$source" ]] || { echo "Missing Sotlas test: $source" >&2; exit 2; }
     cp "$suite/$source" "$output/src/$name.sotlas"
     entry="$output/src/$name.sotlas"; image="$output/$name"
@@ -39,8 +39,11 @@ while read -r mode name source extra; do
     native "$compiler" --check-build "$output/src" "$entry" > "$log" 2>&1
     checked=$?
     set -e
-    if [[ "$mode" == reject ]]; then
-        if [[ $checked -ne 6 && $checked -ne 7 ]]; then failed="check returned $checked; expected rejection 6 or 7"; fi
+    if [[ "$mode" == reject || "$mode" == syntax ]]; then
+        case "$mode:$checked" in
+            syntax:5|reject:6|reject:7) ;;
+            *) failed="check returned $checked; expected $mode";;
+        esac
         cp "$compiler" "$image"
     elif [[ $checked -ne 0 ]]; then failed="check returned $checked"; fi
     if [[ -z "$failed" ]]; then
@@ -48,9 +51,12 @@ while read -r mode name source extra; do
         native "$compiler" "$build" "$image" "$output/src" "$entry" >> "$log" 2>&1
         compiled=$?
         set -e
-        if [[ "$mode" == reject ]]; then
-            if [[ $compiled -ne 6 && $compiled -ne 7 ]]; then failed="build returned $compiled; expected rejection 6 or 7"
-            elif ! cmp -s "$compiler" "$image"; then failed='rejected build changed existing output'; fi
+        if [[ "$mode" == reject || "$mode" == syntax ]]; then
+            case "$mode:$compiled" in
+                syntax:5|reject:6|reject:7)
+                    if ! cmp -s "$compiler" "$image"; then failed='rejected build changed existing output'; fi;;
+                *) failed="build returned $compiled; expected $mode";;
+            esac
         elif [[ $compiled -ne 0 ]]; then failed="build returned $compiled"
         else
             set +e
