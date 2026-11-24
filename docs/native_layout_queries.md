@@ -24,6 +24,8 @@ The `array_len` query requires `::<…>()`. Ordinary calls and comparisons
 can still use the identifier `array_len`. The query works with named
 dimensions and in native module constants. It rejects scalar types and
 arrays outside the layout profile.
+An unsigned module constant initialized with this query can also serve as
+[an array dimension](native_named_dimensions.md).
 
 The current profile covers scalar integers, bool and floats; known pointer
 types; registered record layouts; simple/payload enum size and alignment; and

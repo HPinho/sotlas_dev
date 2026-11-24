@@ -121,6 +121,8 @@ exercise range and array exhaustion, the inclusive integer limit, cleanup
 and explicit breaks, and reject invalid range types and escaped bindings.
 Three cases exercise indexed array iteration
 and reject writes to the index or two bindings on numeric ranges.
-Four more cover `array_len::<[T; N]>()` and bring the suite to 83 contracts.
+Four cases cover `array_len::<[T; N]>()`.
 They verify literal and named dimensions and reject scalar queries, oversized
 arrays and unknown element types.
+The suite now has 86 contracts. Three cases exercise dimensions derived from
+`array_len`, including forward references, cycles and invalid element layouts.

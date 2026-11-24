@@ -25,12 +25,18 @@ Their initializers use the checked unsigned arithmetic described in the
 fit its declared unsigned type. Existing canonical constant acceptance rules
 still apply; this does not introduce implicit mixed-width conversions.
 
+A dimension constant can use `array_len::<[T; N]>()` to obtain the element
+count of another supported fixed-array type. Its dimension can itself refer
+to an unsigned module constant, including a forward reference. The compiler
+validates the queried element layout and applies the same depth limit to
+dependencies through the query.
+
 The native semantic resolver handles scope lookup for both raw type text and
 repetition AST expressions. A visible local, parameter or pattern binding with
 the same name is rejected as a dimension; the compiler cannot silently replace
 a runtime value with a hidden global constant. Mutable module bindings and
-statics, local constants, signed/float/bool constants, calls, casts and layout
-queries inside dimension-constant initializers remain outside this profile.
+statics, local constants, signed/float/bool constants, calls, casts and other
+layout queries inside dimension-constant initializers remain outside this profile.
 
 Evaluation is bounded to 64 nested evaluation steps, including constant
 dependencies. Cycles, excessive dependency depth, unknown names, arithmetic

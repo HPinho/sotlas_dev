@@ -1,0 +1,18 @@
+module dimension_array_len;
+
+const COUNT:usize=array_len::<[u32;DOUBLE]>();
+const DOUBLE:usize=BASE*2;
+const BASE:usize=array_len::<[u8;3]>();
+const WIDTH:usize=COUNT+1;
+
+struct Row { pub cells:[u32;WIDTH]; }
+
+fn contents()->[u32;COUNT] { return [7;COUNT]; }
+
+pub fn main_entry()->u32 {
+    let data:[u32;COUNT]=contents();
+    let row:Row=Row{cells:[6;WIDTH]};
+    if COUNT!=6 || array_len::<[u32;WIDTH]>()!=7 { return 1; }
+    if data[5]!=7 || row.cells[6]!=6 || span_of::<Row>()!=28 { return 2; }
+    return 0;
+}

@@ -138,6 +138,17 @@ pub fn native_dimension_ast(nodes: *const AstNode, count: usize, index: usize,
         if node.str_offset > length || node.str_len > length-node.str_offset { return false; }
         return native_unsigned_slice(unsafe{source+node.str_offset},node.str_len,output);
     }
+    if node.kind == AstKind::ExprLayout && node.int_value == 5 {
+        let scope:usize=node.first_child;
+        if scope == 0 || scope >= count { return false; }
+        let typ:AstNode=unsafe{*(nodes+scope)};
+        if typ.kind != AstKind::TypeRef || typ.int_value != 0 { return false; }
+        let elements:usize=native_array_count_at(nodes,count,source,length,
+            typ.str_offset,typ.str_len,scope,depth+1);
+        if elements == 0 || elements > 4096 { return false; }
+        // Lowering validates the full element layout for every query.
+        unsafe{*output=elements as u64;}return true;
+    }
     if node.kind != AstKind::ExprBinary || node.first_child == 0 || node.first_child >= count { return false; }
     let right_index: usize = unsafe{(*(nodes+node.first_child)).next_sibling};
     if right_index == 0 || right_index >= count || unsafe{(*(nodes+right_index)).next_sibling} != 0 { return false; }
@@ -176,9 +187,6 @@ pub fn native_array_count_context(nodes: *const AstNode, count: usize, source: *
     let literal: usize = native_fixed_array_count(bytes,length);
     if literal != 0 { return literal; }
     if length < 5 || unsafe{*bytes} != 91 || unsafe{*(bytes+length-1)} != 93 { return 0; }
-    let mut begin: usize = 1;
-    while begin < length && unsafe{*(bytes+begin)} != 59 { begin=begin+1; }
-    if begin == length { return 0; }begin=begin+1;
     let mut scope: usize = 1;
     while scope < count {
         let node: AstNode = unsafe{*(nodes+scope)};
@@ -186,8 +194,19 @@ pub fn native_array_count_context(nodes: *const AstNode, count: usize, source: *
         scope=scope+1;
     }
     if scope == count { return 0; }
+    return native_array_count_at(nodes,count,source,source_len,offset,length,scope,0);
+}
+
+pub fn native_array_count_at(nodes: *const AstNode, count: usize, source: *const u8,
+    source_len: usize, offset: usize, length: usize, scope: usize, depth: usize) -> usize {
+    if depth >= 64 || offset > source_len || length > source_len-offset || length < 5 { return 0; }
+    let bytes:*const u8=unsafe{source+offset};
+    if unsafe{*bytes} != 91 || unsafe{*(bytes+length-1)} != 93 { return 0; }
+    let mut begin: usize = 1;
+    while begin < length && unsafe{*(bytes+begin)} != 59 { begin=begin+1; }
+    if begin == length { return 0; }begin=begin+1;
     let mut value: u64 = 0;
-    if !native_dimension_slice_context(unsafe{bytes+begin},length-begin-1,0,unsafe{(&mut value) as *mut u64},
+    if !native_dimension_slice_context(unsafe{bytes+begin},length-begin-1,depth,unsafe{(&mut value) as *mut u64},
         nodes,count,source,source_len,scope) { return 0; }
     return value as usize;
 }

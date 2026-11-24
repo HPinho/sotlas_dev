@@ -1,0 +1,8 @@
+module dimension_array_len_layout;
+
+const COUNT:usize=array_len::<[Unknown;3]>();
+
+pub fn main_entry()->u32 {
+    let values:[u8;COUNT]=0;
+    return values[0] as u32;
+}

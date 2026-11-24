@@ -1,0 +1,9 @@
+module dimension_array_len_cycle;
+
+const FIRST:usize=array_len::<[u8;SECOND]>();
+const SECOND:usize=array_len::<[u8;FIRST]>();
+
+pub fn main_entry()->u32 {
+    let values:[u8;FIRST]=0;
+    return values[0] as u32;
+}
