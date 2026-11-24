@@ -11,6 +11,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - First preview candidate for the bounded contracts documented in `docs/sotlas_1_0_release_scope.md`.
 - Certified C11 source lowering and direct LLVM lowering for the documented checked subset.
 - Explicit `SUPPORTED`, `PREVIEW`, and experimental boundaries for ownership domains and compiler tooling.
+- Native terminal SDK archives for Windows x64, Linux x64, and Intel macOS, plus a VS Code extension package and SHA-256 checksums.
 
 ### Notes
 - The language contract version is `1.0.0`; the Python distribution is `1.0.0rc1` and remains a preview candidate, not a public stable release.

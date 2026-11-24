@@ -15,7 +15,7 @@ RUNTIME_PACKAGE = ROOT / "compiler" / "sotlas" / "__init__.py"
 class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
     def test_preview_release_is_version_checked_and_marked_prerelease(self):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('default: "1.0.0rc1"', text)
+        self.assertIn('$requestedVersion = $runtimeVersion', text)
         self.assertIn("id: release_version", text)
         self.assertIn("Release version mismatch", text)
         self.assertIn("SOTLAS_VERSION", text)
@@ -25,12 +25,19 @@ class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
 
     def test_manual_release_requires_main_and_full_test_suite(self):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
-        self.assertIn('"${{ github.ref }}" -ne "refs/heads/main"', text)
+        self.assertIn('$env:RELEASE_REF -cne "refs/heads/main"', text)
         self.assertIn("Manual preview releases must be dispatched from main", text)
         self.assertIn("Run full release test suite", text)
         self.assertIn('python -m pip install -e .', text)
         self.assertIn('python -m unittest discover -s tests -p "test_*.py"', text)
         self.assertIn("Full Sotlas release test suite failed", text)
+
+    def test_release_uses_the_changelog_and_preserves_published_versions(self):
+        text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        self.assertIn('Get-Content CHANGELOG.md -Raw', text)
+        self.assertIn('body_path: build/preview-release-notes.md', text)
+        self.assertIn('git ls-remote origin $tagRef', text)
+        self.assertIn('Release $tag already exists. Use a new version.', text)
 
     def test_release_requires_cross_platform_portable_artifacts(self):
         text = RELEASE_WORKFLOW.read_text(encoding="utf-8")

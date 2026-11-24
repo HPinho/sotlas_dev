@@ -89,6 +89,8 @@
 
 The current **Sotlas 1.0 preview candidate** is a systems-language implementation for low-level software. Its checked contract covers explicit safety boundaries, ownership analysis, and bounded native code generation. It is not a public stable release yet; hardware execution, general-purpose CFG lowering, and other capabilities outside that contract remain preview or planned work.
 
+Preview packages are published as [GitHub prereleases](https://github.com/HPinho/sotlas_dev/releases) when the release checks pass. See the [changelog](CHANGELOG.md) for changes in each version.
+
 ---
 
 ## 🧭 Implementation Maturity

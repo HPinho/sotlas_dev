@@ -296,6 +296,23 @@ A manual run defaults to `dry_run: true` and uploads
 `sotlas-preview-candidate` for review. A manual publish uses the same gates
 with `dry_run: false`. The existing tag trigger also requires certified CI.
 
+#### Preview versions
+
+Use `1.0.0rc1`, `1.0.0rc2`, and so on for the preview packages. GitHub
+Releases adds a `v` prefix to the corresponding tag. Reserve `1.0.0` for
+the stable release. Publish a new candidate when a batch of changes is ready.
+
+1. Update the version in `pyproject.toml`, `setup.py`, both `sotlas/__init__.py`
+   files, and `packaging/windows/sotlas.iss`. Add the matching section to
+   `CHANGELOG.md` with the user-facing changes and known limits.
+2. Push to `main` and confirm that CI passes for that commit. Run **Sotlas
+   Release & Packaging** with `dry_run` enabled and download
+   `sotlas-preview-candidate` to review the files and release notes. The
+   optional `version` field checks that the run uses the intended version.
+3. Publish from the certified revision with `dry_run` disabled, or push its
+   version tag. Keep published tags and assets intact. Ship fixes under the
+   next candidate version.
+
 - [ ] Align README, website, quickstart and VS Code package with the actual preview commands and supported platforms.
 - [ ] Run focused gates per delivery block; run the full release matrix and clean-install checks for the candidate.
 - [ ] Resolve crashes, incorrect generated code, resource lifetime bugs and broken installation; publish known feature limits and reporting instructions.

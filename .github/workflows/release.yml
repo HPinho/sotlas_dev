@@ -8,8 +8,7 @@ on:
     inputs:
       version:
         description: "Preview version (for example, 1.0.0rc1)"
-        required: true
-        default: "1.0.0rc1"
+        required: false
       dry_run:
         description: "Upload the candidate assets for review without publishing"
         type: boolean
@@ -18,6 +17,10 @@ on:
 permissions:
   actions: read
   contents: write
+
+concurrency:
+  group: sotlas-preview-release
+  cancel-in-progress: false
 
 jobs:
   build-packages:
@@ -38,25 +41,39 @@ jobs:
       shell: pwsh
       env:
         REQUESTED_PREVIEW_VERSION: ${{ inputs.version }}
+        RELEASE_REF: ${{ github.ref }}
+        RELEASE_REF_NAME: ${{ github.ref_name }}
       run: |
         $runtimeVersion = python -c "import sys; sys.path.insert(0, 'compiler'); import sotlas; print(sotlas.SOTLAS_VERSION)"
-        if ("${{ github.event_name }}" -eq "push") {
-          $requestedVersion = "${{ github.ref_name }}"
-          if ($requestedVersion.StartsWith("v")) {
-            $requestedVersion = $requestedVersion.Substring(1)
-          }
+        if ($LASTEXITCODE -ne 0 -or $runtimeVersion -cnotmatch '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)rc[1-9][0-9]*$') {
+          throw "Expected a release candidate version such as 1.0.0rc1; got '$runtimeVersion'"
+        }
+        if ($env:GITHUB_EVENT_NAME -eq "push") {
+          $requestedVersion = $env:RELEASE_REF_NAME.Substring(1)
         } else {
-          if ("${{ github.ref }}" -ne "refs/heads/main") {
-            throw "Manual preview releases must be dispatched from main; ref=${{ github.ref }}"
+          if ($env:RELEASE_REF -cne "refs/heads/main") {
+            throw "Manual preview releases must be dispatched from main; ref=$env:RELEASE_REF"
           }
           $requestedVersion = $env:REQUESTED_PREVIEW_VERSION
+          if ([string]::IsNullOrEmpty($requestedVersion)) { $requestedVersion = $runtimeVersion }
         }
-        if ($requestedVersion -ne $runtimeVersion) {
+        if ($requestedVersion -cne $runtimeVersion) {
           throw "Release version mismatch: requested=$requestedVersion runtime=$runtimeVersion"
         }
         "version=$runtimeVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         "RELEASE_VERSION=$runtimeVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         Write-Host "Validated Sotlas preview version $runtimeVersion"
+
+    - name: Prepare versioned release notes
+      shell: pwsh
+      run: |
+        $version = [regex]::Escape($env:RELEASE_VERSION)
+        $changelog = Get-Content CHANGELOG.md -Raw
+        $section = [regex]::Match($changelog, "(?ms)^## \[$version\][^\r\n]*\r?\n(?<notes>.*?)(?=^## |\z)")
+        $notes = $section.Groups['notes'].Value.Trim()
+        if (!$notes) { throw "Missing CHANGELOG.md entry for $env:RELEASE_VERSION" }
+        New-Item -ItemType Directory -Path build -Force | Out-Null
+        Set-Content -Path build/preview-release-notes.md -Value $notes -Encoding utf8
 
     - name: Select successful CI for this revision
       id: certified_ci
@@ -165,9 +182,30 @@ jobs:
           dist/*.exe
           dist/*.vsix
           dist/SHA256SUMS.txt
+          build/preview-release-notes.md
           packaging/install.ps1
           packaging/install.sh
         if-no-files-found: error
+
+    - name: Verify the version has not already been published
+      if: github.event_name == 'push' || !inputs.dry_run
+      shell: pwsh
+      env:
+        RELEASE_TOKEN: ${{ github.token }}
+      run: |
+        $tag = "v$env:RELEASE_VERSION"
+        $tagRef = "refs/tags/$tag"
+        $refs = git ls-remote origin $tagRef "$tagRef^{}"
+        if ($LASTEXITCODE -ne 0) { throw "Could not verify the remote tag $tag" }
+        if ($refs) {
+          $peeledRef = $refs | Where-Object { $_.EndsWith("`t$tagRef^{}") }
+          $tagCommit = (($peeledRef ?? $refs) -split '\s+')[0]
+          if ($tagCommit -cne $env:GITHUB_SHA) { throw "Tag $tag points to $tagCommit; expected $env:GITHUB_SHA" }
+        }
+        $headers = @{ Authorization = "Bearer $env:RELEASE_TOKEN"; Accept = 'application/vnd.github+json' }
+        $existing = Invoke-WebRequest -Uri "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/releases/tags/$tag" -Headers $headers -SkipHttpErrorCheck
+        if ($existing.StatusCode -eq 200) { throw "Release $tag already exists. Use a new version." }
+        if ($existing.StatusCode -ne 404) { throw "Could not verify release $tag (HTTP $($existing.StatusCode))." }
 
     - name: Create GitHub Preview Release
       if: github.event_name == 'push' || !inputs.dry_run
@@ -187,4 +225,4 @@ jobs:
           packaging/install.sh
         draft: false
         prerelease: true
-        generate_release_notes: true
+        body_path: build/preview-release-notes.md
