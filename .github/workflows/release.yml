@@ -151,10 +151,16 @@ jobs:
         }
 
     - name: Compile Inno Setup Windows Installer
-      uses: Min-Feng/action-innosetup@v1
-      with:
-        iss: packaging/windows/sotlas.iss
-      continue-on-error: true
+      shell: pwsh
+      run: |
+        choco install innosetup --version=6.7.1 --yes --no-progress
+        if ($LASTEXITCODE -notin 0, 1641, 3010) { throw "Inno Setup installation failed ($LASTEXITCODE)." }
+        $iscc = Join-Path ${env:ProgramFiles(x86)} 'Inno Setup 6\ISCC.exe'
+        if (!(Test-Path -LiteralPath $iscc -PathType Leaf)) { throw "Inno Setup compiler not found at $iscc" }
+        & $iscc packaging/windows/sotlas.iss
+        if ($LASTEXITCODE -ne 0) { throw "Inno Setup compilation failed ($LASTEXITCODE)." }
+        $installer = "dist/Sotlas-Setup-v$env:RELEASE_VERSION.exe"
+        if (!(Test-Path -LiteralPath $installer -PathType Leaf)) { throw "Missing Windows installer: $installer" }
 
     - name: Rebuild release checksums
       shell: pwsh

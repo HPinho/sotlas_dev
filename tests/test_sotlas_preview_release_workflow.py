@@ -70,6 +70,14 @@ class SotlasPreviewReleaseWorkflowTests(unittest.TestCase):
         self.assertNotIn('github.com/Sotlas/sotlas', installer)
         self.assertNotIn('assets\\icon.ico', installer)
 
+    def test_release_compiles_and_requires_the_windows_installer(self):
+        text = RELEASE_WORKFLOW.read_text(encoding="utf-8")
+        step = text.split("- name: Compile Inno Setup Windows Installer", 1)[1].split("- name:", 1)[0]
+        self.assertIn("choco install innosetup --version=", step)
+        self.assertIn("& $iscc packaging/windows/sotlas.iss", step)
+        self.assertIn("Missing Windows installer", step)
+        self.assertNotIn("continue-on-error", step)
+
 
 if __name__ == "__main__":
     unittest.main()
