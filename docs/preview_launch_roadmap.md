@@ -289,6 +289,13 @@ with host build tools outside PATH and compared the resulting executables.
 
 ### P6 — publication gate
 
+The release workflow requires a successful main CI run for the checked-out
+commit. It uses that run's three native SDK archives and VSIX, verifies the
+SDK archive checksums, and includes the assets in the preview checksum list.
+A manual run defaults to `dry_run: true` and uploads
+`sotlas-preview-candidate` for review. A manual publish uses the same gates
+with `dry_run: false`. The existing tag trigger also requires certified CI.
+
 - [ ] Align README, website, quickstart and VS Code package with the actual preview commands and supported platforms.
 - [ ] Run focused gates per delivery block; run the full release matrix and clean-install checks for the candidate.
 - [ ] Resolve crashes, incorrect generated code, resource lifetime bugs and broken installation; publish known feature limits and reporting instructions.

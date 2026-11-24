@@ -7,11 +7,16 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Versão do preview (ex: 1.0.0rc1)"
+        description: "Preview version (for example, 1.0.0rc1)"
         required: true
         default: "1.0.0rc1"
+      dry_run:
+        description: "Upload the candidate assets for review without publishing"
+        type: boolean
+        default: true
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
@@ -31,6 +36,8 @@ jobs:
     - name: Verify requested release version
       id: release_version
       shell: pwsh
+      env:
+        REQUESTED_PREVIEW_VERSION: ${{ inputs.version }}
       run: |
         $runtimeVersion = python -c "import sys; sys.path.insert(0, 'compiler'); import sotlas; print(sotlas.SOTLAS_VERSION)"
         if ("${{ github.event_name }}" -eq "push") {
@@ -42,7 +49,7 @@ jobs:
           if ("${{ github.ref }}" -ne "refs/heads/main") {
             throw "Manual preview releases must be dispatched from main; ref=${{ github.ref }}"
           }
-          $requestedVersion = "${{ inputs.version }}"
+          $requestedVersion = $env:REQUESTED_PREVIEW_VERSION
         }
         if ($requestedVersion -ne $runtimeVersion) {
           throw "Release version mismatch: requested=$requestedVersion runtime=$runtimeVersion"
@@ -50,6 +57,32 @@ jobs:
         "version=$runtimeVersion" | Out-File -FilePath $env:GITHUB_OUTPUT -Encoding utf8 -Append
         "RELEASE_VERSION=$runtimeVersion" | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
         Write-Host "Validated Sotlas preview version $runtimeVersion"
+
+    - name: Select successful CI for this revision
+      id: certified_ci
+      shell: pwsh
+      env:
+        CI_READ_TOKEN: ${{ github.token }}
+      run: |
+        $revision = git rev-parse HEAD
+        if ($LASTEXITCODE -ne 0 -or $revision -cnotmatch '^[0-9a-f]{40}$') { throw 'Could not identify the release revision.' }
+        $workflow = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/workflows/ci.yml/runs"
+        $headers = @{ Authorization = "Bearer $env:CI_READ_TOKEN"; Accept = 'application/vnd.github+json' }
+        $response = Invoke-RestMethod -Uri "$($workflow)?branch=main&head_sha=$revision&status=success" -Headers $headers
+        $run = $response.workflow_runs |
+          Where-Object { $_.head_sha -ceq $revision -and $_.head_branch -ceq 'main' -and $_.conclusion -ceq 'success' } |
+          Select-Object -First 1
+        if (!$run) { throw "The release revision $revision requires a successful main CI run." }
+        "run_id=$($run.id)" >> $env:GITHUB_OUTPUT
+        "Release assets from [CI #$($run.run_number)]($($run.html_url)) for $revision." >> $env:GITHUB_STEP_SUMMARY
+
+    - name: Download certified SDKs and VSIX
+      uses: actions/download-artifact@v4
+      with:
+        github-token: ${{ github.token }}
+        run-id: ${{ steps.certified_ci.outputs.run_id }}
+        pattern: "sotlas-{terminal-sdk-*,vscode-preview}"
+        path: build/preview-ci-assets
 
     - name: Run full release test suite
       shell: pwsh
@@ -109,7 +142,8 @@ jobs:
     - name: Rebuild release checksums
       shell: pwsh
       run: |
-        $patterns = @("dist\*.exe", "dist\*.zip", "dist\*.tar.gz", "dist\*.whl")
+        & ./packaging/stage-preview-assets.ps1 build/preview-ci-assets dist
+        $patterns = @("dist\*.exe", "dist\*.zip", "dist\*.tar.gz", "dist\*.whl", "dist\*.vsix")
         $files = foreach ($pattern in $patterns) {
           Get-ChildItem $pattern -ErrorAction SilentlyContinue
         }
@@ -119,16 +153,35 @@ jobs:
           "$hash  $($_.Name)"
         } | Out-File -Encoding utf8 dist\SHA256SUMS.txt
 
+    - name: Upload preview candidate for review
+      if: github.event_name == 'workflow_dispatch' && inputs.dry_run
+      uses: actions/upload-artifact@v4
+      with:
+        name: sotlas-preview-candidate
+        path: |
+          dist/*.zip
+          dist/*.tar.gz
+          dist/*.whl
+          dist/*.exe
+          dist/*.vsix
+          dist/SHA256SUMS.txt
+          packaging/install.ps1
+          packaging/install.sh
+        if-no-files-found: error
+
     - name: Create GitHub Preview Release
+      if: github.event_name == 'push' || !inputs.dry_run
       uses: softprops/action-gh-release@v2
       with:
         tag_name: "v${{ steps.release_version.outputs.version }}"
+        target_commitish: ${{ github.sha }}
         name: "Sotlas v${{ steps.release_version.outputs.version }} Preview"
         files: |
           dist/*.zip
           dist/*.tar.gz
           dist/*.whl
           dist/*.exe
+          dist/*.vsix
           dist/SHA256SUMS.txt
           packaging/install.ps1
           packaging/install.sh

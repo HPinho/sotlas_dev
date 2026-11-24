@@ -32,6 +32,11 @@ Candidate bundles are attached to the
 `sotlas-terminal-sdk-macos-x64`. Use the artifacts from the same fully green
 run. They are CI candidates, not published stable releases.
 
+For a versioned preview, download the matching `sotlas-sdk-*-x64` archive and
+`sotlas-preview.vsix` from the same GitHub prerelease. The release's
+`SHA256SUMS.txt` lists the archive and extension hashes. CI downloads retain
+their individual `.sha256` files.
+
 Use a bundle matching Linux x86-64, Windows x86-64 or Intel macOS. Verify the
 archive against its separately downloaded `.sha256` file, then extract it. The
 installer verifies every bundled file and the target before copying to a fresh
