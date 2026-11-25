@@ -280,12 +280,15 @@ metadata against the build revision. [CI #1403](https://github.com/HPinho/sotlas
 passed this packaging gate for Linux, Windows and Intel macOS.
 
 - [x] Package versioned compiler, native libraries, headers/bindings if needed, examples and licenses with checksums.
-- [ ] Install on a clean machine, then check, build and run the terminal example on every advertised CLI target and the GUI on Windows.
+- [x] Verify clean-prefix install, terminal check/build/run on all three CLI targets, and GUI build and hidden-window rendering on Windows for the `1.0.0rc1` candidate.
 - [x] Verify GUI dependency discovery and native self-build from the installed seed without Python, a C compiler or an external linker.
 
 CI #1403 executed the Windows GUI dependency and render checks from the
 installed SDK. All three native hosts rebuilt the installed compiler twice
 with host build tools outside PATH and compared the resulting executables.
+[CI #1422](https://github.com/HPinho/sotlas_dev/actions/runs/45600636812)
+repeated the installation, native rebuild, kernel SDK and installed VSIX gates
+for `2aff49a9`, the source revision of `1.0.0rc1`.
 
 ### P6 — publication gate
 
@@ -314,7 +317,7 @@ the stable release. Publish a new candidate when a batch of changes is ready.
    next candidate version.
 
 - [x] Align the README, website setup pages, SDK quickstart and VS Code instructions with the native archives, reference package and supported platforms.
-- [ ] Run focused gates per delivery block; run the full release matrix and clean-install checks for the candidate.
+- [x] Run the full CI matrix, clean-install checks and release packaging for `1.0.0rc1` at `2aff49a9`. [Release rehearsal #2](https://github.com/HPinho/sotlas_dev/actions/runs/45606408507) produced the versioned Windows installer, three native SDKs, VSIX and checksum manifest.
 - [ ] Resolve crashes, incorrect generated code, resource lifetime bugs and broken installation; publish known feature limits and reporting instructions.
 
 ## Working order and release rule
