@@ -1900,13 +1900,14 @@ impl Sema {
         let left_type: usize = self.native_try_field(nodes,count,source_record,false,source,length);
         let right_type: usize = self.native_try_field(nodes,count,destination,false,source,length);
         if left_type == 0 || right_type == 0 { return false; }
+        if !self.ownership_pod_type(nodes,count,source_record,source,length,0)
+            || !self.ownership_pod_type(nodes,count,destination,source,length,0) { return false; }
         let error: AstNode = unsafe{*(nodes+left_type)};
-        // Inline arrays can be fields of the nominal error record. A direct
-        // array error payload has no standalone field-copy ABI in this profile.
-        return error.str_len != 0 && unsafe{*(source+error.str_offset)} != 91
-            && self.same_source_text(source,length,error,unsafe{*(nodes+right_type)})
-            && self.ownership_pod_type(nodes,count,source_record,source,length,0)
-            && self.ownership_pod_type(nodes,count,destination,source,length,0);
+        let target_error: AstNode = unsafe{*(nodes+right_type)};
+        if error.str_len != 0 && unsafe{*(source+error.str_offset)} == 91 {
+            return self.array_shapes_match(nodes,count,source,length,error,target_error);
+        }
+        return self.same_source_text(source,length,error,target_error);
     }
 
     pub fn check_native_try(mut self: &mut Self, nodes: *const AstNode, count: usize,
@@ -4013,8 +4014,8 @@ impl Sema {
             if tail == 0 { return self.block_returns_value(nodes,count,index); }
             return self.array_value_fits(nodes,count,typ,tail,source,length,depth+1);
         }
-        let size: usize = native_array_count_context(nodes,count,source,length,expected.str_offset,expected.str_len);
         if value.kind == AstKind::ExprArrayLiteral || value.kind == AstKind::ExprArrayRepeat {
+            let size: usize = native_array_count_context(nodes,count,source,length,expected.str_offset,expected.str_len);
             if expected.first_child == 0 || expected.first_child >= count { return false; }
             let element: AstNode = unsafe{*(nodes+expected.first_child)};
             let mut child: usize = value.first_child;let mut elements: usize = 0;
@@ -4039,10 +4040,19 @@ impl Sema {
         let actual: usize = self.infer_expression_type_ref(nodes,count,index,source,length);
         if actual == 0 || actual >= count { return false; }
         let found: AstNode = unsafe{*(nodes+actual)};
-        if native_array_count_context(nodes,count,source,length,found.str_offset,found.str_len) != size { return false; }
+        return self.array_shapes_match(nodes,count,source,length,expected,found);
+    }
+
+    pub fn array_shapes_match(self: &Self, nodes: *const AstNode, count: usize,
+        source: *const u8, length: usize, expected: AstNode, found: AstNode) -> bool {
+        let size: usize = native_array_count_context(nodes,count,source,length,expected.str_offset,expected.str_len);
+        if size == 0 || native_array_count_context(nodes,count,source,length,found.str_offset,found.str_len) != size { return false; }
         // indexed_element_matches compares the declared element with a TypeRef,
         // preserving nominal names while ignoring array spelling whitespace.
-        if expected.first_child != 0 { return self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)}); }
+        if expected.first_child != 0 {
+            return expected.first_child < count
+                && self.indexed_element_matches(source,length,found,unsafe{*(nodes+expected.first_child)});
+        }
         // A stored-only assignment needs no appended element TypeRef. Compare
         // the element spelling directly, preserving nominal identity and spaces.
         let mut element: AstNode = expected;

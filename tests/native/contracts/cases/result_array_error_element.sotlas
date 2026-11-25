@@ -1,0 +1,13 @@
+module result_array_error_element;
+
+struct Left { pub code:u32; }
+struct Right { pub code:u32; }
+enum Source { Ok(u32), Err([Left;2]) }
+enum Target { Err([Right;2]), Ok(bool) }
+
+pub fn convert(input:Source)->Target {
+    let value:u32=input?;
+    return Target::Ok(value==42);
+}
+
+pub fn main_entry()->u32 { return 0; }

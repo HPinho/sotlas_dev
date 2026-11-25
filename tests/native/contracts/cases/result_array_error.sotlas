@@ -1,0 +1,44 @@
+module result_array_error;
+
+const WIDTH:usize=2;
+struct Issue { pub code:u32; pub offset:usize; }
+enum Read { Ok(u64)=13, Err([Issue;WIDTH])=37 }
+enum Report { Err([Issue;1+1])=13, Ok(bool)=37 }
+enum Publish { Ok([u32;4])=1, Err([Issue;2])=2 }
+enum Flags { Err([bool;2]), Ok(u32) }
+enum Verdict { Ok(bool), Err([bool;2]) }
+static mut trace:u32=0;
+
+fn report(input:Read)->Report {
+    let mut item:Read=input;
+    defer { unsafe { trace=trace*10+1; } }
+    defer { item=Read::Ok(0); unsafe { trace=trace*10+2; } }
+    let value:u64=item?;
+    return Report::Ok(value==42);
+}
+
+fn publish(item:Read)->Publish {
+    let ready:bool=report(item)?;
+    if ready { return Publish::Ok([42;4]); }
+    return Publish::Ok([0;4]);
+}
+
+fn verdict(flags:Flags)->Verdict {
+    let code:u32=flags?;
+    return Verdict::Ok(code==42);
+}
+
+pub fn main_entry()->u32 {
+    let bad:Publish=publish(Read::Err([Issue{code:11,offset:17},Issue{code:31,offset:29}]));
+    if let Publish::Err(issues)=bad {
+        if issues[0].code!=11 || issues[0].offset!=17 || issues[1].code!=31 || issues[1].offset!=29 { return 1; }
+    } else { return 2; }
+    if let Publish::Ok(values)=publish(Read::Ok(42)) {
+        if values[3]!=42 { return 3; }
+    } else { return 4; }
+    if unsafe {trace}!=2121 { return 5; }
+    if let Verdict::Err(flags)=verdict(Flags::Err([true,false])) {
+        if !flags[0] || flags[1] { return 6; }
+    } else { return 7; }
+    return 0;
+}

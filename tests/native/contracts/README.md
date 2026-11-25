@@ -124,5 +124,8 @@ and reject writes to the index or two bindings on numeric ranges.
 Four cases cover `array_len::<[T; N]>()`.
 They verify literal and named dimensions and reject scalar queries, oversized
 arrays and unknown element types.
-The suite now has 86 contracts. Three cases exercise dimensions derived from
+Three cases exercise dimensions derived from
 `array_len`, including forward references, cycles and invalid element layouts.
+Three cases cover `?` across results whose errors are fixed arrays. They check
+tag remapping, named lengths, payload copies before cleanup and rejection of
+incompatible lengths or element types. The suite has 89 contracts.

@@ -85,3 +85,6 @@ reject fixed_array_len_element cases/fixed_array_len_element.sotlas
 pass dimension_array_len cases/dimension_array_len.sotlas
 reject dimension_array_len_cycle cases/dimension_array_len_cycle.sotlas
 reject dimension_array_len_layout cases/dimension_array_len_layout.sotlas
+pass result_array_error cases/result_array_error.sotlas
+reject result_array_error_count cases/result_array_error_count.sotlas
+reject result_array_error_element cases/result_array_error_element.sotlas

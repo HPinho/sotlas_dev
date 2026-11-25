@@ -1,0 +1,11 @@
+module result_array_error_count;
+
+enum Source { Ok(u32), Err([u32;2]) }
+enum Target { Err([u32;3]), Ok(bool) }
+
+pub fn convert(input:Source)->Target {
+    let value:u32=input?;
+    return Target::Ok(value==42);
+}
+
+pub fn main_entry()->u32 { return 0; }

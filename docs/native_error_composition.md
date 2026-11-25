@@ -26,9 +26,26 @@ execute in LIFO order. Later arguments and operations do not execute.
 Both enums must have exactly Ok and Err, each with one unqualified typed
 payload. All payload graphs must satisfy the native POD contract. Error
 payloads may be equal scalar types or the same nominal pointer-free record or
-enum. An error record can contain supported arrays and nested POD enums.
-Direct array error payloads remain supported for same-result propagation;
-cross-result propagation rejects them until it has a standalone array-copy ABI.
+enum. An error record can contain supported arrays and nested POD enums. A direct
+fixed-array error can also cross result types when both arrays have the same
+element type and evaluated length. For example, `[Error; COUNT]` and
+`[Error; 1 + 1]` match when `COUNT` is two. Scalars and nominal POD elements
+use the same copy path as inline fields, with the source and destination
+offsets taken from their respective variants.
+
+```sotlas
+const ISSUE_COUNT: usize = 2;
+enum CheckedRow { Ok(u32), Err([Error; ISSUE_COUNT]) }
+enum AcceptedRow { Err([Error; 2]) = 97, Ok(bool) = 11 }
+
+fn accept_row(input: CheckedRow) -> AcceptedRow {
+    let value: u32 = input?;
+    return AcceptedRow::Ok(value == 42);
+}
+```
+
+On failure, `accept_row` returns both errors in order under tag 97. The return
+storage is initialized before the payload is copied and before defers run.
 
 Different scalar widths, signedness or nominal error declarations are rejected,
 even if their layouts happen to match. There is no error constructor invocation,
@@ -86,6 +103,12 @@ tags, chained conversions, aggregate successes, nested errors, snapshots,
 evaluation order, cleanup and invalid conversions. Platform rebuilt-driver
 gates include imported check/build, host execution and ELF/PE/Mach-O output.
 Full CI certification for this candidate remains pending.
+
+The installed [Sotlas contract suite](../tests/native/contracts/README.md)
+exercises direct array errors across three result enums, different variant tags,
+named lengths, scalar and record arrays, and LIFO cleanup that rewrites the
+source after the error has been copied. Negative cases reject mismatched counts
+and different nominal element types with the same storage layout.
 
 ### Local validation
 

@@ -108,8 +108,8 @@ pub fn main_entry()->u32{return 42;}''',False)
         for i,source in enumerate(sources):
             self.compile('error_schema_bad_'+str(i),source+'pub fn main_entry()->u32{return 42;}',False)
 
-    def test_direct_array_errors_and_resource_errors_reject(self):
-        for i,error in enumerate(('[u32;2]','*const u32','sole E')):
+    def test_pointer_and_resource_errors_reject(self):
+        for i,error in enumerate(('*const u32','sole E')):
             with self.subTest(error=error):
                 self.compile('error_payload_bad_'+str(i),'struct E{pub code:u32;}enum A{Ok(u32),Err('+error+')}enum B{Ok(bool),Err('+error+')}'
                              'fn work(a:A)->B{let n:u32=a?;return B::Ok(true);}pub fn main_entry()->u32{return 42;}',False)

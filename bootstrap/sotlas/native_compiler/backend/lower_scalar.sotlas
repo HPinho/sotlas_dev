@@ -2816,10 +2816,19 @@ impl ScalarLowering {
         if original == 0 || target_variant == 0 { return false; }
         let from: usize = self.variant_field_starts[original-1] as usize;
         let to: usize = self.variant_field_starts[target_variant-1] as usize;
-        if self.field_byte_counts[from] != 0 || self.field_byte_counts[to] != 0
+        if self.field_byte_counts[from] != self.field_byte_counts[to]
+            || self.field_array_types[from] != self.field_array_types[to]
+            || self.field_array_structs[from] != self.field_array_structs[to]
             || self.field_type_tags[from] != self.field_type_tags[to]
             || self.field_struct_ids[from] != self.field_struct_ids[to] { return false; }
-        if self.field_struct_ids[from] != 0 {
+        // Cross-result returns have their own layout. Initialize inactive slots
+        // and padding before later by-value snapshots can read the result.
+        if !self.cfg_fill_array(self.return_destination,self.struct_sizes[self.return_struct_id as usize-1] as usize,
+            1,TargetTypeTag::U8,index,0,0) { return false; }
+        if self.field_byte_counts[from] != 0 {
+            if !self.cfg_copy_array_field(self.return_destination,snapshot,from,
+                self.field_offsets[to],self.field_offsets[from],index,0) { return false; }
+        } else if self.field_struct_ids[from] != 0 {
             if !self.cfg_copy_fields(self.return_destination,snapshot,self.field_struct_ids[from],
                 self.field_offsets[to],self.field_offsets[from],index,0) { return false; }
         } else {
@@ -6032,32 +6041,8 @@ impl ScalarLowering {
             let field: usize = (start + i) as usize;
             let offset: u32 = self.field_offsets[field];
             if self.field_byte_counts[field] != 0 {
-                let record: u32 = self.field_array_structs[field];
-                if record != 0 {
-                    let stride: u32 = self.struct_sizes[record as usize - 1];
-                    let mut element: u32 = 0;
-                    while element < self.field_byte_counts[field] {
-                        if !self.cfg_copy_fields(destination,source_address,record,
-                            destination_offset+offset+element*stride,
-                            source_offset+offset+element*stride,node,depth+1) { return false; }
-                        element = element+1;
-                    }
-                    i = i+1;
-                    continue;
-                }
-                let array_type: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
-                let stride: u32 = self.scalar_memory_size(array_type);
-                let mut byte_index: u32 = 0;
-                while byte_index < self.field_byte_counts[field] {
-                    let value: u32 = self.append_value(array_type, 0, 0);
-                    let first: u32 = self.operand_count as u32;
-                    if value == 0 || !self.append_operand(source_address) || !self.append_instruction(
-                        TargetOpcode::Load, value, array_type, first, 1, node) { return false; }
-                    unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (source_offset + offset + byte_index * stride) as u64; }
-                    if !self.cfg_store(destination, value, array_type, node) { return false; }
-                    unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (destination_offset + offset + byte_index * stride) as u64; }
-                    byte_index = byte_index + 1;
-                }
+                if !self.cfg_copy_array_field(destination,source_address,field,
+                    destination_offset+offset,source_offset+offset,node,depth) { return false; }
             } else if self.field_struct_ids[field] != 0 {
                 if !self.cfg_copy_fields(destination, source_address, self.field_struct_ids[field],
                     destination_offset + offset, source_offset + offset, node, depth + 1) { return false; }
@@ -6072,6 +6057,35 @@ impl ScalarLowering {
                 unsafe { (*(self.instructions + self.instruction_count - 1)).immediate_bits = (destination_offset + offset) as u64; }
             }
             i = i + 1;
+        }
+        return true;
+    }
+
+    pub fn cfg_copy_array_field(mut self: &mut Self, destination: u32, source_address: u32,
+        field: usize, destination_offset: u32, source_offset: u32, node: usize, depth: usize) -> bool {
+        let record: u32 = self.field_array_structs[field];
+        let count: u32 = self.field_byte_counts[field];
+        let mut element: u32 = 0;
+        if record != 0 {
+            let stride: u32 = self.struct_sizes[record as usize - 1];
+            while element < count {
+                if !self.cfg_copy_fields(destination,source_address,record,
+                    destination_offset+element*stride,source_offset+element*stride,node,depth+1) { return false; }
+                element=element+1;
+            }
+            return true;
+        }
+        let array_type: TargetTypeTag = self.field_array_types[field] as TargetTypeTag;
+        let stride: u32 = self.scalar_memory_size(array_type);
+        while element < count {
+            let value: u32 = self.append_value(array_type,0,0);
+            let first: u32 = self.operand_count as u32;
+            if value == 0 || !self.append_operand(source_address) || !self.append_instruction(
+                TargetOpcode::Load,value,array_type,first,1,node) { return false; }
+            unsafe { (*(self.instructions+self.instruction_count-1)).immediate_bits=(source_offset+element*stride) as u64; }
+            if !self.cfg_store(destination,value,array_type,node) { return false; }
+            unsafe { (*(self.instructions+self.instruction_count-1)).immediate_bits=(destination_offset+element*stride) as u64; }
+            element=element+1;
         }
         return true;
     }
