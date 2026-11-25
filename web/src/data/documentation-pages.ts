@@ -11,6 +11,7 @@ export interface DocPageSection {
   listItems?: string[];
   orderedList?: boolean;
   code?: DocPageCode;
+  links?: { label: string; href: string }[];
 }
 
 export interface DocPageContent {
@@ -50,10 +51,18 @@ const releaseLinks = [
   "Master roadmap: docs/sotlas_master_roadmap.md",
 ];
 
+const repository = "https://github.com/HPinho/sotlas_dev";
+const sdkGuide = { label: "Native SDK guide", href: `${repository}/blob/main/packaging/SDK_README.md` };
+const sdkDownloads = [
+  { label: "GitHub Releases", href: `${repository}/releases` },
+  { label: "Main CI artifacts", href: `${repository}/actions/workflows/ci.yml` },
+  sdkGuide,
+];
+
 export const documentationPages: Record<string, DocPageContent> = {
   overview: page("Sotlas Preview", "A bounded systems-language preview with explicit ownership rules, a canonical compiler frontend, and checked C11 and LLVM paths.", ["Getting Started", "Overview"], [
     { title: "What works today", content: "Sotlas is an experimental systems programming language. The current preview is useful for exploring its parser, static checks, ownership model, and a limited set of native programs. The public contract is deliberately narrower than the full roadmap.", listItems: ["The canonical `sotlas check` command validates accepted source programs.", "The C11 backend emits code for its documented subset.", "The LLVM backend lowers a smaller checked SIR subset and rejects unsupported forms.", "Ownership domains have individual contracts; support in one domain does not imply support for every combination or backend."] },
-    { title: "Start with a checked example", content: "Clone the development repository, create and activate a Python virtual environment, then install the preview. These compiler commands are also exercised by CI.", code: { caption: "PowerShell or a POSIX shell", lines: ["git clone https://github.com/HPinho/sotlas_dev.git", "cd sotlas_dev", "python -m venv .venv", "PowerShell: .\\.venv\\Scripts\\Activate.ps1", "Linux/macOS: source .venv/bin/activate", "python -m pip install -e .", "sotlas check examples/01_hello_systems/main.sotlas", "sotlas run examples/01_hello_systems/main.sotlas"] } },
+    { title: "Try a native application", content: "The native SDK includes a terminal calculator, a JSON configuration example and kernel build scripts. The Windows x64 SDK also includes a graphical calculator. Follow the SDK guide to install and build the examples.", links: [sdkGuide] },
     { title: "Read the support contract", content: previewScope, listItems: releaseLinks },
   ]),
   guarantees: page("Checked Guarantees", "What the Sotlas preview checks, what its backends emit, and where its guarantees stop.", ["Getting Started", "Guarantees"], [
@@ -64,19 +73,19 @@ export const documentationPages: Record<string, DocPageContent> = {
     { title: "Backends", content: "The preview offers C11 emission from the canonical source frontend and direct LLVM lowering from checked SIR. The LLVM path is narrower; unsupported instructions or types are rejected. Target names accepted by the CLI do not imply that each target can produce a complete executable.", listItems: ["Choose C11 explicitly with `--backend c11`.", "Choose LLVM explicitly with `--backend llvm`.", "Consult `sotlas target-report` and the release scope for the target contract."] },
     { title: "Hardware targets", content: "Hardware-oriented syntax and runtime modules are still preview work. A source example or target name does not establish that a real board, peripheral, interrupt path, or device runtime has been validated." },
   ]),
-  installation: page("Installation", "Build the compiler from the development checkout and verify the installed command.", ["Getting Started", "Installation"], [
-    { title: "Requirements", content: "The current compiler is distributed from this source repository as a Python package. A native C compiler is required for `sotlas run` and native C11 tests. LLVM-based commands also require the toolchain described by the repository's CI configuration.", listItems: ["Python 3.10 or newer.", "Git to clone the development checkout.", "GCC or Clang for native C11 execution."] },
-    { title: "Install from source", content: "There is no standalone compiler installer or self-contained native compiler binary in this preview. Create and activate a Python virtual environment before installing the checked-out package:", code: { caption: "Install the preview", lines: ["git clone https://github.com/HPinho/sotlas_dev.git", "cd sotlas_dev", "python -m venv .venv", "PowerShell: .\\.venv\\Scripts\\Activate.ps1", "Linux/macOS: source .venv/bin/activate", "python -m pip install -e .", "sotlas version"] } },
-    { title: "Verify the compiler", content: "Run a source check, then compile and execute the included example:", code: { caption: "Verify", lines: ["sotlas check examples/01_hello_systems/main.sotlas", "sotlas run examples/01_hello_systems/main.sotlas"] } },
+  installation: page("Installation", "Install the native SDK or set up the reference compiler from source.", ["Getting Started", "Installation"], [
+    { title: "Download the native SDK", content: "Choose Windows x64, Linux x86-64 or Intel macOS. Download the SDK archive and `sotlas-preview.vsix` from the same GitHub prerelease when available. Before publication, use artifacts from the same successful main CI run.", listItems: ["Windows x64: `sotlas-sdk-windows-x64.zip`.", "Linux x86-64: `sotlas-sdk-linux-x64.tar.gz`.", "Intel macOS: `sotlas-sdk-macos-x64.tar.gz`."], links: sdkDownloads },
+    { title: "Install and build the examples", content: "Verify the archive against `SHA256SUMS.txt` for a release or the `.sha256` file for a CI artifact, then extract it. The SDK guide shows how to install into a fresh directory and check, build and run the included examples without Python or a C compiler.", links: [sdkGuide] },
+    { title: "Install the reference compiler from source", content: "Use Git and Python 3.10 or newer. For native execution through the reference C11 backend, install GCC or Clang.", code: { caption: "Python reference package", lines: ["git clone https://github.com/HPinho/sotlas_dev.git", "cd sotlas_dev", "python -m venv .venv", "# PowerShell: .\\.venv\\Scripts\\Activate.ps1", "# Bash: source .venv/bin/activate", "# Run the activation command for your shell, then:", "python -m pip install -e .", "sotlas version"] } },
   ]),
-  "vscode-tutorial": page("VS Code Setup", "Install the Sotlas language extension and point it at a compiler from this checkout.", ["Getting Started", "VS Code"], [
-    { title: "Build the extension", content: "The repository contains the extension source under `editors/vscode`. CI compiles and packages a VSIX, installs it into a clean VS Code profile, and checks that source-located compiler diagnostics reach the Problems collection. Install the Sotlas compiler separately; the extension invokes the configured compiler command.", code: { caption: "From the repository root", lines: ["cd editors/vscode", "npm install", "npm test", "npx @vscode/vsce package --out sotlas-preview.vsix", "npm run test:vsix"] } },
-    { title: "Configure and check", content: "Set `sotlas.compilerPath` to the installed `sotlas` command or its full executable path. Open a `.sotlas` file and run `Sotlas: Check Active File`. Compiler diagnostics with source locations appear in the Problems panel; structural hints are marked as extension diagnostics." },
-    { title: "Preview limits", content: "The extension is in preview. Syntax highlighting, local structural hints, outline, hover, and compiler commands are available. The optional LSP mode requires an installed compiler with the `lsp --stdio` command. Formatting is performed by the CLI and may rewrite the source file." },
+  "vscode-tutorial": page("VS Code Setup", "Create, check, build and run a console project with the native SDK.", ["Getting Started", "VS Code"], [
+    { title: "Install the extension", content: "Get the native SDK and `sotlas-preview.vsix` from the same GitHub prerelease or successful CI run. Install the SDK, then run `Extensions: Install from VSIX` in VS Code.", links: sdkDownloads },
+    { title: "Create and run a console project", content: "Run `Sotlas: Select Native SDK` and select the directory containing `sdk.json`. Run `Sotlas: Create Native Console Project` in an empty folder. Open `src/main.sotlas` and run `Sotlas: Check Active File`, `Sotlas: Build Workspace`, then `Sotlas: Run Native Project`. The program prints `Hello from Sotlas!`. Compiler diagnostics appear in the Problems panel.", links: [{ label: "Native VS Code setup and limits", href: `${repository}/blob/main/docs/native_vscode_sdk.md` }] },
+    { title: "Reference tools", content: "Reference formatting and the optional LSP use the reference compiler. The native SDK profile covers console project creation, check, build and execution." },
   ]),
   "first-program": page("First Program", "Check, compile, and execute a small Sotlas program from the repository.", ["Getting Started", "First Program"], [
-    { title: "Use a repository example", content: "The checked-in hello systems example is accepted by the canonical frontend and returns an exit status that can be used for a native smoke test.", code: { caption: "Run the example", lines: ["sotlas check examples/01_hello_systems/main.sotlas", "sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o hello.c", "sotlas run examples/01_hello_systems/main.sotlas"] } },
-    { title: "What this proves", content: "A successful run proves that this particular source passed the compiler, generated C compiled with the local toolchain, and the resulting process returned successfully. It does not demonstrate terminal I/O, packaging, or broad standard-library support." },
+    { title: "Run the native terminal calculator", content: "Install the SDK and run its verifier in a fresh output directory. The verifier checks and builds the included calculator. Run `calculator` (`calculator.exe` on Windows) from the output directory and enter `2 * (3 + 4)` to get `14`.", links: [sdkGuide] },
+    { title: "Check an example with the reference compiler", content: "From the repository root, use the Python reference package to check the hello systems example and emit C11. Native C11 execution uses GCC or Clang.", code: { caption: "Reference compiler", lines: ["sotlas check examples/01_hello_systems/main.sotlas", "sotlas compile examples/01_hello_systems/main.sotlas --backend c11 --emit-c -o hello.c", "sotlas run examples/01_hello_systems/main.sotlas --backend c11"] } },
   ]),
   tools: page("Compiler Commands", "CLI commands included in the current source build and their maturity boundaries.", ["Getting Started", "Tools"], [
     { title: "Core workflow", content: "These commands operate on the canonical compiler path:", listItems: ["`sotlas check FILE` validates a source file without writing output.", "`sotlas compile FILE --backend c11 --emit-c -o FILE.c` emits C11.", "`sotlas run FILE` compiles and runs a native program using a C compiler.", "`sotlas version` prints the installed package version."] },

@@ -313,7 +313,7 @@ the stable release. Publish a new candidate when a batch of changes is ready.
    version tag. Keep published tags and assets intact. Ship fixes under the
    next candidate version.
 
-- [ ] Align README, website, quickstart and VS Code package with the actual preview commands and supported platforms.
+- [x] Align the README, website setup pages, SDK quickstart and VS Code instructions with the native archives, reference package and supported platforms.
 - [ ] Run focused gates per delivery block; run the full release matrix and clean-install checks for the candidate.
 - [ ] Resolve crashes, incorrect generated code, resource lifetime bugs and broken installation; publish known feature limits and reporting instructions.
 

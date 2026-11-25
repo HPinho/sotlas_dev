@@ -30,26 +30,27 @@ describe("preview documentation", () => {
   });
 
   it("does not advertise the old installer or unmeasured zero-cost claims", () => {
-    const installation = getDocPage("installation");
     const siteCopy = Object.values(documentationPages)
       .flatMap((page) => page?.sections.map((section) => `${section.content} ${(section.listItems || []).join(" ")}`) || [])
       .join(" ")
       .toLowerCase();
 
-    expect(installation?.sections.map((section) => section.content).join(" ")).toContain("no standalone");
     expect(siteCopy).not.toContain("https://sotlas.dev/install.sh");
     expect(siteCopy).not.toContain("zero-cost destruction");
   });
 
-  it("shows a reproducible source install instead of unpublished installers", () => {
-    const installSnippet = readFileSync(resolve(process.cwd(), "src/components/hero/InstallSnippet.tsx"), "utf8");
-    expect(installSnippet).toContain("git clone https://github.com/HPinho/sotlas_dev.git");
-    expect(installSnippet).toContain("python3 -m venv .venv");
-    expect(installSnippet).toContain("py -3 -m venv .venv");
-    expect(installSnippet).not.toContain("sotlasup");
-    expect(installSnippet).not.toContain("https://sotlas.org/install.sh");
-    expect(installSnippet).not.toContain("https://sotlas.org/install.ps1");
-    expect(installSnippet).not.toContain("v0.5.1 Official");
+  it("documents the shipped SDK filenames and release checksums on the live installation page", () => {
+    const installation = getDocPage("installation")!;
+    const windowsStagingScript = readFileSync(resolve(process.cwd(), "../packaging/stage-preview-assets.ps1"), "utf8");
+    const assets = [...windowsStagingScript.matchAll(/'(sotlas-sdk-[^']+)'/g)].map((match) => match[1]);
+    expect(assets).toHaveLength(3);
+    for (const asset of assets) {
+      expect(installation.sections[0].listItems?.join(" ")).toContain(asset);
+    }
+    expect(installation.sections[0].links?.map(({ href }) => href)).toContain("https://github.com/HPinho/sotlas_dev/releases");
+    expect(installation.sections[1].content).toContain("SHA256SUMS.txt");
+    expect(installation.sections[2].code?.lines).toContain("python -m pip install -e .");
+    expect(getDocPage("vscode-tutorial")?.sections[1].content).toContain("Sotlas: Run Native Project");
   });
 
   it("does not expose registry routes that the preview does not implement", () => {

@@ -348,6 +348,18 @@ The suite parses, type-checks, and emits selected standard-library modules. Nati
 ## 🚀 Quickstart (verified preview subset)
 
 ### 1. Installation
+
+#### Native SDK for applications
+
+Choose the Windows x64, Linux x86-64 or Intel macOS SDK. Use the matching
+archive and `sotlas-preview.vsix` from the same [GitHub prerelease](https://github.com/HPinho/sotlas_dev/releases)
+when available, or from the same successful [main CI run](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml).
+The SDK includes a native compiler, a terminal calculator, a JSON configuration
+example and kernel build scripts. Windows also includes the graphical calculator.
+Follow the [SDK installation guide](packaging/SDK_README.md) to verify the
+archive, install to a fresh directory and build the examples without Python or
+a C compiler. For the editor workflow, see the [VS Code setup guide](docs/native_vscode_sdk.md).
+
 #### Native self-build from an existing seed
 
 Use a trusted native file-driver seed compatible with the current compiler

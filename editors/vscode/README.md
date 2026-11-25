@@ -79,7 +79,7 @@ optional LSP report an error when the configured compiler cannot be started.
 
 ## Start a native console project
 
-1. Install the SDK and the VSIX from the same fully green development workflow.
+1. Install the SDK and the VSIX from the same [GitHub prerelease](https://github.com/HPinho/sotlas_dev/releases) or [successful main CI run](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml).
 2. Run **Sotlas: Select Native SDK** and select the SDK directory containing `sdk.json` and `bin`.
 3. Run **Sotlas: Create Native Console Project** and choose an empty directory. Selecting an SDK in an empty workspace leaves that directory empty until project creation.
 4. Choose **Open Project** when offered, or keep the current folder if it is the one just created. Open `src/main.sotlas`.

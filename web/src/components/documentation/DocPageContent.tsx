@@ -161,6 +161,13 @@ export function DocPageContent() {
                   </ul>
                 ))}
               {section.code && <CodeBlock code={section.code} />}
+              {section.links && (
+                <ul className="mt-4 flex flex-wrap gap-x-5 gap-y-2">
+                  {section.links.map(({ label, href }) => (
+                    <li key={href}><a className="text-primary underline underline-offset-4" href={href}>{label}</a></li>
+                  ))}
+                </ul>
+              )}
             </DocSection>
           ))}
         </div>

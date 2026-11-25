@@ -33,12 +33,15 @@ Candidate bundles are attached to the
 run. They are CI candidates, not published stable releases.
 
 For a versioned preview, download the matching `sotlas-sdk-*-x64` archive and
-`sotlas-preview.vsix` from the same GitHub prerelease. The release's
+`sotlas-preview.vsix` from the same [GitHub prerelease](https://github.com/HPinho/sotlas_dev/releases). The release's
 `SHA256SUMS.txt` lists the archive and extension hashes. CI downloads retain
 their individual `.sha256` files.
 
-Use a bundle matching Linux x86-64, Windows x86-64 or Intel macOS. Verify the
-archive against its separately downloaded `.sha256` file, then extract it. The
+Use a bundle matching Linux x86-64, Windows x86-64 or Intel macOS. Compare the
+archive's SHA-256 with its line in `SHA256SUMS.txt` for a prerelease or with its
+`.sha256` file for a CI artifact, then extract it. Windows can use
+`Get-FileHash -Algorithm SHA256 ARCHIVE`; Linux can use `sha256sum ARCHIVE`;
+macOS can use `shasum -a 256 ARCHIVE`. The
 installer verifies every bundled file and the target before copying to a fresh
 directory. Checksums detect corruption; they are not publisher signatures.
 No administrator privileges, registry edits or global PATH changes are needed.
@@ -85,7 +88,7 @@ small to show controls; see `docs/native_ui_layout.md` for its size/grid limits.
 ## Use in VS Code
 
 For editor-based console projects, see `docs/native_vscode_sdk.md`. Install
-the VSIX from the same green workflow, select this SDK, then create/check/build/run
+the VSIX from the same prerelease or CI run, select this SDK, then create/check/build/run
 through the native extension commands. The extension is a separate artifact.
 
 ## Build a kernel

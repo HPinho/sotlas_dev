@@ -26,9 +26,9 @@ const Changelog = () => {
               <WaveText text="Development updates" staggerDelay={0.02} />
             </p>
             <p className="text-muted-foreground max-w-2xl">
-              <WaveText text="This page summarizes the current development snapshot. It does not list published releases; check the repository history for the full change record." staggerDelay={0.01} />
+              <WaveText text="Find versioned preview packages and release notes on GitHub." staggerDelay={0.01} />
             </p>
-            <a className="mt-4 inline-block text-sm font-medium text-primary" href="https://github.com/HPinho/sotlas_dev/commits/main" target="_blank" rel="noreferrer">View development history on GitHub</a>
+            <a className="mt-4 inline-block text-sm font-medium text-primary" href="https://github.com/HPinho/sotlas_dev/releases">View GitHub Releases</a>
           </div>
 
           {/* Changelog Entries */}

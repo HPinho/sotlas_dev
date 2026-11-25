@@ -2,8 +2,10 @@
 
 The extension supports a native hosted-project workflow alongside the existing
 reference compiler commands. Use an x86-64 VS Code extension host and an SDK
-matching Linux, Windows or Intel macOS. Download `sotlas-vscode-preview` and the
-matching native SDK artifact from the same fully green workflow run.
+matching Linux, Windows or Intel macOS. Download `sotlas-preview.vsix` and the
+matching native SDK archive from the same [GitHub prerelease](https://github.com/HPinho/sotlas_dev/releases),
+or use the `sotlas-vscode-preview` and SDK artifacts from the same successful
+[main CI run](https://github.com/HPinho/sotlas_dev/actions/workflows/ci.yml).
 Install the VSIX with **Extensions: Install from VSIX** and install the SDK using
 its checked installer. No marketplace or organization publication is implied.
 
