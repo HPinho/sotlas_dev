@@ -1,0 +1,10 @@
+module result_unit_tag_only;
+
+enum Status { Ok, Err }
+
+fn invalid(input:Status)->Status {
+    input?;
+    return Status::Ok;
+}
+
+pub fn main_entry()->u32 { return 0; }

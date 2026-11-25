@@ -1,0 +1,11 @@
+module result_unit_error_mismatch;
+
+enum Source { Ok(u32), Err }
+enum Target { Err(u32), Ok(bool) }
+
+fn invalid(input:Source)->Target {
+    let value:u32=input?;
+    return Target::Ok(value==42);
+}
+
+pub fn main_entry()->u32 { return 0; }

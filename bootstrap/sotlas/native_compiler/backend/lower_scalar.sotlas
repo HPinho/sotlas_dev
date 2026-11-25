@@ -2736,6 +2736,7 @@ impl ScalarLowering {
         if declaration == 0 { return 0; }
         let result_node: AstNode = unsafe{*(self.nodes+declaration)};
         let mut status_offset: u64 = 0;let mut success_bits: u64 = 0;let mut field: usize = 0;
+        let mut unit_success: bool = false;
         if result_node.kind == AstKind::EnumDecl {
             let variant_node: usize = sem.native_try_variant(self.nodes,self.node_count,declaration,true,self.source,self.source_len);
             if variant_node == 0 { return 0; }
@@ -2746,7 +2747,8 @@ impl ScalarLowering {
             let end: usize = variant+self.enum_variant_counts[enumeration as usize-1] as usize;
             while variant < end && !self.source_name_equals(self.variant_name_offsets[variant],self.variant_name_lens[variant],
                 good_variant.str_offset,good_variant.str_len) { variant=variant+1; }
-            if variant == end || self.variant_field_counts[variant] != 1 { return 0; }
+            if variant == end || self.variant_field_counts[variant] > 1 { return 0; }
+            unit_success=self.variant_field_counts[variant] == 0;
             field=self.variant_field_starts[variant] as usize;success_bits=self.variant_values[variant];
         } else {
             let status_id: u32 = self.find_field(record,self.try_field_name_offset(index,false),6);
@@ -2756,8 +2758,11 @@ impl ScalarLowering {
             if self.field_type_tags[status_field] != TargetTypeTag::U32 as u32 { return 0; }
             status_offset=self.field_offsets[status_field] as u64;
         }
-        let mut typ: TargetTypeTag = self.field_type_tags[field] as TargetTypeTag;
-        if self.field_byte_counts[field] != 0 || self.field_struct_ids[field] != 0 { typ=TargetTypeTag::Pointer; }
+        let mut typ: TargetTypeTag = TargetTypeTag::Invalid;
+        if !unit_success {
+            typ=self.field_type_tags[field] as TargetTypeTag;
+            if self.field_byte_counts[field] != 0 || self.field_struct_ids[field] != 0 { typ=TargetTypeTag::Pointer; }
+        }
         if expected != TargetTypeTag::Invalid && expected != typ { return 0; }
         let address: u32 = self.lower_expression(node.first_child,TargetTypeTag::Pointer,first_parameter,parameter_count);
         let snapshot: u32 = self.allocate_struct(record,index);
@@ -2782,6 +2787,9 @@ impl ScalarLowering {
             || !self.append_instruction(TargetOpcode::Return,0,TargetTypeTag::Void,0,0,index)
             || !self.cfg_finish() { return 0; }
         self.cfg_begin(good);
+        // Sema restricts unit Ok to a statement. The branch condition lets
+        // statement lowering distinguish success from a lowering failure.
+        if unit_success { return success; }
         let payload: u32 = self.payload_address(snapshot,self.field_offsets[field],index);
         if payload == 0 { return 0; }
         if typ == TargetTypeTag::Pointer { return payload; }
@@ -2796,7 +2804,7 @@ impl ScalarLowering {
                 let mut variant: usize = self.enum_variant_starts[enumeration] as usize;
                 let end: usize = variant+self.enum_variant_counts[enumeration] as usize;
                 while variant < end {
-                    if self.variant_field_counts[variant] == 1
+                    if self.variant_field_counts[variant] <= 1
                         && sem.source_slice_equals(self.source,self.source_len,self.variant_name_offsets[variant],
                             self.variant_name_lens[variant],"Err",3) { return variant+1; }
                     variant=variant+1;
@@ -2814,34 +2822,40 @@ impl ScalarLowering {
         let original: usize = self.try_error_variant(record);
         let target_variant: usize = self.try_error_variant(self.return_struct_id);
         if original == 0 || target_variant == 0 { return false; }
-        let from: usize = self.variant_field_starts[original-1] as usize;
-        let to: usize = self.variant_field_starts[target_variant-1] as usize;
+        let fields: u32 = self.variant_field_counts[original-1];
+        if fields != self.variant_field_counts[target_variant-1] { return false; }
+        // Cross-result returns use their own layout, including inactive slots.
+        if !self.cfg_fill_array(self.return_destination,self.struct_sizes[self.return_struct_id as usize-1] as usize,
+            1,TargetTypeTag::U8,index,0,0) { return false; }
+        if fields == 1 && !self.cfg_copy_try_error_field(snapshot,
+            self.variant_field_starts[original-1] as usize,
+            self.variant_field_starts[target_variant-1] as usize,index) { return false; }
+        let tag: u32 = self.append_value(TargetTypeTag::U32,0,0);
+        if tag == 0 || !self.append_instruction(TargetOpcode::ConstInt,tag,TargetTypeTag::U32,0,0,index) { return false; }
+        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.variant_values[target_variant-1];}
+        return self.cfg_store(self.return_destination,tag,TargetTypeTag::U32,index);
+    }
+
+    pub fn cfg_copy_try_error_field(mut self: &mut Self, snapshot: u32,
+        from: usize, to: usize, index: usize) -> bool {
         if self.field_byte_counts[from] != self.field_byte_counts[to]
             || self.field_array_types[from] != self.field_array_types[to]
             || self.field_array_structs[from] != self.field_array_structs[to]
             || self.field_type_tags[from] != self.field_type_tags[to]
             || self.field_struct_ids[from] != self.field_struct_ids[to] { return false; }
-        // Cross-result returns have their own layout. Initialize inactive slots
-        // and padding before later by-value snapshots can read the result.
-        if !self.cfg_fill_array(self.return_destination,self.struct_sizes[self.return_struct_id as usize-1] as usize,
-            1,TargetTypeTag::U8,index,0,0) { return false; }
         if self.field_byte_counts[from] != 0 {
-            if !self.cfg_copy_array_field(self.return_destination,snapshot,from,
-                self.field_offsets[to],self.field_offsets[from],index,0) { return false; }
-        } else if self.field_struct_ids[from] != 0 {
-            if !self.cfg_copy_fields(self.return_destination,snapshot,self.field_struct_ids[from],
-                self.field_offsets[to],self.field_offsets[from],index,0) { return false; }
-        } else {
-            let typ: TargetTypeTag = self.field_type_tags[from] as TargetTypeTag;
-            let address: u32 = self.payload_address(snapshot,self.field_offsets[from],index);
-            let value: u32 = self.cfg_payload_load(address,typ,index);
-            let destination: u32 = self.payload_address(self.return_destination,self.field_offsets[to],index);
-            if address == 0 || value == 0 || destination == 0 || !self.cfg_store(destination,value,typ,index) { return false; }
+            return self.cfg_copy_array_field(self.return_destination,snapshot,from,
+                self.field_offsets[to],self.field_offsets[from],index,0);
         }
-        let tag: u32 = self.append_value(TargetTypeTag::U32,0,0);
-        if tag == 0 || !self.append_instruction(TargetOpcode::ConstInt,tag,TargetTypeTag::U32,0,0,index) { return false; }
-        unsafe{(*(self.instructions+self.instruction_count-1)).immediate_bits=self.variant_values[target_variant-1];}
-        return self.cfg_store(self.return_destination,tag,TargetTypeTag::U32,index);
+        if self.field_struct_ids[from] != 0 {
+            return self.cfg_copy_fields(self.return_destination,snapshot,self.field_struct_ids[from],
+                self.field_offsets[to],self.field_offsets[from],index,0);
+        }
+        let typ: TargetTypeTag = self.field_type_tags[from] as TargetTypeTag;
+        let address: u32 = self.payload_address(snapshot,self.field_offsets[from],index);
+        let value: u32 = self.cfg_payload_load(address,typ,index);
+        let destination: u32 = self.payload_address(self.return_destination,self.field_offsets[to],index);
+        return address != 0 && value != 0 && destination != 0 && self.cfg_store(destination,value,typ,index);
     }
 
     // Reuse source-backed member names rather than adding hidden AST nodes or

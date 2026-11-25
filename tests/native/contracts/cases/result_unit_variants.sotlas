@@ -1,0 +1,54 @@
+module result_unit_variants;
+
+struct Issue { pub code:u32; pub offset:usize; }
+enum Check { Ok=25, Err(Issue)=7 }
+enum Batch { Err(Issue)=25, Ok([u32;2])=7 }
+enum Lookup { Err=19, Ok(u64)=5 }
+enum Decoded { Ok(bool)=19, Err=5 }
+static mut trace:u32=0;
+
+fn check(ok:bool)->Check {
+    unsafe { trace=trace*10+3; }
+    if ok { return Check::Ok; }
+    return Check::Err(Issue{code:42,offset:6});
+}
+
+fn batch(ok:bool)->Batch {
+    defer { unsafe { trace=trace*10+1; } }
+    {
+        defer { unsafe { trace=trace*10+2; } }
+        check(ok)?;
+        unsafe { trace=trace*10+4; }
+    }
+    return Batch::Ok([20,22]);
+}
+
+fn same_lookup(input:Lookup)->Lookup {
+    let value:u64=input?;
+    return Lookup::Ok(value);
+}
+
+fn decode(input:Lookup)->Decoded {
+    defer { unsafe { trace=trace*10+5; } }
+    let value:u64=same_lookup(input)?;
+    return Decoded::Ok(value==42);
+}
+
+pub fn main_entry()->u32 {
+    if let Batch::Err(issue)=batch(false) {
+        if issue.code!=42 || issue.offset!=6 { return 1; }
+    } else { return 2; }
+    if unsafe {trace}!=321 { return 3; }
+    unsafe { trace=0; }
+    if let Batch::Ok(values)=batch(true) {
+        if values[0]+values[1]!=42 { return 4; }
+    } else { return 5; }
+    if unsafe {trace}!=3421 { return 6; }
+    unsafe { trace=0; }
+    if let Decoded::Err=decode(Lookup::Err) {} else { return 7; }
+    if let Decoded::Ok(value)=decode(Lookup::Ok(42)) {
+        if !value { return 8; }
+    } else { return 9; }
+    if unsafe {trace}!=55 { return 10; }
+    return 0;
+}

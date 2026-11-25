@@ -23,8 +23,9 @@ execute in LIFO order. Later arguments and operations do not execute.
 
 ## Acceptance and rejection
 
-Both enums must have exactly Ok and Err, each with one unqualified typed
-payload. All payload graphs must satisfy the native POD contract. Error
+Both enums must have exactly Ok and Err, with at least one unqualified typed
+payload between the two variants. Each variant holds at most one payload.
+All payload graphs must satisfy the native POD contract. Error
 payloads may be equal scalar types or the same nominal pointer-free record or
 enum. An error record can contain supported arrays and nested POD enums. A direct
 fixed-array error can also cross result types when both arrays have the same
@@ -46,6 +47,33 @@ fn accept_row(input: CheckedRow) -> AcceptedRow {
 
 On failure, `accept_row` returns both errors in order under tag 97. The return
 storage is initialized before the payload is copied and before defers run.
+
+### Results with a unit variant
+
+An operation that only reports completion can use `Ok` without a payload.
+Write `operation()?;` as a statement. On success execution continues at the
+next statement. A unit success cannot initialize a binding, be passed as an
+argument or supply a return value.
+
+```sotlas
+enum Validation { Ok = 25, Err(Error) = 7 }
+enum Import { Err(Error) = 25, Ok(u32) = 7 }
+
+fn import_row(row: u32) -> Import {
+    validate(row)?;
+    return Import::Ok(row);
+}
+
+fn validate(row: u32) -> Validation {
+    if row == 0 { return Validation::Err(Error{code: 1}); }
+    return Validation::Ok;
+}
+```
+
+An enum with a typed `Ok(T)` can use a unit `Err`. Across result enums, a unit
+error requires a unit destination error. The compiler writes the destination
+tag before running defers. An enum with two unit variants uses the scalar enum
+profile and cannot serve as a `?` operand or propagation destination.
 
 Different scalar widths, signedness or nominal error declarations are rejected,
 even if their layouts happen to match. There is no error constructor invocation,
@@ -108,7 +136,9 @@ The installed [Sotlas contract suite](../tests/native/contracts/README.md)
 exercises direct array errors across three result enums, different variant tags,
 named lengths, scalar and record arrays, and LIFO cleanup that rewrites the
 source after the error has been copied. Negative cases reject mismatched counts
-and different nominal element types with the same storage layout.
+and different nominal element types with the same storage layout. Further cases
+cover unit variants, remapping the tag on failure, evaluating the operand once,
+and running nested defers on both paths.
 
 ### Local validation
 

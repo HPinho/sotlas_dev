@@ -1,0 +1,10 @@
+module result_unit_success_binding;
+
+enum Check { Ok, Err(u32) }
+
+fn invalid(input:Check)->Check {
+    let value:u32=input?;
+    return Check::Err(value);
+}
+
+pub fn main_entry()->u32 { return 0; }

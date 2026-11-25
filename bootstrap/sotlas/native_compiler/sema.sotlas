@@ -1737,39 +1737,39 @@ impl Sema {
         return 0;
     }
 
-    // Closed result schemas: Ok(T)/Err(E), or Some(T)/None. The existing
-    // POD checker validates the complete payload graph after this shape check.
+    // Closed result schemas: Ok/Err with at least one payload, or Some(T)/None.
+    // The POD checker validates the complete payload graph after this shape check.
     pub fn native_try_variant(self: &Self, nodes: *const AstNode, count: usize,
         record: usize, success: bool, source: *const u8, length: usize) -> usize {
         if nodes == null || record == 0 || record >= count || unsafe{(*(nodes+record)).kind} != AstKind::EnumDecl { return 0; }
         let mut variant: usize = unsafe{(*(nodes+record)).first_child};
         let mut good: usize = 0;let mut bad: usize = 0;let mut total: usize = 0;
         let mut good_kind: u32 = 0;let mut bad_kind: u32 = 0;
+        let mut has_payload: bool = false;
         while variant != 0 && variant < count && total < 3 {
             let member: AstNode = unsafe{*(nodes+variant)};
             let payload: usize = member.first_child;
             if member.kind != AstKind::EnumVariant { return 0; }
             let absent: bool = self.source_slice_equals(source,length,member.str_offset,member.str_len,"None",4);
-            if absent {
-                // An explicit unit discriminant is not a payload field.
-                if payload != 0 {
-                    if payload >= count { return 0; }
-                    let tag: AstNode = unsafe{*(nodes+payload)};
-                    if tag.kind != AstKind::ExprLiteral || tag.next_sibling != 0 { return 0; }
-                }
-            } else {
-                if payload == 0 || payload >= count { return 0; }
-                let typ: AstNode = unsafe{*(nodes+payload)};
-                if typ.kind != AstKind::TypeRef || typ.int_value != 0 || typ.next_sibling != 0 { return 0; }
+            let some: bool = self.source_slice_equals(source,length,member.str_offset,member.str_len,"Some",4);
+            let mut typed: bool = false;
+            if payload != 0 {
+                if payload >= count { return 0; }
+                let field: AstNode = unsafe{*(nodes+payload)};
+                if field.next_sibling != 0 { return 0; }
+                if field.kind == AstKind::TypeRef && field.int_value == 0 { typed=true; }
+                else if field.kind != AstKind::ExprLiteral { return 0; }
             }
+            if (absent && typed) || (some && !typed) { return 0; }
+            has_payload=has_payload || typed;
             if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Ok",2) { good=variant;good_kind=1; }
             else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Err",3) { bad=variant;bad_kind=1; }
-            else if self.source_slice_equals(source,length,member.str_offset,member.str_len,"Some",4) { good=variant;good_kind=2; }
+            else if some { good=variant;good_kind=2; }
             else if absent { bad=variant;bad_kind=2; }
             else { return 0; }
             total=total+1;variant=member.next_sibling;
         }
-        if variant != 0 || total != 2 || good == 0 || bad == 0 || good_kind != bad_kind { return 0; }
+        if variant != 0 || total != 2 || good == 0 || bad == 0 || good_kind != bad_kind || !has_payload { return 0; }
         if success { return good; }return bad;
     }
 
@@ -1899,9 +1899,9 @@ impl Sema {
             || !self.source_slice_equals(source,length,right.str_offset,right.str_len,"Err",3) { return false; }
         let left_type: usize = self.native_try_field(nodes,count,source_record,false,source,length);
         let right_type: usize = self.native_try_field(nodes,count,destination,false,source,length);
-        if left_type == 0 || right_type == 0 { return false; }
         if !self.ownership_pod_type(nodes,count,source_record,source,length,0)
             || !self.ownership_pod_type(nodes,count,destination,source,length,0) { return false; }
+        if left_type == 0 || right_type == 0 { return left_type == right_type; }
         let error: AstNode = unsafe{*(nodes+left_type)};
         let target_error: AstNode = unsafe{*(nodes+right_type)};
         if error.str_len != 0 && unsafe{*(source+error.str_offset)} == 91 {
@@ -1929,6 +1929,12 @@ impl Sema {
             return self.reject_node(node);
         }
         let mut parent: usize = node.parent;
+        if self.native_try_field(nodes,count,record,true,source,length) == 0 {
+            if parent == 0 || parent >= count { return self.reject_node(node); }
+            let container: AstKind = unsafe{(*(nodes+parent)).kind};
+            if container != AstKind::Block && container != AstKind::MatchValueBlock
+                && container != AstKind::UnsafeBlock { return self.reject_node(node); }
+        }
         while parent != 0 && parent < count {
             let ancestor: AstNode = unsafe{*(nodes+parent)};
             if ancestor.kind == AstKind::DeferStmt { return self.reject_node(node); }

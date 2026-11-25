@@ -88,3 +88,7 @@ reject dimension_array_len_layout cases/dimension_array_len_layout.sotlas
 pass result_array_error cases/result_array_error.sotlas
 reject result_array_error_count cases/result_array_error_count.sotlas
 reject result_array_error_element cases/result_array_error_element.sotlas
+pass result_unit_variants cases/result_unit_variants.sotlas
+reject result_unit_success_binding cases/result_unit_success_binding.sotlas
+reject result_unit_error_mismatch cases/result_unit_error_mismatch.sotlas
+reject result_unit_tag_only cases/result_unit_tag_only.sotlas

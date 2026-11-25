@@ -128,4 +128,7 @@ Three cases exercise dimensions derived from
 `array_len`, including forward references, cycles and invalid element layouts.
 Three cases cover `?` across results whose errors are fixed arrays. They check
 tag remapping, named lengths, payload copies before cleanup and rejection of
-incompatible lengths or element types. The suite has 89 contracts.
+incompatible lengths or element types. Four unit-result cases exercise
+statement `?`, error tag remapping, deferred cleanup, and rejection of unit
+values in bindings, incompatible errors and tag-only enums. The suite has
+93 contracts.
