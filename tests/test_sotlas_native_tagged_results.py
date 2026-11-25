@@ -105,9 +105,19 @@ pub fn main_entry()->u32{let r:Outcome=work();if unsafe{trace}!=9{return 1;}retu
 
     def test_invalid_variant_schemas_rejected(self):
         for index,variants in enumerate(('Ok(u32),Fail(u32)','Ok(u32),Err(u32),Pending',
-                                         'Ok(u32),Err','Ok,Err(u32)','Ok(u32,u32),Err(u32)')):
-            self.compile('tagged_schema_bad_'+str(index),'enum Outcome{'+variants+'}'
-                         'fn work(r:Outcome)->Outcome{let n:u32=r?;return r;}pub fn main_entry()->u32{return 42;}',False)
+                                         'Ok,Err(u32)','Ok(u32,u32),Err(u32)')):
+            with self.subTest(variants=variants):
+                self.compile('tagged_schema_bad_'+str(index),'enum Outcome{'+variants+'}'
+                             'fn work(r:Outcome)->Outcome{let n:u32=r?;return r;}pub fn main_entry()->u32{return 42;}',False)
+
+    def test_unit_error_preserves_success_and_failure(self):
+        self.program('tagged_unit_error', '''enum Outcome{Ok(u32)=7,Err=19}
+fn work(r:Outcome)->Outcome{let n:u32=r?;return Outcome::Ok(n+1);}
+pub fn main_entry()->u32{
+    let result:u32=match work(Outcome::Ok(41)){Outcome::Ok(n)=>n,Outcome::Err=>0};
+    if result!=42{return 1;}
+    return match work(Outcome::Err){Outcome::Ok(n)=>0,Outcome::Err=>42};
+}''')
 
     def test_qualified_and_pointer_payloads_rejected(self):
         for index,qualifier in enumerate(('sole','whisper','direct')):
