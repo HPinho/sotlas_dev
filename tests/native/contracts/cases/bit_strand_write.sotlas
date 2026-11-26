@@ -1,0 +1,7 @@
+module bit_strand_write;
+
+pub fn main_entry()->u32 {
+    let mut value:u64=42;
+    value.strand=0;
+    return 0;
+}

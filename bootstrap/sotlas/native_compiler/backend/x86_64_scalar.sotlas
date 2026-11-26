@@ -2486,6 +2486,17 @@ pub fn emit_elf64_module_object(
                     if !target_type_is_float(source_type) || source_type == result_type
                         || !append_object_float_slot(output, capacity, &mut code, operand.value_id - slot_base, source_type, 90)
                         || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
+                } else if instruction.opcode == TargetOpcode::ByteSwap64 {
+                    if instruction.operand_count != 1 || result_type != TargetTypeTag::U64
+                        || instruction.type_tag != result_type { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if object_value_type(values,ir.value_count,operand.value_id) != result_type
+                        || !append_object_slot_load_typed(output,capacity,&mut code,operand.value_id-slot_base,result_type)
+                        // REX.W + 0F C8 encodes bswap rax.
+                        || !append_object_byte(output,capacity,&mut code,72)
+                        || !append_object_byte(output,capacity,&mut code,15)
+                        || !append_object_byte(output,capacity,&mut code,200)
+                        || !append_object_slot_store_typed(output,capacity,&mut code,instruction.result_value-slot_base,result_type) { return false; }
                 } else if instruction.opcode == TargetOpcode::FloatNeg {
                     if instruction.operand_count != 1 || !target_type_is_float(result_type)
                         || instruction.type_tag != result_type { return false; }

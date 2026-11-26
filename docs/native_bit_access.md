@@ -2,6 +2,7 @@
 
 Use `.slit[lo..hi]` to extract an inclusive bit range and `.notch[n]` to
 read a single bit. Bit zero is the least significant bit.
+Use `.strand` to reverse the order of the eight bytes in a `u64` word.
 
 ```sotlas
 const TYPE_BIT: usize = 4;
@@ -13,14 +14,21 @@ fn header_type(header: u16) -> u8 {
 fn has_payload(header: u16) -> bool {
     return header.notch[15] == 1;
 }
+
+fn swap_packet_word(word: u64) -> u64 {
+    return word.strand;
+}
 ```
 
 The native x86-64 compiler accepts unsigned `u8`, `u16`, `u32`, `u64` and
-`usize` operands. An untyped integer literal uses `u64`. Both accessors
+`usize` operands. An untyped integer literal uses `u64`. All three accessors
 return `u64`; use an explicit cast if the destination has a narrower type.
 `.notch` returns zero or one. `.slit[0..63]` on a `u64` returns the full word.
 The operand is evaluated once. The compiler lowers the extraction to an
-unsigned shift and mask using existing Target IR operations.
+unsigned shift and mask. `.strand` zero-extends narrower unsigned operands to
+`u64` first, preserving the reference compiler's eight-byte semantics. For
+example, `0x1234` becomes `0x3412000000000000`. The x86-64 backend emits `bswap`
+for this operation. A second `.strand` restores the original `u64` value.
 
 Bounds are compile-time unsigned expressions. Integer literals, unsigned
 module constants and checked arithmetic follow the
@@ -30,10 +38,10 @@ positions outside the operand width and non-unsigned bases. `slit` and `notch`
 can still be used as ordinary field names outside the bit-access syntax.
 
 This covers reads of values already available to the program. Assigning to
-these accessors, `.strand`, variable bit ranges and use in module constant
+these accessors, variable bit ranges and use in module constant
 initializers are outside the native profile. Pointer dereference and MMIO
 keep their own access and safety rules.
 
 The [native contract cases](../tests/native/contracts/README.md) cover every
 unsigned width, the full word and its top bit, field reads, one-time operand
-evaluation, constant bounds and rejection of invalid requests.
+evaluation, constant bounds, eight-byte reversal and rejection of invalid requests.

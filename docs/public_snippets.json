@@ -508,7 +508,7 @@
       "document": "docs/native_bit_access.md",
       "status": "EXPERIMENTAL",
       "source": "tests/native/contracts/cases/bit_access.sotlas",
-      "verification": "tests/native/contracts/manifest.txt (bit_access and rejection cases); native x86-64 profile"
+      "verification": "tests/native/contracts/manifest.txt (bit_access, bit_strand and rejection cases); native x86-64 profile"
     },
     {
       "id": "native-word-map",

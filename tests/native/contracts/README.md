@@ -132,4 +132,6 @@ incompatible lengths or element types. Four unit-result cases exercise
 statement `?`, error tag remapping, deferred cleanup, and rejection of unit
 values in bindings, incompatible errors and tag-only enums. Five bit-access
 cases cover unsigned extraction and reject runtime bounds, reversed ranges,
-out-of-width indices and signed operands. The suite has 98 contracts.
+out-of-width indices and signed operands. Three `.strand` cases cover eight-byte
+reversal, composition with the other accessors and rejection of signed input
+and assignment. The suite has 101 contracts.

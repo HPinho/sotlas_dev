@@ -2400,6 +2400,12 @@ impl Parser {
         let field: Token = self.current();
         if field.kind != TokenKind::Ident { self.reject_current();return 0; }
         self.advance();
+        if self.token_word(field,"strand",6) {
+            let access: usize = self.alloc_node(AstKind::ExprBitAccess,field.span);
+            if access == 0 || !self.append_child(access,base) { return 0; }
+            unsafe { (*(self.nodes+access)).int_value=2; }
+            return access;
+        }
         if self.match_token(TokenKind::OpenBracket) {
             if self.token_word(field,"slit",4) { return self.parse_bit_access(base,field,true); }
             if self.token_word(field,"notch",5) { return self.parse_bit_access(base,field,false); }

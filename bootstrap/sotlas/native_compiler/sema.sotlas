@@ -184,6 +184,10 @@ pub fn native_bit_bounds(nodes: *const AstNode, count: usize, access: AstNode,
     let base: usize = access.first_child;
     if base == 0 || base >= count { return false; }
     let start: usize = unsafe { (*(nodes+base)).next_sibling };
+    if access.int_value == 2 {
+        unsafe { *low=0; *high=0; }
+        return start == 0;
+    }
     if !native_dimension_ast(nodes,count,start,source,length,0,unsafe { low as *mut u64 }) { return false; }
     let end: usize = unsafe { (*(nodes+start)).next_sibling };
     unsafe { *high=*low; }

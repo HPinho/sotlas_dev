@@ -1,0 +1,8 @@
+module bit_strand_type;
+
+fn invalid(value:i64)->u64 {
+    return 0;
+    let swapped:u64=value.strand;
+}
+
+pub fn main_entry()->u32 { return 0; }

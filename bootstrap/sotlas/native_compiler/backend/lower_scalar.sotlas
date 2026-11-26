@@ -2894,6 +2894,13 @@ impl ScalarLowering {
                 TargetOpcode::IntCast,widened,TargetTypeTag::U64,first,1,index) { return 0; }
             value=widened;
         }
+        if access.int_value == 2 {
+            let first: u32 = self.operand_count as u32;
+            let result: u32 = self.append_value(TargetTypeTag::U64,0,0);
+            if result == 0 || !self.append_operand(value) || !self.append_instruction(
+                TargetOpcode::ByteSwap64,result,TargetTypeTag::U64,first,1,index) { return 0; }
+            return result;
+        }
         if low != 0 {
             value=self.bit_access_operation(value,low,TargetOpcode::ShiftRight,index);
             if value == 0 { return 0; }

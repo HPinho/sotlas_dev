@@ -97,3 +97,6 @@ reject bit_access_dynamic cases/bit_access_dynamic.sotlas
 reject bit_access_order cases/bit_access_order.sotlas
 reject bit_access_width cases/bit_access_width.sotlas
 reject bit_access_type cases/bit_access_type.sotlas
+pass bit_strand cases/bit_strand.sotlas
+reject bit_strand_type cases/bit_strand_type.sotlas
+reject bit_strand_write cases/bit_strand_write.sotlas

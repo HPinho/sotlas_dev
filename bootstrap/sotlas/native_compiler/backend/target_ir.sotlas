@@ -87,7 +87,8 @@ pub enum TargetOpcode {
     FloatNeg = 39,
     FloatCast = 40,
     NumericCast = 41,
-    PointerCast = 42
+    PointerCast = 42,
+    ByteSwap64 = 43
 }
 
 pub struct TargetSourceSlice {
@@ -567,7 +568,7 @@ pub fn target_type_is_return(type_tag: TargetTypeTag) -> bool {
 
 pub fn target_opcode_is_valid(opcode: TargetOpcode) -> bool {
     let code: u32=opcode as u32;
-    return code >= 1 && code <= 42;
+    return code >= 1 && code <= TargetOpcode::ByteSwap64 as u32;
 }
 
 pub fn target_function_flags_valid(flags: u32) -> bool {
@@ -605,7 +606,8 @@ pub fn target_instruction_metadata_valid(instruction: TargetInstruction) -> bool
             && instruction.phi_input_count == 0 && instruction.target_count == 0;
     }
     if instruction.opcode == TargetOpcode::IntCast || instruction.opcode == TargetOpcode::FloatCast
-        || instruction.opcode == TargetOpcode::FloatNeg || instruction.opcode == TargetOpcode::NumericCast {
+        || instruction.opcode == TargetOpcode::FloatNeg || instruction.opcode == TargetOpcode::NumericCast
+        || instruction.opcode == TargetOpcode::ByteSwap64 {
         return instruction.flags == 0 && instruction.immediate_bits == 0
             && instruction.symbol.offset == 0 && instruction.symbol.length == 0
             && instruction.phi_input_count == 0 && instruction.target_count == 0;
@@ -1055,6 +1057,11 @@ pub fn target_module_validate_cfg(
                     let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
                     if !target_value_matches(values, target_section.value_count,
                         operand.value_id, instruction.type_tag) { return false; }
+                } else if instruction.opcode == TargetOpcode::ByteSwap64 {
+                    if instruction.result_value == TARGET_VALUE_NONE || instruction.operand_count != 1
+                        || instruction.type_tag != TargetTypeTag::U64 { return false; }
+                    let operand: TargetOperand = unsafe { *(operands + instruction.first_operand) };
+                    if !target_value_matches(values,target_section.value_count,operand.value_id,TargetTypeTag::U64) { return false; }
                 } else if instruction.opcode == TargetOpcode::ConstInt {
                     if instruction.result_value == TARGET_VALUE_NONE
                         || instruction.operand_count != 0

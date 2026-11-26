@@ -1,0 +1,29 @@
+module bit_strand;
+
+static mut reads:u32=0;
+struct Header { pub word:u64; }
+
+fn read_word()->u64 {
+    unsafe { reads=reads+1; }
+    return 0x0123_4567_89AB_CDEF;
+}
+
+fn from_network(value:u64)->u64 { return value.strand; }
+fn from_word(value:usize)->u64 { return value.strand; }
+
+pub fn main_entry()->u32 {
+    let header:Header=Header{word:read_word().strand};
+    if header.word!=0xEFCD_AB89_6745_2301 || unsafe {reads}!=1 { return 1; }
+    if header.word.strand!=0x0123_4567_89AB_CDEF { return 2; }
+    if from_network(0xFF00_0000_0000_0000)!=255 { return 3; }
+    if from_word(0x8000_0000_0000_0000)!=128 { return 4; }
+    let byte:u8=0x12;
+    let half:u16=0x1234;
+    let word:u32=0x1234_5678;
+    if byte.strand!=0x1200_0000_0000_0000 { return 5; }
+    if half.strand!=0x3412_0000_0000_0000 { return 6; }
+    if word.strand!=0x7856_3412_0000_0000 { return 7; }
+    if (0x0123).strand.slit[48..63]!=0x2301 { return 8; }
+    if (0x0100).strand.notch[48]!=1 { return 9; }
+    return 0;
+}
