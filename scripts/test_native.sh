@@ -30,7 +30,7 @@ while read -r mode name source extra; do
     [[ -z "${extra:-}" && "$name" =~ ^[a-z0-9_]+$ && "$source" == "cases/$name.sotlas" ]] || { echo 'Invalid native test manifest row.' >&2; exit 2; }
     case "$seen" in *"|$name|"*) echo "Duplicate test: $name" >&2; exit 2 ;; esac
     seen="$seen$name|"
-    case "$mode" in pass|reject|syntax|fault) ;; *) echo "Unknown test mode: $mode" >&2; exit 2 ;; esac
+    case "$mode" in pass|reject|syntax|fault|trap) ;; *) echo "Unknown test mode: $mode" >&2; exit 2 ;; esac
     [[ -f "$suite/$source" ]] || { echo "Missing Sotlas test: $source" >&2; exit 2; }
     cp "$suite/$source" "$output/src/$name.sotlas"
     entry="$output/src/$name.sotlas"; image="$output/$name"
@@ -63,7 +63,11 @@ while read -r mode name source extra; do
             native "$image" >> "$log" 2>&1
             actual=$?
             set -e
-            expected=0; [[ "$mode" == fault ]] && expected=136
+            case "$mode" in
+                fault) expected=136 ;;
+                trap) expected=132 ;;
+                *) expected=0 ;;
+            esac
             if [[ $actual -ne $expected ]]; then failed="execution returned $actual; expected $expected"; fi
         fi
     fi

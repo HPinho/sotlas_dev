@@ -720,6 +720,16 @@ impl Sema {
             }
             if node.kind == AstKind::ExprBitAccess
                 && !self.check_native_bit_access(nodes,node_count,node,source,source_len) { return self.reject_node(node); }
+            if node.kind == AstKind::ProbeStmt {
+                let condition: AstNode = unsafe { *(nodes+node.first_child) };
+                if condition.kind == AstKind::ExprLiteral
+                    && !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"true",4) { return self.reject_node(node); }
+                let typ: usize = self.infer_expression_type_ref(nodes,node_count,node.first_child,source,source_len);
+                if typ != 0 {
+                    let declared: AstNode = unsafe { *(nodes+typ) };
+                    if !self.source_slice_equals(source,source_len,declared.str_offset,declared.str_len,"bool",4) { return self.reject_node(node); }
+                }
+            }
             if node.kind == AstKind::ExprUnary && node.int_value == 82
                 && !self.is_in_unsafe_block(nodes, node_count, node_index)
                 && !self.expression_is_borrow_deref(
@@ -5611,6 +5621,18 @@ impl NativeOwnershipCheck {
                     } else {
                         self.fail_reason(index,5); return 0;
                     }
+                }
+            } else if node.kind == AstKind::ProbeStmt {
+                let mut before: [u8;256] = 0;
+                let mut slot: usize = 0;
+                while slot < self.count { before[slot]=self.states[slot]; slot=slot+1; }
+                if !self.expression(node.first_child,false,0) { return 0; }
+                slot=0;
+                while slot < self.count {
+                    if self.domains[slot] != 0 && before[slot] != self.states[slot] {
+                        self.fail_reason(index,8); return 0;
+                    }
+                    slot=slot+1;
                 }
             } else if node.kind == AstKind::LetStmt {
                 let mut value: usize = node.first_child;

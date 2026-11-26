@@ -1,0 +1,27 @@
+module probe_pass;
+
+static mut calls: u32 = 0;
+
+struct Reading { pub value: u32; }
+
+fn observe(value: bool) -> bool {
+    calls = calls + 1;
+    return value;
+}
+
+pub fn main_entry() -> u32 {
+    probe true;
+    probe observe(true), "predicate succeeds";
+    probe true || observe(false);
+    if calls != 1 { return 1; }
+    let mut count: u32 = 0;
+    while count < 3 {
+        probe count < 3;
+        count = count + 1;
+    }
+    probe count == 3;
+    let reading: sole Reading = Reading{value: 42};
+    probe reading.value == 42;
+    if reading.value != 42 { return 2; }
+    return 0;
+}

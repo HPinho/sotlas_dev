@@ -1,0 +1,10 @@
+module probe_trap;
+
+fn verify(value: bool) -> u32 {
+    probe value, "predicate fails";
+    return 0;
+}
+
+pub fn main_entry() -> u32 {
+    return verify(false);
+}

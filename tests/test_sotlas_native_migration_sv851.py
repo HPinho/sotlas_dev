@@ -139,8 +139,10 @@ if address!=18446744073709551615{return 1;}return 42;}'''))
         self.execute(self.compile(name,text+'\npub fn main_entry()->u32{'+body+'}'))
 
     def test_ir_rejects_opcode_ids_outside_the_declared_schema(self):
-        self.ir('sv851_opcode','''let invalid:TargetOpcode=unsafe{43 as TargetOpcode};
-if target_opcode_is_valid(invalid) || !target_opcode_is_valid(TargetOpcode::PointerCast){return 1;}return 42;''')
+        self.ir('sv851_opcode','''let invalid:TargetOpcode=unsafe{4294967295 as TargetOpcode};
+if target_opcode_is_valid(invalid) || !target_opcode_is_valid(TargetOpcode::PointerCast)
+    || !target_opcode_is_valid(TargetOpcode::ByteSwap64)
+    || !target_opcode_is_valid(TargetOpcode::Probe){return 1;}return 42;''')
 
     def test_ir_rejects_unknown_function_flags(self):
         self.ir('sv851_function_flags','''if target_function_flags_valid(128)

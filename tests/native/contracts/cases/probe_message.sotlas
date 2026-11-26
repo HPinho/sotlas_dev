@@ -1,0 +1,7 @@
+module probe_message;
+
+pub fn main_entry() -> u32 {
+    let message: str = "predicate";
+    probe true, message;
+    return 0;
+}

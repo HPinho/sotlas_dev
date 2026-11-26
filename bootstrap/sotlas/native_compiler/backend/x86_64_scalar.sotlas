@@ -2486,6 +2486,19 @@ pub fn emit_elf64_module_object(
                     if !target_type_is_float(source_type) || source_type == result_type
                         || !append_object_float_slot(output, capacity, &mut code, operand.value_id - slot_base, source_type, 90)
                         || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
+                } else if instruction.opcode == TargetOpcode::Probe {
+                    if instruction.result_value != TARGET_VALUE_NONE || instruction.operand_count != 1
+                        || instruction.type_tag != TargetTypeTag::Bool { return false; }
+                    let condition: TargetOperand = unsafe { *(operands+instruction.first_operand) };
+                    // test al, al; jnz +2; ud2
+                    if object_value_type(values,ir.value_count,condition.value_id) != TargetTypeTag::Bool
+                        || !append_object_slot_load_typed(output,capacity,&mut code,condition.value_id-slot_base,TargetTypeTag::Bool)
+                        || !append_object_byte(output,capacity,&mut code,132)
+                        || !append_object_byte(output,capacity,&mut code,192)
+                        || !append_object_byte(output,capacity,&mut code,117)
+                        || !append_object_byte(output,capacity,&mut code,2)
+                        || !append_object_byte(output,capacity,&mut code,15)
+                        || !append_object_byte(output,capacity,&mut code,11) { return false; }
                 } else if instruction.opcode == TargetOpcode::ByteSwap64 {
                     if instruction.operand_count != 1 || result_type != TargetTypeTag::U64
                         || instruction.type_tag != result_type { return false; }

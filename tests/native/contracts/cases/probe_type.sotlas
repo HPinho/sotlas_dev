@@ -1,0 +1,7 @@
+module probe_type;
+
+pub fn main_entry() -> u32 {
+    let count: u32 = 1;
+    probe count;
+    return 0;
+}

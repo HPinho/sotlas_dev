@@ -100,3 +100,9 @@ reject bit_access_type cases/bit_access_type.sotlas
 pass bit_strand cases/bit_strand.sotlas
 reject bit_strand_type cases/bit_strand_type.sotlas
 reject bit_strand_write cases/bit_strand_write.sotlas
+pass probe_pass cases/probe_pass.sotlas
+trap probe_trap cases/probe_trap.sotlas
+reject probe_false cases/probe_false.sotlas
+reject probe_type cases/probe_type.sotlas
+reject probe_move cases/probe_move.sotlas
+syntax probe_message cases/probe_message.sotlas

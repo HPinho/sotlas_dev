@@ -38,6 +38,7 @@ another manifest using the same format. No recursive deletion is performed.
 | `reject` | Check and build return semantic/backend rejection (6 or 7); an existing output remains unchanged |
 | `syntax` | Check and build return syntax rejection (5) and preserve an existing output |
 | `fault` | Check and build succeed; the child process raises integer divide by zero |
+| `trap` | Check and build succeed; the child process traps on an illegal instruction |
 
 Failed positive cases return their nonzero check number. Rejections cannot pass
 because of a missing file or arbitrary launcher error. Faults run in child
@@ -134,4 +135,5 @@ values in bindings, incompatible errors and tag-only enums. Five bit-access
 cases cover unsigned extraction and reject runtime bounds, reversed ranges,
 out-of-width indices and signed operands. Three `.strand` cases cover eight-byte
 reversal, composition with the other accessors and rejection of signed input
-and assignment. The suite has 101 contracts.
+and assignment. Six `probe` cases cover normal execution, trapping, invalid
+conditions, owner consumption and message syntax. The suite has 107 contracts.

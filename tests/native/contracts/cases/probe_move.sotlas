@@ -1,0 +1,13 @@
+module probe_move;
+
+struct Owner { pub value: u32; }
+
+fn consume(owner: sole Owner) -> bool {
+    return owner.value != 0;
+}
+
+pub fn main_entry() -> u32 {
+    let owner: sole Owner = Owner{value: 1};
+    probe consume(owner);
+    return 0;
+}

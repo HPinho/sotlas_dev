@@ -72,7 +72,7 @@ try {
         if ($parts.Count -ne 3) {throw 'Invalid native test manifest row.'}
         $mode,$id,$source=$parts
         if ($id -notmatch '^[a-z0-9_]+$' -or $source -cne "cases/$id.sotlas" -or $seen.ContainsKey($id)) {throw 'Invalid or duplicate test identifier.'}
-        if ($mode -cnotin @('pass','reject','syntax','fault')) {throw 'Unknown native test mode.'}
+        if ($mode -cnotin @('pass','reject','syntax','fault','trap')) {throw 'Unknown native test mode.'}
         $seen[$id]=$true
         $original=Join-Path $suite $source
         if (!(Test-Path -LiteralPath $original -PathType Leaf)) {throw "Missing Sotlas test: $source"}
@@ -98,9 +98,10 @@ try {
             } elseif ($compiled -ne 0) { $failure="build returned $compiled" }
             else {
                 $actual=Invoke-Native $image @() $log
-                if ($mode -ceq 'fault') {
+                if ($mode -cin @('fault','trap')) {
                     $status=[BitConverter]::ToUInt32([BitConverter]::GetBytes([int32]$actual),0)
-                    if ($status -ne 3221225620) { $failure="execution returned $actual; expected integer divide by zero" }
+                    $expected=if ($mode -ceq 'fault') { 3221225620 } else { 3221225501 }
+                    if ($status -ne $expected) { $failure="execution returned $status; expected $expected ($mode)" }
                 } elseif ($actual -ne 0) { $failure="execution returned $actual; expected 0" }
             }
         }
