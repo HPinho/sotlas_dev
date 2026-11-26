@@ -504,6 +504,13 @@
       "verification": "tests/test_sotlas_native_heap_text.py; tests/native_numeric_gate.py::verify_heap_text; tests/native_kernel_gate.py::verify_kernel_image; shared-native-stage3-fixtures; outside-the-canonical-stage0-c11-runnable-policy"
     },
     {
+      "id": "native-bit-access",
+      "document": "docs/native_bit_access.md",
+      "status": "EXPERIMENTAL",
+      "source": "tests/native/contracts/cases/bit_access.sotlas",
+      "verification": "tests/native/contracts/manifest.txt (bit_access and rejection cases); native x86-64 profile"
+    },
+    {
       "id": "native-word-map",
       "document": "docs/native_word_map.md",
       "status": "EXPERIMENTAL",

@@ -9,6 +9,21 @@ which of those capabilities work through the Sotlas-written toolchain. A
 completed bounded reference contract does not establish complete native parity.
 This checkpoint reports executable deliveries and remaining gates separately.
 
+## Verified CI baseline
+
+[CI #1425](https://github.com/HPinho/sotlas_dev/actions/runs/45707837755)
+passed for `08894e3222c5ee0e920fdd06bed1875b5d06c207`. Use that revision as
+the comparison point until a newer revision passes the full matrix.
+
+Before pushing a native language change, run the affected execution and
+rejection tests, including existing negative cases for any newly supported
+syntax. When a documentation change adds a `sotlas` code fence, classify it
+in `docs/public_snippets.json` and run the same local inventory gate as CI:
+
+```text
+python -m unittest discover -s tests -p test_sotlas_reality_gate.py
+```
+
 ## Delivered native blocks
 
 | Block | What a developer can do |
