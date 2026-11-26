@@ -2870,6 +2870,53 @@ impl ScalarLowering {
         return unsafe{(*(self.nodes+parent)).str_offset};
     }
 
+    pub fn lower_bit_access(mut self: &mut Self, index: usize, expected: TargetTypeTag,
+        first_parameter: usize, parameter_count: usize) -> u32 {
+        if self.constant_evaluation || (expected != TargetTypeTag::Invalid && expected != TargetTypeTag::U64) { return 0; }
+        let access: AstNode = unsafe { *(self.nodes+index) };
+        let mut low: u64 = 0;
+        let mut high: u64 = 0;
+        if !native_bit_bounds(self.nodes,self.node_count,access,self.source,self.source_len,&mut low,&mut high) { return 0; }
+        let base: usize = access.first_child;
+        let base_node: AstNode = unsafe { *(self.nodes+base) };
+        let mut typ: TargetTypeTag = TargetTypeTag::U64;
+        if base_node.kind != AstKind::ExprLiteral {
+            typ=self.condition_expression_type(base,first_parameter,parameter_count);
+        }
+        if typ != TargetTypeTag::U8 && typ != TargetTypeTag::U16 && typ != TargetTypeTag::U32 && typ != TargetTypeTag::U64 { return 0; }
+        if high >= target_integer_width(typ) as u64 { return 0; }
+        let mut value: u32 = self.lower_expression(base,typ,first_parameter,parameter_count);
+        if value == 0 { return 0; }
+        if typ != TargetTypeTag::U64 {
+            let first: u32 = self.operand_count as u32;
+            let widened: u32 = self.append_value(TargetTypeTag::U64,0,0);
+            if widened == 0 || !self.append_operand(value) || !self.append_instruction(
+                TargetOpcode::IntCast,widened,TargetTypeTag::U64,first,1,index) { return 0; }
+            value=widened;
+        }
+        if low != 0 {
+            value=self.bit_access_operation(value,low,TargetOpcode::ShiftRight,index);
+            if value == 0 { return 0; }
+        }
+        if high == 63 && low == 0 { return value; }
+        let all_bits: u64 = 18446744073709551615;
+        let mask_shift: u64 = (63 as u64)-high+low;
+        return self.bit_access_operation(value,all_bits >> mask_shift,TargetOpcode::BitAnd,index);
+    }
+
+    pub fn bit_access_operation(mut self: &mut Self, value: u32, bits: u64,
+        opcode: TargetOpcode, index: usize) -> u32 {
+        let immediate: u32 = self.append_value(TargetTypeTag::U64,0,0);
+        if immediate == 0 || !self.append_instruction(TargetOpcode::ConstInt,immediate,
+            TargetTypeTag::U64,0,0,index) { return 0; }
+        unsafe { (*(self.instructions+self.instruction_count-1)).immediate_bits=bits; }
+        let result: u32 = self.append_value(TargetTypeTag::U64,0,0);
+        let first: u32 = self.operand_count as u32;
+        if result == 0 || !self.append_operand(value) || !self.append_operand(immediate)
+            || !self.append_instruction(opcode,result,TargetTypeTag::U64,first,2,index) { return 0; }
+        return result;
+    }
+
     // Values come from the exact registered layout used by native memory/ABI
     // lowering. A zero field offset is success, not an unknown-layout sentinel.
     pub fn layout_query_bits(self: &Self, index: usize, mut bits: *mut u64) -> bool {
@@ -2978,6 +3025,9 @@ impl ScalarLowering {
         }
         if expression.kind == AstKind::TryExpr && !self.constant_evaluation {
             return self.lower_try_value(expression_index,type_tag,first_parameter,parameter_count);
+        }
+        if expression.kind == AstKind::ExprBitAccess {
+            return self.lower_bit_access(expression_index,type_tag,first_parameter,parameter_count);
         }
         if self.constant_evaluation && (expression.kind == AstKind::ExprConditional
             || (expression.kind == AstKind::ExprBinary && (expression.int_value == 110 || expression.int_value == 111))) {
@@ -4726,7 +4776,7 @@ impl ScalarLowering {
             return TargetTypeTag::Invalid;
         }
         let expression: AstNode = unsafe { *(self.nodes + expression_index) };
-        if expression.kind == AstKind::ExprLayout { return TargetTypeTag::U64; }
+        if expression.kind == AstKind::ExprLayout || expression.kind == AstKind::ExprBitAccess { return TargetTypeTag::U64; }
         if expression.kind == AstKind::ExprArrayLength { return TargetTypeTag::U32; }
         if self.payload_record(expression_index) != 0 { return TargetTypeTag::Pointer; }
         if expression.kind == AstKind::TryExpr {
@@ -7282,6 +7332,7 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
+            if node.kind == AstKind::ExprBitAccess { return true; }
             if node.kind == AstKind::AssignStmt && node.int_value != 0 { return true; }
             if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;

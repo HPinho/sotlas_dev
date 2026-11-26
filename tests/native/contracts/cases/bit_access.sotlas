@@ -1,0 +1,28 @@
+module bit_access;
+
+const FLAGS:usize=4;
+const TOP:usize=FLAGS+3;
+static mut reads:u32=0;
+
+struct Header { pub flags:u16; pub notch:u8; pub slit:[u8;2]; }
+
+fn word()->u64 {
+    unsafe { reads=reads+1; }
+    return 0x8000_0000_0000_00A5;
+}
+
+fn low_byte(value:u32)->u8 { return value.slit[0..7] as u8; }
+fn last_bit(value:usize)->u64 { return value.notch[63]; }
+
+pub fn main_entry()->u32 {
+    let header:Header=Header{flags:0xF0A5,notch:5,slit:[6,7]};
+    let tag=header.flags.slit[FLAGS..TOP];
+    if tag!=10 || header.flags.notch[2]!=1 || header.flags.notch[1]!=0 { return 1; }
+    if header.notch!=5 || header.slit[1]!=7 { return 2; }
+    if low_byte(0xFF2A)!=42 || last_bit(0x8000_0000_0000_0000)!=1 { return 3; }
+    if word().slit[0..63]!=0x8000_0000_0000_00A5 || unsafe {reads}!=1 { return 4; }
+    if word().slit[63..63]!=1 || unsafe {reads}!=2 { return 5; }
+    let small:u8=0x80;
+    if small.slit[0..7]!=128 || (0x2A).notch[1]!=1 { return 6; }
+    return 0;
+}

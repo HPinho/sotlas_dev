@@ -1703,21 +1703,8 @@ impl Parser {
             let mut current_expr: usize = callee_node;
             while !self.is_at_end() {
                 if self.match_token(TokenKind::Dot) {
-                    self.advance();
-                    let field_tok: Token = self.current();
-                    if field_tok.kind != TokenKind::Ident {
-                        self.reject_current();
-                        return 0;
-                    }
-                    self.advance();
-                    let field_node: usize = self.alloc_node(AstKind::ExprFieldAccess, field_tok.span);
-                    if field_node == 0 || !self.set_node_text(field_node, field_tok) {
-                        return 0;
-                    }
-                    if !self.append_child(field_node, current_expr) {
-                        return 0;
-                    }
-                    current_expr = field_node;
+                    current_expr=self.parse_field_suffix(current_expr);
+                    if current_expr == 0 { return 0; }
                 } else if self.match_token(TokenKind::OpenParen) {
                     current_expr = self.parse_call_suffix(current_expr,tok.span);
                     if current_expr == 0 { return 0; }
@@ -1736,21 +1723,8 @@ impl Parser {
             self.advance();
             let mut current_expr: usize = inner;
             while !self.is_at_end() && self.match_token(TokenKind::Dot) {
-                self.advance();
-                let field_tok: Token = self.current();
-                if field_tok.kind != TokenKind::Ident {
-                    self.reject_current();
-                    return 0;
-                }
-                self.advance();
-                let field_node: usize = self.alloc_node(AstKind::ExprFieldAccess, field_tok.span);
-                if field_node == 0 || !self.set_node_text(field_node, field_tok) {
-                    return 0;
-                }
-                if !self.append_child(field_node, current_expr) {
-                    return 0;
-                }
-                current_expr = field_node;
+                current_expr=self.parse_field_suffix(current_expr);
+                if current_expr == 0 { return 0; }
             }
             return current_expr;
         }
@@ -2385,13 +2359,8 @@ impl Parser {
                 continue;
             }
             if self.match_token(TokenKind::Dot) {
-                self.advance();
-                let field: Token = self.current();
-                if field.kind != TokenKind::Ident { self.reject_current(); return 0; }
-                self.advance();
-                let access: usize = self.alloc_node(AstKind::ExprFieldAccess, field.span);
-                if access == 0 || !self.set_node_text(access, field) || !self.append_child(access, expr) { return 0; }
-                expr = access;
+                expr=self.parse_field_suffix(expr);
+                if expr == 0 { return 0; }
                 continue;
             }
             let open: Token = self.advance();
@@ -2424,6 +2393,46 @@ impl Parser {
             }
         }
         return expr;
+    }
+
+    pub fn parse_field_suffix(mut self: &mut Self, base: usize) -> usize {
+        self.advance(); // '.'
+        let field: Token = self.current();
+        if field.kind != TokenKind::Ident { self.reject_current();return 0; }
+        self.advance();
+        if self.match_token(TokenKind::OpenBracket) {
+            if self.token_word(field,"slit",4) { return self.parse_bit_access(base,field,true); }
+            if self.token_word(field,"notch",5) { return self.parse_bit_access(base,field,false); }
+        }
+        let member: usize = self.alloc_text_node(AstKind::ExprFieldAccess,field);
+        if member == 0 || !self.append_child(member,base) { return 0; }
+        return member;
+    }
+
+    pub fn parse_bit_access(mut self: &mut Self, base: usize, field: Token, range: bool) -> usize {
+        let open: Token = self.advance();
+        let low: usize = self.parse_expression();
+        if low == 0 { return 0; }
+        if range && self.match_token(TokenKind::CloseBracket) {
+            // An indexed record field named slit has the ordinary index shape.
+            self.advance();
+            let member: usize = self.alloc_text_node(AstKind::ExprFieldAccess,field);
+            let indexed: usize = self.alloc_node(AstKind::ExprIndex,open.span);
+            if member == 0 || indexed == 0 || !self.append_child(member,base)
+                || !self.append_child(indexed,member) || !self.append_child(indexed,low) { return 0; }
+            return indexed;
+        }
+        let access: usize = self.alloc_node(AstKind::ExprBitAccess,field.span);
+        if access == 0 || !self.append_child(access,base) || !self.append_child(access,low) { return 0; }
+        if range {
+            self.expect(TokenKind::DotDot);
+            let high: usize = self.parse_expression();
+            if high == 0 || !self.append_child(access,high) { return 0; }
+            unsafe { (*(self.nodes+access)).int_value=1; }
+        }
+        self.expect(TokenKind::CloseBracket);
+        if self.error_count != 0 { return 0; }
+        return access;
     }
 
     pub fn parse_multiplicative_expression(mut self: &mut Self) -> usize {

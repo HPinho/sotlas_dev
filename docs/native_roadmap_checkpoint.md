@@ -40,6 +40,7 @@ This checkpoint reports executable deliveries and remaining gates separately.
 | Composed data models (SV8.96) | Resolve finite mixed record/enum/array dependencies, pass and match those values, retain POD ownership checks and serialize nested tagged static data; execute the event-pipeline example |
 | Fixed-array error propagation | Use `?` between concrete results with different success types and the same fixed-array error shape, including POD records and named dimensions. See [the error composition contract](native_error_composition.md). |
 | Unit result variants | Use `?;` for fallible work without a success value, or propagate a unit error across results with different success payloads. See [the unit variant contract](native_error_composition.md#results-with-a-unit-variant). |
+| Native bit access | Read inclusive bit ranges and individual bits from unsigned values using [`.slit` and `.notch`](native_bit_access.md). |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

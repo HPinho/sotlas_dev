@@ -92,3 +92,8 @@ pass result_unit_variants cases/result_unit_variants.sotlas
 reject result_unit_success_binding cases/result_unit_success_binding.sotlas
 reject result_unit_error_mismatch cases/result_unit_error_mismatch.sotlas
 reject result_unit_tag_only cases/result_unit_tag_only.sotlas
+pass bit_access cases/bit_access.sotlas
+reject bit_access_dynamic cases/bit_access_dynamic.sotlas
+reject bit_access_order cases/bit_access_order.sotlas
+reject bit_access_width cases/bit_access_width.sotlas
+reject bit_access_type cases/bit_access_type.sotlas

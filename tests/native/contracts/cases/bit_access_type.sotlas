@@ -1,0 +1,5 @@
+module bit_access_type;
+
+fn invalid(value:i32)->u64 { return value.slit[0..3]; }
+
+pub fn main_entry()->u32 { return 0; }

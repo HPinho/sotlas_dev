@@ -179,6 +179,21 @@ pub fn native_fixed_array_count(bytes: *const u8, length: usize) -> usize {
     return count as usize;
 }
 
+pub fn native_bit_bounds(nodes: *const AstNode, count: usize, access: AstNode,
+    source: *const u8, length: usize, low: &mut u64, high: &mut u64) -> bool {
+    let base: usize = access.first_child;
+    if base == 0 || base >= count { return false; }
+    let start: usize = unsafe { (*(nodes+base)).next_sibling };
+    if !native_dimension_ast(nodes,count,start,source,length,0,unsafe { low as *mut u64 }) { return false; }
+    let end: usize = unsafe { (*(nodes+start)).next_sibling };
+    unsafe { *high=*low; }
+    if access.int_value == 1 {
+        if !native_dimension_ast(nodes,count,end,source,length,0,unsafe { high as *mut u64 })
+            || unsafe { (*(nodes+end)).next_sibling } != 0 { return false; }
+    } else if end != 0 { return false; }
+    return unsafe { *low <= *high && *high < 64 };
+}
+
 pub fn native_array_count_context(nodes: *const AstNode, count: usize, source: *const u8,
     source_len: usize, offset: usize, length: usize) -> usize {
     if nodes == null || source == null || offset > source_len || length > source_len-offset { return 0; }
@@ -699,6 +714,8 @@ impl Sema {
                     || unsafe{(*(nodes+array.first_child)).int_value} != 0
                     || !self.ownership_pod_type(nodes,node_count,array.first_child,source,source_len,0) { return self.reject_node(node); }
             }
+            if node.kind == AstKind::ExprBitAccess
+                && !self.check_native_bit_access(nodes,node_count,node,source,source_len) { return self.reject_node(node); }
             if node.kind == AstKind::ExprUnary && node.int_value == 82
                 && !self.is_in_unsafe_block(nodes, node_count, node_index)
                 && !self.expression_is_borrow_deref(
@@ -1735,6 +1752,27 @@ impl Sema {
             declaration=candidate.next_sibling;
         }
         return 0;
+    }
+
+    pub fn check_native_bit_access(mut self: &mut Self, nodes: *const AstNode, count: usize,
+        access: AstNode, source: *const u8, length: usize) -> bool {
+        let mut low: u64 = 0;
+        let mut high: u64 = 0;
+        if !native_bit_bounds(nodes,count,access,source,length,&mut low,&mut high) { return false; }
+        let base: AstNode = unsafe { *(nodes+access.first_child) };
+        if base.kind == AstKind::ExprLiteral {
+            let mut bits: u64 = 0;
+            return base.str_offset <= length && base.str_len <= length-base.str_offset
+                && native_unsigned_slice(unsafe { source+base.str_offset },base.str_len,unsafe { (&mut bits) as *mut u64 });
+        }
+        let typ: usize = self.infer_expression_type_ref(nodes,count,access.first_child,source,length);
+        if typ == 0 { return true; } // Lowering resolves inferred scalar expressions.
+        let declared: AstNode = unsafe { *(nodes+typ) };
+        if self.source_slice_equals(source,length,declared.str_offset,declared.str_len,"u8",2) { return high < 8; }
+        if self.source_slice_equals(source,length,declared.str_offset,declared.str_len,"u16",3) { return high < 16; }
+        if self.source_slice_equals(source,length,declared.str_offset,declared.str_len,"u32",3) { return high < 32; }
+        return self.source_slice_equals(source,length,declared.str_offset,declared.str_len,"u64",3)
+            || self.source_slice_equals(source,length,declared.str_offset,declared.str_len,"usize",5);
     }
 
     // Closed result schemas: Ok/Err with at least one payload, or Some(T)/None.

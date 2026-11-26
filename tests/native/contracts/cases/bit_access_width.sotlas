@@ -1,0 +1,8 @@
+module bit_access_width;
+
+fn invalid(value:u8)->u64 {
+    return 0;
+    let above_width:u64=value.notch[8];
+}
+
+pub fn main_entry()->u32 { return 0; }

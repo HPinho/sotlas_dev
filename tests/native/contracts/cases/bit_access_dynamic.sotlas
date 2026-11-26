@@ -1,0 +1,7 @@
+module bit_access_dynamic;
+
+const BIT:usize=3;
+
+fn invalid(value:u64,BIT:usize)->u64 { return value.notch[BIT]; }
+
+pub fn main_entry()->u32 { return 0; }

@@ -1,0 +1,5 @@
+module bit_access_order;
+
+fn invalid(value:u64)->u64 { return value.slit[9..4]; }
+
+pub fn main_entry()->u32 { return 0; }
