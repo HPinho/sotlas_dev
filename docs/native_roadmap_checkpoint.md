@@ -57,6 +57,7 @@ python -m unittest discover -s tests -p test_sotlas_reality_gate.py
 | Unit result variants | Use `?;` for fallible work without a success value, or propagate a unit error across results with different success payloads. See [the unit variant contract](native_error_composition.md#results-with-a-unit-variant). |
 | Native bit access | Read inclusive bit ranges and individual bits with [`.slit` and `.notch`, and reverse byte order with `.strand`](native_bit_access.md). |
 | Native probes | Check boolean invariants with [`probe`](native_probe.md). |
+| Native hardware guards | Require a boolean precondition before entering a [`gate` block](native_gate.md). |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

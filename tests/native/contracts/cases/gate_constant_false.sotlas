@@ -1,0 +1,5 @@
+module gate_constant_false;
+
+pub fn main_entry() -> u32 {
+    gate (false) { return 0; }
+}

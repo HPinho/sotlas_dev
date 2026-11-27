@@ -720,10 +720,14 @@ impl Sema {
             }
             if node.kind == AstKind::ExprBitAccess
                 && !self.check_native_bit_access(nodes,node_count,node,source,source_len) { return self.reject_node(node); }
-            if node.kind == AstKind::ProbeStmt {
+            if node.kind == AstKind::ProbeStmt || node.kind == AstKind::GateStmt {
                 let condition: AstNode = unsafe { *(nodes+node.first_child) };
                 if condition.kind == AstKind::ExprLiteral
-                    && !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"true",4) { return self.reject_node(node); }
+                    && !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"true",4)
+                    && (node.kind == AstKind::ProbeStmt
+                        || !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"false",5)) {
+                    return self.reject_node(node);
+                }
                 let typ: usize = self.infer_expression_type_ref(nodes,node_count,node.first_child,source,source_len);
                 if typ != 0 {
                     let declared: AstNode = unsafe { *(nodes+typ) };
@@ -4385,7 +4389,8 @@ impl Sema {
                 return true;
             }
             if statement.kind == AstKind::IfStmt || statement.kind == AstKind::MatchStmt
-                || statement.kind == AstKind::UnsafeBlock || (statement.kind == AstKind::WhileStmt && statement.int_value == 2) {
+                || statement.kind == AstKind::UnsafeBlock || statement.kind == AstKind::GateStmt
+                || (statement.kind == AstKind::WhileStmt && statement.int_value == 2) {
                 if self.statement_returns_value(nodes, node_count, statement_index) {
                     return true;
                 }
@@ -4471,6 +4476,11 @@ impl Sema {
                 return false;
             }
             return self.block_returns_value(nodes, node_count, body_index);
+        }
+        if statement.kind == AstKind::GateStmt {
+            let condition: usize = statement.first_child;
+            if condition == 0 || condition >= node_count { return false; }
+            return self.block_returns_value(nodes,node_count,unsafe { (*(nodes+condition)).next_sibling });
         }
         if statement.kind == AstKind::MatchStmt {
             let subject: usize = statement.first_child;
@@ -5622,7 +5632,7 @@ impl NativeOwnershipCheck {
                         self.fail_reason(index,5); return 0;
                     }
                 }
-            } else if node.kind == AstKind::ProbeStmt {
+            } else if node.kind == AstKind::ProbeStmt || node.kind == AstKind::GateStmt {
                 let mut before: [u8;256] = 0;
                 let mut slot: usize = 0;
                 while slot < self.count { before[slot]=self.states[slot]; slot=slot+1; }
@@ -5630,9 +5640,19 @@ impl NativeOwnershipCheck {
                 slot=0;
                 while slot < self.count {
                     if self.domains[slot] != 0 && before[slot] != self.states[slot] {
-                        self.fail_reason(index,8); return 0;
+                        let mut reason: u32 = 8;
+                        if node.kind == AstKind::GateStmt { reason = 9; }
+                        self.fail_reason(index,reason); return 0;
                     }
                     slot=slot+1;
+                }
+                if node.kind == AstKind::GateStmt {
+                    let body: usize = unsafe { (*(self.nodes+node.first_child)).next_sibling };
+                    if body == 0 || body >= self.node_count { self.error_node=index; return 0; }
+                    let scope: usize = self.count;
+                    let result: i64 = self.sequence(unsafe { (*(self.nodes+body)).first_child },depth+1);
+                    self.count = scope;
+                    if result != 1 { return result; }
                 }
             } else if node.kind == AstKind::LetStmt {
                 let mut value: usize = node.first_child;

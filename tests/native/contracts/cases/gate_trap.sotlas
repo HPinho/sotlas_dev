@@ -1,0 +1,9 @@
+module gate_trap;
+
+fn guarded(ok: bool) -> u32 {
+    gate (ok) { return 0; }
+}
+
+pub fn main_entry() -> u32 {
+    return guarded(false);
+}

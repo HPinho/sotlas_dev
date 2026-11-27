@@ -258,7 +258,9 @@ Desativa interrupções durante o bloco, garantindo atomicidade em nível de har
 
 ### 7.3 `gate(cond) { ... }`
 
-Executa o bloco apenas se `cond` for verdadeiro em tempo de runtime. Equivalente a um `if` com semântica de barreira de memória.
+The [native x86-64 contract](../docs/native_gate.md) evaluates a boolean
+precondition before entering the block. A false condition traps before the
+first statement of the block. This contract provides a control-flow guard.
 
 ---
 

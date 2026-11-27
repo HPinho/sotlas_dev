@@ -136,4 +136,6 @@ cases cover unsigned extraction and reject runtime bounds, reversed ranges,
 out-of-width indices and signed operands. Three `.strand` cases cover eight-byte
 reversal, composition with the other accessors and rejection of signed input
 and assignment. Six `probe` cases cover normal execution, trapping, invalid
-conditions, owner consumption and message syntax. The suite has 107 contracts.
+conditions, owner consumption and message syntax. Eight `gate` cases cover
+short-circuit evaluation, scoped execution, control flow and cleanup, traps,
+and invalid types, ownership, scope and syntax. The suite has 115 contracts.

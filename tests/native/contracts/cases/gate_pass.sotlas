@@ -1,0 +1,25 @@
+module gate_pass;
+
+static mut calls: u32 = 0;
+struct Reading { pub value: u32; }
+
+fn observe(value: bool) -> bool {
+    calls = calls + 1;
+    return value;
+}
+
+pub fn main_entry() -> u32 {
+    let reading: sole Reading = Reading{value: 42};
+    let mut answer: u32 = 0;
+    gate (observe(true)) {
+        gate (reading.value == 42 || observe(false)) {
+            answer = reading.value;
+        }
+    }
+    let expanded: u32 = match answer {
+        42 => { gate (true) { answer += 1; } answer },
+        _ => 0,
+    };
+    if expanded != 43 || calls != 1 || reading.value != 42 { return 1; }
+    return 0;
+}

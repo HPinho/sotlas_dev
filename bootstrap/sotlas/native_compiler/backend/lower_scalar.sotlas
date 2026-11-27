@@ -7339,7 +7339,8 @@ impl ScalarLowering {
         while i < self.node_count {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
-            if node.kind == AstKind::ExprBitAccess || node.kind == AstKind::ProbeStmt { return true; }
+            if node.kind == AstKind::ExprBitAccess || node.kind == AstKind::ProbeStmt
+                || node.kind == AstKind::GateStmt { return true; }
             if node.kind == AstKind::AssignStmt && node.int_value != 0 { return true; }
             if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;
@@ -7740,6 +7741,15 @@ impl ScalarLowering {
         return TargetTypeTag::Invalid;
     }
 
+    pub fn cfg_guard(mut self: &mut Self, index: usize, condition: usize,
+        first_parameter: usize, parameter_count: usize) -> bool {
+        let value: u32 = self.lower_expression(condition,TargetTypeTag::Bool,first_parameter,parameter_count);
+        if value == 0 || unsafe { (*(self.values+value as usize-1)).type_tag } != TargetTypeTag::Bool { return self.reject(index); }
+        let first: u32 = self.operand_count as u32;
+        return self.append_operand(value)
+            && self.append_instruction(TargetOpcode::Probe,0,TargetTypeTag::Bool,first,1,index);
+    }
+
     pub fn cfg_simple(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> bool {
         let stmt: AstNode = unsafe { *(self.nodes + index) };
         if stmt.kind == AstKind::ProbeStmt {
@@ -7750,11 +7760,7 @@ impl ScalarLowering {
                 if bits == 0 { return self.reject(index); }
                 return true;
             }
-            let value: u32 = self.lower_expression(condition,TargetTypeTag::Bool,first_parameter,parameter_count);
-            if value == 0 || unsafe { (*(self.values+value as usize-1)).type_tag } != TargetTypeTag::Bool { return self.reject(index); }
-            let first: u32 = self.operand_count as u32;
-            return self.append_operand(value)
-                && self.append_instruction(TargetOpcode::Probe,0,TargetTypeTag::Bool,first,1,index);
+            return self.cfg_guard(index,condition,first_parameter,parameter_count);
         }
         if stmt.kind == AstKind::LetStmt {
             if self.local_count >= 128 || stmt.first_child == 0 { return self.reject(index); }
@@ -9795,9 +9801,15 @@ impl ScalarLowering {
                     if return_sem.loop_body_returns(self.nodes,self.node_count,body_index)
                         && !self.cfg_jump(header,index) { return self.reject(index); }
                 }
-            } else if stmt.kind == AstKind::UnsafeBlock || stmt.kind == AstKind::Block {
+            } else if stmt.kind == AstKind::UnsafeBlock || stmt.kind == AstKind::Block || stmt.kind == AstKind::GateStmt {
                 let mut block_index: usize = index;
                 if stmt.kind == AstKind::UnsafeBlock { block_index = stmt.first_child; }
+                if stmt.kind == AstKind::GateStmt {
+                    let condition: usize = stmt.first_child;
+                    if condition == 0 || condition >= self.node_count { return self.reject(index); }
+                    block_index = unsafe { (*(self.nodes+condition)).next_sibling };
+                    if !self.cfg_guard(index,condition,first_parameter,parameter_count) { return false; }
+                }
                 if block_index == 0 || block_index >= self.node_count { return self.reject(index); }
                 let block: AstNode = unsafe { *(self.nodes + block_index) };
                 let scope: usize = self.local_count;

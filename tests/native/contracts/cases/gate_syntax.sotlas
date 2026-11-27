@@ -1,0 +1,5 @@
+module gate_syntax;
+
+pub fn main_entry() -> u32 {
+    gate (true) return 0;
+}
