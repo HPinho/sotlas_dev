@@ -1,0 +1,16 @@
+module discern_else;
+
+enum Status { Ready, Busy, Offline }
+
+fn read(value: Status) -> u32 {
+    discern value {
+        case .Ready => { return 10; }
+        case else => { return 42; }
+    }
+}
+
+pub fn main_entry() -> u32 {
+    if read(Status::Ready) != 10 { return 1; }
+    if read(Status::Busy) != 42 || read(Status::Offline) != 42 { return 2; }
+    return 0;
+}

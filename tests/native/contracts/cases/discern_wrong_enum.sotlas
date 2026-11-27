@@ -1,0 +1,11 @@
+module discern_wrong_enum;
+
+enum Status { Ready, Busy }
+enum Other { Ready, Busy }
+
+pub fn main_entry() -> u32 {
+    discern Status::Ready {
+        Other::Ready => { return 0; }
+        _ => { return 1; }
+    }
+}

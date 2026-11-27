@@ -1,0 +1,18 @@
+module discern_payload;
+
+enum Packet { Data(u32), Empty }
+
+fn read(value: Packet) -> u32 {
+    discern value {
+        case .Data(code) if code < 42 => { return 1; }
+        case .Data(code) => { return code; }
+        case Packet::Empty => { return 2; }
+    }
+}
+
+pub fn main_entry() -> u32 {
+    if read(Packet::Data(42)) != 42 { return 1; }
+    if read(Packet::Data(9)) != 1 { return 2; }
+    if read(Packet::Empty) != 2 { return 3; }
+    return 0;
+}

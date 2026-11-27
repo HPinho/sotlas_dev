@@ -1,0 +1,5 @@
+module discern_non_enum;
+
+pub fn main_entry() -> u32 {
+    discern 0 { case else => { return 0; } }
+}

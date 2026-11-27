@@ -1,0 +1,10 @@
+module discern_unknown;
+
+enum Status { Ready, Busy }
+
+pub fn main_entry() -> u32 {
+    discern Status::Ready {
+        .Missing => { return 0; }
+        _ => { return 1; }
+    }
+}

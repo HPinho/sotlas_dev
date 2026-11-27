@@ -119,3 +119,11 @@ pass quench_cleanup cases/quench_cleanup.sotlas
 reject quench_scope cases/quench_scope.sotlas
 reject quench_pointer cases/quench_pointer.sotlas
 syntax quench_syntax cases/quench_syntax.sotlas
+pass discern_variants cases/discern_variants.sotlas
+pass discern_payload cases/discern_payload.sotlas
+pass discern_else cases/discern_else.sotlas
+reject discern_missing cases/discern_missing.sotlas
+reject discern_guarded_gap cases/discern_guarded_gap.sotlas
+reject discern_wrong_enum cases/discern_wrong_enum.sotlas
+reject discern_non_enum cases/discern_non_enum.sotlas
+reject discern_unknown cases/discern_unknown.sotlas

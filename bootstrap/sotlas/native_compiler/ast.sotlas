@@ -61,7 +61,8 @@ pub enum AstKind {
     ExprBitAccess = 56,
     ProbeStmt = 57,
     GateStmt = 58,
-    QuenchStmt = 59
+    QuenchStmt = 59,
+    PatternWildcard = 60
 }
 
 pub struct AstNode {

@@ -2608,24 +2608,55 @@ impl Sema {
         if path == 0 || path >= count { return 0; }
         let name: AstNode = unsafe{*(nodes+path)};
         if name.kind != AstKind::ExprPath || name.str_offset > length || name.str_len > length-name.str_offset { return 0; }
-        let mut split: usize = 0;
-        while split+1 < name.str_len {
-            if unsafe{*(source+name.str_offset+split)} == 58 && unsafe{*(source+name.str_offset+split+1)} == 58 { break; }
-            split=split+1;
+        let mut enum_offset: usize = name.str_offset;
+        let mut enum_length: usize = 0;
+        let mut tag_offset: usize = name.str_offset;
+        let mut tag_length: usize = name.str_len;
+        if name.int_value == -1 {
+            let mut arm: usize = name.parent;
+            if arm != 0 && arm < count && unsafe { (*(nodes+arm)).kind } == AstKind::PatternVariant {
+                arm = unsafe { (*(nodes+arm)).parent };
+            }
+            if arm == 0 || arm >= count || unsafe { (*(nodes+arm)).kind } != AstKind::MatchArm { return 0; }
+            let holder: usize = unsafe { (*(nodes+arm)).parent };
+            if holder == 0 || holder >= count { return 0; }
+            let statement: AstNode = unsafe { *(nodes+holder) };
+            if statement.kind != AstKind::MatchStmt || statement.int_value != 1
+                || statement.first_child == 0 || statement.first_child >= count { return 0; }
+            let selector: usize = statement.first_child;
+            let selector_node: AstNode = unsafe { *(nodes+selector) };
+            let mut semantic: Sema = Sema::new();
+            let mut declared: usize = semantic.infer_expression_type_ref(nodes,count,selector,source,length);
+            if declared == 0 && selector_node.kind == AstKind::ExprPath && selector_node.int_value == 0 {
+                let variant: usize = self.enum_variant_path(nodes,count,selector,source,length);
+                if variant != 0 { declared = unsafe { (*(nodes+variant)).parent }; }
+            }
+            if declared == 0 || declared >= count { return 0; }
+            let typ: AstNode = unsafe { *(nodes+declared) };
+            enum_offset = typ.str_offset;
+            enum_length = typ.str_len;
+        } else {
+            while enum_length+1 < name.str_len {
+                if unsafe{*(source+name.str_offset+enum_length)} == 58
+                    && unsafe{*(source+name.str_offset+enum_length+1)} == 58 { break; }
+                enum_length=enum_length+1;
+            }
+            if enum_length+2 >= name.str_len { return 0; }
+            tag_offset = name.str_offset+enum_length+2;
+            tag_length = name.str_len-enum_length-2;
         }
-        if split+2 >= name.str_len { return 0; }
         let module_index: usize = self.find_enclosing_module(nodes,count,path);
         if module_index == 0 || module_index >= count { return 0; }
         let mut index: usize = unsafe{(*(nodes+module_index)).first_child};
         while index != 0 && index < count {
             let declaration: AstNode = unsafe{*(nodes+index)};
             if declaration.kind == AstKind::EnumDecl && self.source_slices_equal(source,length,
-                declaration.str_offset,declaration.str_len,name.str_offset,split) {
+                declaration.str_offset,declaration.str_len,enum_offset,enum_length) {
                 let mut variant: usize = declaration.first_child;
                 while variant != 0 && variant < count {
                     let item: AstNode = unsafe{*(nodes+variant)};
                     if item.kind == AstKind::EnumVariant && self.source_slices_equal(source,length,
-                        item.str_offset,item.str_len,name.str_offset+split+2,name.str_len-split-2) { return variant; }
+                        item.str_offset,item.str_len,tag_offset,tag_length) { return variant; }
                     variant=item.next_sibling;
                 }
                 return 0;

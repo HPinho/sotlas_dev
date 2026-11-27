@@ -1027,17 +1027,7 @@ impl Parser {
             }
             return clinch_node;
         } else if tok.kind == TokenKind::KwDiscern {
-            self.advance();
-            let discern_node: usize = self.alloc_node(AstKind::DiscernStmt, tok.span);
-            let _target: usize = self.parse_expression();
-            if self.match_token(TokenKind::OpenBrace) {
-                self.advance();
-                while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
-                    self.advance();
-                }
-                self.expect(TokenKind::CloseBrace);
-            }
-            return discern_node;
+            return self.parse_match_statement();
         } else if tok.kind == TokenKind::KwIf {
             self.advance();
             if self.match_token(TokenKind::KwLet) { return self.parse_pattern_control(tok,false,false); }
@@ -1779,6 +1769,7 @@ impl Parser {
                 || token.kind == TokenKind::KwWhile || token.kind == TokenKind::KwFor
                 || token.kind == TokenKind::KwDefer || token.kind == TokenKind::KwReturn
                 || token.kind == TokenKind::KwProbe || token.kind == TokenKind::KwGate || token.kind == TokenKind::KwQuench
+                || token.kind == TokenKind::KwDiscern
                 || token.kind == TokenKind::KwBreak || token.kind == TokenKind::KwContinue
                 || token.kind == TokenKind::KwUnsafe || token.kind == TokenKind::OpenBrace {
                 statement=self.parse_statement();
@@ -1803,7 +1794,11 @@ impl Parser {
     }
 
     pub fn parse_match_pattern(mut self: &mut Self, depth: usize) -> usize {
-        let first: usize = self.parse_match_pattern_atom(depth);
+        return self.parse_match_pattern_mode(depth,false);
+    }
+
+    pub fn parse_match_pattern_mode(mut self: &mut Self, depth: usize, enum_dispatch: bool) -> usize {
+        let first: usize = self.parse_match_pattern_atom(depth,enum_dispatch);
         if first == 0 || !self.match_token(TokenKind::Pipe) { return first; }
         let choice: usize = self.alloc_node(AstKind::PatternOr,unsafe{(*(self.nodes+first)).span});
         if choice == 0 || !self.append_child(choice,first) { return 0; }
@@ -1811,7 +1806,7 @@ impl Parser {
         while self.match_token(TokenKind::Pipe) {
             self.advance();
             if count >= 64 { self.reject_current();return 0; }
-            let next: usize = self.parse_match_pattern_atom(depth);
+            let next: usize = self.parse_match_pattern_atom(depth,enum_dispatch);
             if next == 0 || !self.append_child(choice,next) { return 0; }
             count=count+1;
         }
@@ -1837,11 +1832,11 @@ impl Parser {
         return patterned;
     }
 
-    pub fn parse_match_pattern_atom(mut self: &mut Self, depth: usize) -> usize {
+    pub fn parse_match_pattern_atom(mut self: &mut Self, depth: usize, enum_dispatch: bool) -> usize {
         if depth >= 32 { self.reject_current();return 0; }
         // Keep parenthesized arithmetic range bounds on the expression parser.
-        if self.match_token(TokenKind::OpenParen) && self.match_pattern_group() {
-            self.advance();let grouped: usize = self.parse_match_pattern(depth+1);
+        if self.match_token(TokenKind::OpenParen) && (enum_dispatch || self.match_pattern_group()) {
+            self.advance();let grouped: usize = self.parse_match_pattern_mode(depth+1,enum_dispatch);
             if grouped == 0 || !self.match_token(TokenKind::CloseParen) { self.reject_current();return 0; }
             self.advance();return grouped;
         }
@@ -1849,18 +1844,28 @@ impl Parser {
         if first.kind == TokenKind::OpenBracket { return self.parse_array_pattern(depth); }
         let mut pattern: usize = 0;
         let open_start: bool = self.match_token(TokenKind::DotDot);
+        let qualified: bool = first.kind == TokenKind::Ident && self.cursor+1 < self.token_count
+            && unsafe { (*(self.tokens+self.cursor+1)).kind } == TokenKind::DColon;
+        let relative: bool = enum_dispatch && (first.kind == TokenKind::Dot
+            || (first.kind == TokenKind::Ident && !qualified && !(first.text_len == 1 && first.text[0] == 95)));
         if first.kind == TokenKind::Ident && self.cursor+1 < self.token_count
             && unsafe{(*(self.tokens+self.cursor+1)).kind} == TokenKind::OpenBrace {
             self.advance();return self.parse_record_pattern(first,depth);
-        } else if first.kind == TokenKind::Ident && self.cursor+1 < self.token_count
-            && unsafe{(*(self.tokens+self.cursor+1)).kind} == TokenKind::DColon {
+        } else if relative || qualified {
             self.advance();let mut last: Token = first;
-            while self.match_token(TokenKind::DColon) {
-                self.advance();last=self.expect(TokenKind::Ident);
-                if self.error_count != 0 { return 0; }
+            if first.kind == TokenKind::Dot { last=self.expect(TokenKind::Ident); }
+            else {
+                while self.match_token(TokenKind::DColon) {
+                    self.advance();last=self.expect(TokenKind::Ident);
+                }
             }
+            if self.error_count != 0 { return 0; }
             let path: usize = self.alloc_node(AstKind::ExprPath,first.span);
-            if path == 0 || !self.set_node_text_range(path,first,last) { return 0; }
+            if path == 0 { return 0; }
+            if relative {
+                if !self.set_node_text(path,last) { return 0; }
+                unsafe { (*(self.nodes+path)).int_value = -1; }
+            } else if !self.set_node_text_range(path,first,last) { return 0; }
             pattern=path;
             if self.match_token(TokenKind::OpenParen) {
                 self.advance();pattern=self.alloc_node(AstKind::PatternVariant,first.span);
@@ -2231,19 +2236,31 @@ impl Parser {
 
     pub fn parse_match(mut self: &mut Self, expression_mode: bool) -> usize {
         let keyword: Token = self.advance();
+        let enum_dispatch: bool = keyword.kind == TokenKind::KwDiscern;
         let mut kind: AstKind = AstKind::MatchStmt;
         if expression_mode { kind=AstKind::ExprMatch; }
         let statement: usize = self.alloc_node(kind, keyword.span);
         let subject: usize = self.parse_expression();
         if statement == 0 || subject == 0 || !self.append_child(statement, subject)
             || !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
+        if enum_dispatch { unsafe { (*(self.nodes+statement)).int_value = 1; } }
         self.advance();
         let mut count: usize = 0;
         while !self.is_at_end() && !self.match_token(TokenKind::CloseBrace) {
             if count >= 64 { self.reject_current(); return 0; }
+            let prefix: Token = self.current();
+            if enum_dispatch && prefix.kind == TokenKind::Ident && prefix.text_len == 4
+                && prefix.text[0] == 99 && prefix.text[1] == 97
+                && prefix.text[2] == 115 && prefix.text[3] == 101 { self.advance(); }
             let pattern_token: Token = self.current();
             let arm: usize = self.alloc_node(AstKind::MatchArm, pattern_token.span);
-            let pattern: usize = self.parse_match_pattern(0);
+            let mut pattern: usize = 0;
+            if enum_dispatch && pattern_token.kind == TokenKind::KwElse {
+                self.advance();
+                pattern = self.alloc_node(AstKind::PatternWildcard,pattern_token.span);
+            } else {
+                pattern = self.parse_match_pattern_mode(0,enum_dispatch);
+            }
             let mut guard: usize = 0;
             if self.match_token(TokenKind::KwIf) {
                 self.advance();

@@ -1,0 +1,10 @@
+module discern_guarded_gap;
+
+enum Status { Ready, Busy }
+
+pub fn main_entry() -> u32 {
+    discern Status::Ready {
+        .Ready if true => { return 0; }
+        .Busy => { return 1; }
+    }
+}

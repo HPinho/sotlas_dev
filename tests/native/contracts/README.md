@@ -140,4 +140,6 @@ conditions, owner consumption and message syntax. Eight `gate` cases cover
 short-circuit evaluation, scoped execution, control flow and cleanup, traps,
 and invalid types, ownership, scope and syntax. Five `quench` cases cover
 nested and empty blocks, cleanup, scope, raw pointers and syntax. The suite
-has 120 contracts.
+also covers exhaustive `discern` statements, qualified and relative enum
+variants, guards, payloads and invalid selectors or variants. It has 128
+contracts.

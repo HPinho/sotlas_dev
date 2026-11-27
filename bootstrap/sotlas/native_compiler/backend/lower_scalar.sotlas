@@ -415,6 +415,8 @@ pub fn native_match_error_text(reason: u32) -> *const u8 {
     if reason == 6 { return "match guard must be a supported Boolean expression"; }
     if reason == 7 { return "final match arm must be unguarded"; }
     if reason == 8 { return "float match pattern requires constant numbers other than NaN"; }
+    if reason == 9 { return "discern requires an enum selector"; }
+    if reason == 10 { return "unknown or mismatched enum variant in discern"; }
     return "unsupported native form";
 }
 
@@ -6472,6 +6474,17 @@ impl ScalarLowering {
         if path == 0 || path >= self.node_count { return 0; }
         let name: AstNode = unsafe{*(self.nodes+path)};
         if name.kind != AstKind::ExprPath { return 0; }
+        if name.int_value == -1 {
+            let semantic: Sema = Sema::new();
+            let variant: usize = semantic.enum_variant_path(self.nodes,self.node_count,path,self.source,self.source_len);
+            if variant == 0 { return 0; }
+            let mut slot: usize = 0;
+            while slot < self.variant_total_count {
+                if self.variant_nodes[slot] == variant { return slot as u32+1; }
+                slot = slot+1;
+            }
+            return 0;
+        }
         let split: usize = self.find_match_path_separator(name);
         if split+2 >= name.str_len { return 0; }
         let enumeration: u32 = self.find_enum(name.str_offset,split);
@@ -8580,7 +8593,8 @@ impl ScalarLowering {
     pub fn pattern_capture(self: &Self, index: usize) -> bool {
         if index == 0 || index >= self.node_count { return false; }
         let node: AstNode = unsafe{*(self.nodes+index)};let sem: Sema = Sema::new();
-        return sem.match_pattern_binding(self.nodes,self.node_count,index,self.source,self.source_len)
+        return node.kind == AstKind::PatternWildcard
+            || sem.match_pattern_binding(self.nodes,self.node_count,index,self.source,self.source_len)
             || (node.kind == AstKind::ExprIdent && sem.source_slice_equals(self.source,self.source_len,node.str_offset,node.str_len,"_",1));
     }
 
@@ -9362,6 +9376,9 @@ impl ScalarLowering {
         if enum_id == 0 && subject_node.kind == AstKind::ExprPath {
             enum_id = self.find_enum(subject_node.str_offset, self.find_match_path_separator(subject_node));
         }
+        let enum_dispatch: bool = unsafe { (*(self.nodes+index)).kind == AstKind::MatchStmt
+            && (*(self.nodes+index)).int_value == 1 };
+        if enum_dispatch && enum_id == 0 { return self.reject_match(subject,9); }
         let mut patterns: [u64;64] = 0;
         let mut ends: [u64;64] = 0;
         let mut guarded: [u8;64] = 0;
@@ -9436,13 +9453,19 @@ impl ScalarLowering {
                 let mut low: u64 = 0; let mut high: u64 = 0;
                 if !self.match_range_bounds(pattern, typ, &mut low, &mut high) { return false; }
                 patterns[count] = low; ends[count] = high;
-            } else if (node.kind == AstKind::ExprIdent && node.str_len == 1
-                && unsafe { *(self.source + node.str_offset) } == 95)
-                || sem.match_pattern_binding(self.nodes,self.node_count,pattern,self.source,self.source_len) {
+            } else if self.pattern_capture(pattern) {
                 if guard == 0 && source_after != 0 { return self.reject(pattern); }
                 wildcards[count] = 1;
                 if sem.match_pattern_binding(self.nodes,self.node_count,pattern,self.source,self.source_len) { bindings[count]=1; }
                 if guard == 0 { wildcard = true; }
+            } else if enum_dispatch && node.kind == AstKind::ExprPath {
+                let variant: u32 = self.payload_variant(pattern);
+                if variant == 0 || self.coverage_enum(variant) != enum_id
+                    || self.variant_field_counts[variant as usize-1] != 0 {
+                    return self.reject_match(pattern,10);
+                }
+                patterns[count] = self.variant_values[variant as usize-1];
+                ends[count] = patterns[count];
             } else {
                 if node.kind != AstKind::ExprLiteral && node.kind != AstKind::ExprIdent
                     && node.kind != AstKind::ExprUnary && node.kind != AstKind::ExprPath { return self.reject(pattern); }
