@@ -2486,6 +2486,16 @@ pub fn emit_elf64_module_object(
                     if !target_type_is_float(source_type) || source_type == result_type
                         || !append_object_float_slot(output, capacity, &mut code, operand.value_id - slot_base, source_type, 90)
                         || !append_object_float_slot(output, capacity, &mut code, instruction.result_value - slot_base, result_type, 17) { return false; }
+                } else if instruction.opcode == TargetOpcode::QuenchFence {
+                    // SFENCE (0F AE F8), then MFENCE (0F AE F0), as in the C11 lowering.
+                    if instruction.result_value != TARGET_VALUE_NONE || instruction.operand_count != 0
+                        || instruction.type_tag != TargetTypeTag::Void
+                        || !append_object_byte(output,capacity,&mut code,15)
+                        || !append_object_byte(output,capacity,&mut code,174)
+                        || !append_object_byte(output,capacity,&mut code,248)
+                        || !append_object_byte(output,capacity,&mut code,15)
+                        || !append_object_byte(output,capacity,&mut code,174)
+                        || !append_object_byte(output,capacity,&mut code,240) { return false; }
                 } else if instruction.opcode == TargetOpcode::Probe {
                     if instruction.result_value != TARGET_VALUE_NONE || instruction.operand_count != 1
                         || instruction.type_tag != TargetTypeTag::Bool { return false; }

@@ -114,3 +114,8 @@ reject gate_type cases/gate_type.sotlas
 reject gate_move cases/gate_move.sotlas
 reject gate_scope cases/gate_scope.sotlas
 syntax gate_syntax cases/gate_syntax.sotlas
+pass quench_pass cases/quench_pass.sotlas
+pass quench_cleanup cases/quench_cleanup.sotlas
+reject quench_scope cases/quench_scope.sotlas
+reject quench_pointer cases/quench_pointer.sotlas
+syntax quench_syntax cases/quench_syntax.sotlas

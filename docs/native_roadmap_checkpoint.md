@@ -58,6 +58,7 @@ python -m unittest discover -s tests -p test_sotlas_reality_gate.py
 | Native bit access | Read inclusive bit ranges and individual bits with [`.slit` and `.notch`, and reverse byte order with `.strand`](native_bit_access.md). |
 | Native probes | Check boolean invariants with [`probe`](native_probe.md). |
 | Native hardware guards | Require a boolean precondition before entering a [`gate` block](native_gate.md). |
+| Native memory ordering | Issue x86-64 store and full fences before a [`quench` block](native_quench.md). |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)

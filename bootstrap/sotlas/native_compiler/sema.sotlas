@@ -4390,6 +4390,7 @@ impl Sema {
             }
             if statement.kind == AstKind::IfStmt || statement.kind == AstKind::MatchStmt
                 || statement.kind == AstKind::UnsafeBlock || statement.kind == AstKind::GateStmt
+                || statement.kind == AstKind::QuenchStmt
                 || (statement.kind == AstKind::WhileStmt && statement.int_value == 2) {
                 if self.statement_returns_value(nodes, node_count, statement_index) {
                     return true;
@@ -4470,7 +4471,7 @@ impl Sema {
             if condition == 0 || condition >= node_count { return false; }
             return self.loop_body_returns(nodes,node_count,unsafe{(*(nodes+condition)).next_sibling});
         }
-        if statement.kind == AstKind::UnsafeBlock {
+        if statement.kind == AstKind::UnsafeBlock || statement.kind == AstKind::QuenchStmt {
             let body_index: usize = statement.first_child;
             if body_index == 0 || body_index >= node_count {
                 return false;
@@ -5179,6 +5180,7 @@ impl NativeOwnershipCheck {
             || node.kind == AstKind::AssignStmt || node.kind == AstKind::DeferStmt
             || node.kind == AstKind::TryExpr || node.kind == AstKind::ExprCast
             || node.kind == AstKind::AsmStmt || node.kind == AstKind::ClinchStmt
+            || node.kind == AstKind::QuenchStmt
             || node.kind == AstKind::DiscernStmt || node.kind == AstKind::TrapfnDecl
             || node.kind == AstKind::WhileStmt || node.kind == AstKind::MatchStmt {
             return false;
@@ -5666,7 +5668,7 @@ impl NativeOwnershipCheck {
                 if self.return_domain == 0 && self.expression_domain(node.first_child) != 0 { self.fail(node.first_child); return 0; }
                 if !self.expression(node.first_child, self.return_domain != 0, 0) { return 0; }
                 return 2;
-            } else if node.kind == AstKind::Block || node.kind == AstKind::UnsafeBlock {
+            } else if node.kind == AstKind::Block || node.kind == AstKind::UnsafeBlock || node.kind == AstKind::QuenchStmt {
                 let scope: usize = self.count;
                 let result: i64 = self.sequence(node.first_child, depth + 1);
                 self.count = scope;

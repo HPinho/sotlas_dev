@@ -138,4 +138,6 @@ reversal, composition with the other accessors and rejection of signed input
 and assignment. Six `probe` cases cover normal execution, trapping, invalid
 conditions, owner consumption and message syntax. Eight `gate` cases cover
 short-circuit evaluation, scoped execution, control flow and cleanup, traps,
-and invalid types, ownership, scope and syntax. The suite has 115 contracts.
+and invalid types, ownership, scope and syntax. Five `quench` cases cover
+nested and empty blocks, cleanup, scope, raw pointers and syntax. The suite
+has 120 contracts.

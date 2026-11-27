@@ -142,7 +142,16 @@ if address!=18446744073709551615{return 1;}return 42;}'''))
         self.ir('sv851_opcode','''let invalid:TargetOpcode=unsafe{4294967295 as TargetOpcode};
 if target_opcode_is_valid(invalid) || !target_opcode_is_valid(TargetOpcode::PointerCast)
     || !target_opcode_is_valid(TargetOpcode::ByteSwap64)
-    || !target_opcode_is_valid(TargetOpcode::Probe){return 1;}return 42;''')
+    || !target_opcode_is_valid(TargetOpcode::Probe)
+    || !target_opcode_is_valid(TargetOpcode::QuenchFence){return 1;}return 42;''')
+
+    def test_quench_emits_store_and_full_fences_even_for_an_empty_block(self):
+        plain = self.compile('sv851_no_fence', 'pub fn main_entry()->u32{return 42;}')
+        fenced = self.compile('sv851_quench', 'pub fn main_entry()->u32{quench{} return 42;}')
+        fence_bytes = bytes.fromhex('0f ae f8 0f ae f0')
+        self.assertNotIn(fence_bytes, plain.read_bytes())
+        self.assertEqual(fenced.read_bytes().count(fence_bytes), 1)
+        self.execute(fenced)
 
     def test_ir_rejects_unknown_function_flags(self):
         self.ir('sv851_function_flags','''if target_function_flags_valid(128)

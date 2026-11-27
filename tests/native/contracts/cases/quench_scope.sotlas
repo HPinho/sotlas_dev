@@ -1,0 +1,6 @@
+module quench_scope;
+
+pub fn main_entry() -> u32 {
+    quench { let hidden: u32 = 0; }
+    return hidden;
+}

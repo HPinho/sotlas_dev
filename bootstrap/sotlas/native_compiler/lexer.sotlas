@@ -460,6 +460,7 @@ impl Lexer {
             if self.matches_str(offset, 6, "return") { return TokenKind::KwReturn; }
             if self.matches_str(offset, 6, "unsafe") { return TokenKind::KwUnsafe; }
             if self.matches_str(offset, 6, "clinch") { return TokenKind::KwClinch; }
+            if self.matches_str(offset, 6, "quench") { return TokenKind::KwQuench; }
             if self.matches_str(offset, 6, "revert") { return TokenKind::KwRevert; }
             if self.matches_str(offset, 6, "system") { return TokenKind::KwSystem; }
             if self.matches_str(offset, 6, "target") { return TokenKind::KwTarget; }

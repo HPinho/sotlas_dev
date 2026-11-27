@@ -254,7 +254,9 @@ Equivalente a try/catch para seções críticas de hardware:
 
 ### 7.2 `quench { ... }`
 
-Desativa interrupções durante o bloco, garantindo atomicidade em nível de hardware.
+The [native x86-64 contract](../docs/native_quench.md) emits a store fence
+and a full memory fence at block entry. The body follows normal scope and
+control-flow rules.
 
 ### 7.3 `gate(cond) { ... }`
 

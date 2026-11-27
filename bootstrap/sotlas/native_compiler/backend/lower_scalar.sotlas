@@ -7340,7 +7340,7 @@ impl ScalarLowering {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
             if node.kind == AstKind::ExprBitAccess || node.kind == AstKind::ProbeStmt
-                || node.kind == AstKind::GateStmt { return true; }
+                || node.kind == AstKind::GateStmt || node.kind == AstKind::QuenchStmt { return true; }
             if node.kind == AstKind::AssignStmt && node.int_value != 0 { return true; }
             if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;
@@ -9801,9 +9801,14 @@ impl ScalarLowering {
                     if return_sem.loop_body_returns(self.nodes,self.node_count,body_index)
                         && !self.cfg_jump(header,index) { return self.reject(index); }
                 }
-            } else if stmt.kind == AstKind::UnsafeBlock || stmt.kind == AstKind::Block || stmt.kind == AstKind::GateStmt {
+            } else if stmt.kind == AstKind::UnsafeBlock || stmt.kind == AstKind::Block
+                || stmt.kind == AstKind::GateStmt || stmt.kind == AstKind::QuenchStmt {
                 let mut block_index: usize = index;
                 if stmt.kind == AstKind::UnsafeBlock { block_index = stmt.first_child; }
+                if stmt.kind == AstKind::QuenchStmt {
+                    block_index = stmt.first_child;
+                    if !self.append_instruction(TargetOpcode::QuenchFence,0,TargetTypeTag::Void,0,0,index) { return false; }
+                }
                 if stmt.kind == AstKind::GateStmt {
                     let condition: usize = stmt.first_child;
                     if condition == 0 || condition >= self.node_count { return self.reject(index); }

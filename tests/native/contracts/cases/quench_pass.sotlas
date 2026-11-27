@@ -1,0 +1,18 @@
+module quench_pass;
+
+struct Reading { pub value: u32; }
+
+pub fn main_entry() -> u32 {
+    let reading: sole Reading = Reading{value: 42};
+    let mut result: u32 = 0;
+    quench {
+        let copy: u32 = reading.value;
+        quench { result = copy; }
+    }
+    let adjusted: u32 = match result {
+        42 => { quench {} result - 42 },
+        _ => 1,
+    };
+    if reading.value != 42 { return 2; }
+    return adjusted;
+}

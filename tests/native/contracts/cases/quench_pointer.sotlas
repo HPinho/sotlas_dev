@@ -1,0 +1,7 @@
+module quench_pointer;
+
+fn read(pointer: *const u32) -> u32 {
+    quench { return *pointer; }
+}
+
+pub fn main_entry() -> u32 { return 0; }

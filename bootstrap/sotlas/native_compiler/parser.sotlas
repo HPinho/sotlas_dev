@@ -834,6 +834,14 @@ impl Parser {
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::OpenBrace { return self.parse_block(); }
+        if tok.kind == TokenKind::KwQuench {
+            self.advance();
+            if !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
+            let statement: usize = self.alloc_node(AstKind::QuenchStmt,tok.span);
+            let body: usize = self.parse_block();
+            if statement == 0 || body == 0 || !self.append_child(statement,body) { return 0; }
+            return statement;
+        }
         if tok.kind == TokenKind::KwGate {
             self.advance();
             let statement: usize = self.alloc_node(AstKind::GateStmt,tok.span);
@@ -1770,7 +1778,7 @@ impl Parser {
                 || token.kind == TokenKind::KwIf || token.kind == TokenKind::KwLoop
                 || token.kind == TokenKind::KwWhile || token.kind == TokenKind::KwFor
                 || token.kind == TokenKind::KwDefer || token.kind == TokenKind::KwReturn
-                || token.kind == TokenKind::KwProbe || token.kind == TokenKind::KwGate
+                || token.kind == TokenKind::KwProbe || token.kind == TokenKind::KwGate || token.kind == TokenKind::KwQuench
                 || token.kind == TokenKind::KwBreak || token.kind == TokenKind::KwContinue
                 || token.kind == TokenKind::KwUnsafe || token.kind == TokenKind::OpenBrace {
                 statement=self.parse_statement();

@@ -1,0 +1,30 @@
+module quench_cleanup;
+
+static mut trace: u32 = 0;
+
+fn record(value: u32) -> void {
+    trace = trace * 10 + value;
+}
+
+fn read() -> u32 {
+    defer record(2);
+    quench {
+        defer record(1);
+        return 42;
+    }
+}
+
+pub fn main_entry() -> u32 {
+    if read() != 42 || trace != 12 { return 1; }
+    let mut count: u32 = 0;
+    while count < 3 {
+        quench {
+            defer record(3);
+            count += 1;
+            if count == 1 { continue; }
+            break;
+        }
+    }
+    if count != 2 || trace != 1233 { return 2; }
+    return 0;
+}

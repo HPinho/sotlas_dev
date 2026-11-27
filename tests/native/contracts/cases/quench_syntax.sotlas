@@ -1,0 +1,5 @@
+module quench_syntax;
+
+pub fn main_entry() -> u32 {
+    quench return 0;
+}

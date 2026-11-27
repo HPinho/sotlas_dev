@@ -121,6 +121,7 @@ pub enum TokenKind {
     CaretEqual = 128,
     ShlEqual = 129,
     ShrEqual = 130,
+    KwQuench = 131,
     Error = 120
 }
 

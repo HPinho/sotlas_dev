@@ -60,7 +60,8 @@ pub enum AstKind {
     ExprArrayLength = 55,
     ExprBitAccess = 56,
     ProbeStmt = 57,
-    GateStmt = 58
+    GateStmt = 58,
+    QuenchStmt = 59
 }
 
 pub struct AstNode {
