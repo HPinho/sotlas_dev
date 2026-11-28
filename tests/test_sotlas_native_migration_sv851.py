@@ -143,7 +143,8 @@ if address!=18446744073709551615{return 1;}return 42;}'''))
 if target_opcode_is_valid(invalid) || !target_opcode_is_valid(TargetOpcode::PointerCast)
     || !target_opcode_is_valid(TargetOpcode::ByteSwap64)
     || !target_opcode_is_valid(TargetOpcode::Probe)
-    || !target_opcode_is_valid(TargetOpcode::QuenchFence){return 1;}return 42;''')
+    || !target_opcode_is_valid(TargetOpcode::QuenchFence)
+    || !target_opcode_is_valid(TargetOpcode::PulseFence){return 1;}return 42;''')
 
     def test_quench_emits_store_and_full_fences_even_for_an_empty_block(self):
         plain = self.compile('sv851_no_fence', 'pub fn main_entry()->u32{return 42;}')
@@ -152,6 +153,21 @@ if target_opcode_is_valid(invalid) || !target_opcode_is_valid(TargetOpcode::Poin
         self.assertNotIn(fence_bytes, plain.read_bytes())
         self.assertEqual(fenced.read_bytes().count(fence_bytes), 1)
         self.execute(fenced)
+
+    def test_pulse_emits_the_selected_fences_and_defaults_in_source_order(self):
+        fenced = self.compile('sv851_pulse', '''pub fn main_entry()->u32 {
+            pulse; pulse(); pulse(acquire); pulse(release); pulse(seq_cst); return 42;
+        }''')
+        fence_bytes = bytes.fromhex('0f ae f0 0f ae f0 0f ae e8 0f ae f8 0f ae f0')
+        self.assertEqual(fenced.read_bytes().count(fence_bytes), 1)
+        self.execute(fenced)
+
+    def test_ir_pulse_fence_metadata_rejects_unknown_memory_orders(self):
+        self.ir('sv851_pulse_order','''let mut instruction:TargetInstruction=TargetInstruction::new(TargetOpcode::PulseFence);
+if !target_instruction_metadata_valid(instruction){return 1;}instruction.immediate_bits=1;
+if !target_instruction_metadata_valid(instruction){return 2;}instruction.immediate_bits=2;
+if !target_instruction_metadata_valid(instruction){return 3;}instruction.immediate_bits=3;
+if target_instruction_metadata_valid(instruction){return 4;}return 42;''')
 
     def test_ir_rejects_unknown_function_flags(self):
         self.ir('sv851_function_flags','''if target_function_flags_valid(128)

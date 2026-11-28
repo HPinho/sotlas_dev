@@ -62,7 +62,8 @@ pub enum AstKind {
     ProbeStmt = 57,
     GateStmt = 58,
     QuenchStmt = 59,
-    PatternWildcard = 60
+    PatternWildcard = 60,
+    PulseStmt = 61
 }
 
 pub struct AstNode {

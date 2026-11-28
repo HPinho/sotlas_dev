@@ -1,0 +1,6 @@
+module pulse_missing_semicolon;
+
+pub fn main_entry() -> u32 {
+    pulse(acquire)
+    return 0;
+}

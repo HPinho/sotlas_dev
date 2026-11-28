@@ -127,3 +127,9 @@ reject discern_guarded_gap cases/discern_guarded_gap.sotlas
 reject discern_wrong_enum cases/discern_wrong_enum.sotlas
 reject discern_non_enum cases/discern_non_enum.sotlas
 reject discern_unknown cases/discern_unknown.sotlas
+pass pulse_orders cases/pulse_orders.sotlas
+pass pulse_cleanup cases/pulse_cleanup.sotlas
+syntax pulse_unknown_order cases/pulse_unknown_order.sotlas
+syntax pulse_value cases/pulse_value.sotlas
+syntax pulse_multiple_orders cases/pulse_multiple_orders.sotlas
+syntax pulse_missing_semicolon cases/pulse_missing_semicolon.sotlas

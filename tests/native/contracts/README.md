@@ -141,5 +141,6 @@ short-circuit evaluation, scoped execution, control flow and cleanup, traps,
 and invalid types, ownership, scope and syntax. Five `quench` cases cover
 nested and empty blocks, cleanup, scope, raw pointers and syntax. The suite
 also covers exhaustive `discern` statements, qualified and relative enum
-variants, guards, payloads and invalid selectors or variants. It has 128
-contracts.
+variants, guards, payloads and invalid selectors or variants. Six `pulse`
+cases cover all fence orders, default syntax, cleanup and malformed
+statements. The suite has 134 contracts.

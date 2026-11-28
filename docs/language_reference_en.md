@@ -143,7 +143,7 @@ pub fn make_pair(a: u32, b: i64) -> Pair forge<u32, i64> {
 
 Sotlas defines direct hardware intrinsics for lock-free and multi-core systems programming:
 
-- `pulse`: Hardware full memory barrier (`mfence`).
+- `pulse`: Hardware memory fence. The [native x86-64 contract](native_pulse.md) supports acquire, release and sequentially consistent orders.
 - `__cpu_pause()`: Hint to spin-wait loops (`pause` on x86-64, `yield` on ARM64).
 - `__atomic_exchange_u32(addr, val)`: Atomic exchange with sequential consistency.
 - `__atomic_cmpxchg_u32(addr, expected, desired)`: Compare-and-swap primitive.

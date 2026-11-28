@@ -831,9 +831,42 @@ impl Parser {
         return left;
     }
 
+    pub fn token_text_matches(self: &Self, tok: &Token, expected: *const u8, length: usize) -> bool {
+        if tok.text_len != length || length > 128 { return false; }
+        let mut index: usize = 0;
+        while index < length {
+            if tok.text[index] != unsafe { *(expected+index) } { return false; }
+            index = index+1;
+        }
+        return true;
+    }
+
     pub fn parse_statement(mut self: &mut Self) -> usize {
         let tok: Token = self.current();
         if tok.kind == TokenKind::OpenBrace { return self.parse_block(); }
+        if tok.kind == TokenKind::KwPulse {
+            self.advance();
+            let mut order: i64 = 0;
+            if self.match_token(TokenKind::OpenParen) {
+                self.advance();
+                if !self.match_token(TokenKind::CloseParen) {
+                    let name: Token = self.expect(TokenKind::Ident);
+                    if self.error_count != 0 { return 0; }
+                    // PulseFence uses 0 for seq_cst, 1 for acquire, and 2 for release.
+                    if self.token_text_matches(&name,"acquire",7) { order = 1; }
+                    else if self.token_text_matches(&name,"release",7) { order = 2; }
+                    else if !self.token_text_matches(&name,"seq_cst",7) {
+                        self.record_unexpected(name); return 0;
+                    }
+                }
+                self.expect(TokenKind::CloseParen);
+            }
+            self.expect(TokenKind::SemiColon);
+            if self.error_count != 0 { return 0; }
+            let statement: usize = self.alloc_node(AstKind::PulseStmt,tok.span);
+            if statement != 0 { unsafe { (*(self.nodes+statement)).int_value = order; } }
+            return statement;
+        }
         if tok.kind == TokenKind::KwQuench {
             self.advance();
             if !self.match_token(TokenKind::OpenBrace) { self.reject_current(); return 0; }
@@ -1769,7 +1802,7 @@ impl Parser {
                 || token.kind == TokenKind::KwWhile || token.kind == TokenKind::KwFor
                 || token.kind == TokenKind::KwDefer || token.kind == TokenKind::KwReturn
                 || token.kind == TokenKind::KwProbe || token.kind == TokenKind::KwGate || token.kind == TokenKind::KwQuench
-                || token.kind == TokenKind::KwDiscern
+                || token.kind == TokenKind::KwDiscern || token.kind == TokenKind::KwPulse
                 || token.kind == TokenKind::KwBreak || token.kind == TokenKind::KwContinue
                 || token.kind == TokenKind::KwUnsafe || token.kind == TokenKind::OpenBrace {
                 statement=self.parse_statement();

@@ -1,0 +1,16 @@
+module pulse_orders;
+
+static mut published: u32 = 0;
+
+pub fn main_entry() -> u32 {
+    published = 42;
+    pulse(release);
+    pulse;
+    pulse();
+    pulse(seq_cst);
+    let result: u32 = match published {
+        42 => { pulse(acquire); published - 42 },
+        _ => 1,
+    };
+    return result;
+}

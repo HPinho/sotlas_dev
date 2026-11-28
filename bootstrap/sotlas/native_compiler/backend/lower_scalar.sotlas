@@ -7353,7 +7353,8 @@ impl ScalarLowering {
             let node: AstNode = unsafe { *(self.nodes + i) };
             if node.kind == AstKind::FnDecl { break; }
             if node.kind == AstKind::ExprBitAccess || node.kind == AstKind::ProbeStmt
-                || node.kind == AstKind::GateStmt || node.kind == AstKind::QuenchStmt { return true; }
+                || node.kind == AstKind::GateStmt || node.kind == AstKind::QuenchStmt
+                || node.kind == AstKind::PulseStmt { return true; }
             if node.kind == AstKind::AssignStmt && node.int_value != 0 { return true; }
             if node.kind == AstKind::ExprIdent && self.global_record_id(i) != 0 { needs_cfg=true; }
             let mut signed_narrow: bool = false;
@@ -7765,6 +7766,14 @@ impl ScalarLowering {
 
     pub fn cfg_simple(mut self: &mut Self, index: usize, first_parameter: usize, parameter_count: usize) -> bool {
         let stmt: AstNode = unsafe { *(self.nodes + index) };
+        if stmt.kind == AstKind::PulseStmt {
+            if stmt.int_value < 0 || stmt.int_value > 2
+                || !self.append_instruction(TargetOpcode::PulseFence,0,TargetTypeTag::Void,0,0,index) {
+                return self.reject(index);
+            }
+            unsafe { (*(self.instructions+self.instruction_count-1)).immediate_bits = stmt.int_value as u64; }
+            return true;
+        }
         if stmt.kind == AstKind::ProbeStmt {
             let condition: usize = stmt.first_child;
             let mut bits: u64 = 0;
