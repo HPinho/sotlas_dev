@@ -1,0 +1,5 @@
+module mould_literal_false;
+
+mould { probe false, "feature is required"; }
+
+pub fn main_entry() -> u32 { return 0; }

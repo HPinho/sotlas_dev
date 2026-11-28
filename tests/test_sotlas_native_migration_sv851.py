@@ -169,6 +169,13 @@ if !target_instruction_metadata_valid(instruction){return 2;}instruction.immedia
 if !target_instruction_metadata_valid(instruction){return 3;}instruction.immediate_bits=3;
 if target_instruction_metadata_valid(instruction){return 4;}return 42;''')
 
+    def test_mould_assertions_emit_no_native_object_changes(self):
+        entry = 'pub fn main_entry()->u32{return 42;}'
+        plain = self.compile('sv851_without_mould', entry)
+        checked = self.compile('sv851_with_mould', 'mould{probe 2 + 3 == 5;}\n' + entry)
+        self.assertEqual(checked.read_bytes(), plain.read_bytes())
+        self.execute(checked)
+
     def test_ir_rejects_unknown_function_flags(self):
         self.ir('sv851_function_flags','''if target_function_flags_valid(128)
 || !target_function_flags_valid(TARGET_FLAG_SYSTEM) || !target_function_flags_valid(0){return 1;}return 42;''')

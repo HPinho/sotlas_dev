@@ -1,0 +1,7 @@
+module mould_call;
+
+fn supported() -> bool { return true; }
+
+mould { probe true || supported(); }
+
+pub fn main_entry() -> u32 { return 0; }

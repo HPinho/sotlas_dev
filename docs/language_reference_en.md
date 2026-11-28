@@ -153,6 +153,7 @@ Sotlas defines direct hardware intrinsics for lock-free and multi-core systems p
 ## 8. Pattern Matching & Hardware Invariants
 
 - `probe <condition>, <message>;`: Hardware assert that raises an architectural trap if the condition is false.
+- `mould { ... }`: Module-level [compile-time assertions](native_mould.md) for constants and type layouts.
 - `discern / case`: Exhaustive pattern matching over enums and bit representations.
 
 ```sotlas

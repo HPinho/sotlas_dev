@@ -447,6 +447,7 @@ impl Lexer {
             if self.matches_str(offset, 5, "break") { return TokenKind::KwBreak; }
             if self.matches_str(offset, 5, "defer") { return TokenKind::KwDefer; }
             if self.matches_str(offset, 5, "pulse") { return TokenKind::KwPulse; }
+            if self.matches_str(offset, 5, "mould") { return TokenKind::KwMould; }
             if self.matches_str(offset, 5, "probe") { return TokenKind::KwProbe; }
             if self.matches_str(offset, 5, "forge") { return TokenKind::KwForge; }
             if self.matches_str(offset, 5, "async") { return TokenKind::KwAsync; }

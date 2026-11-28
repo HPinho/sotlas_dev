@@ -1,0 +1,7 @@
+module mould_runtime_value;
+
+static mut enabled: bool = true;
+
+mould { probe enabled; }
+
+pub fn main_entry() -> u32 { return 0; }

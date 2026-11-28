@@ -1195,6 +1195,19 @@ impl Parser {
         }
         let inner: Token = self.current();
         if packed == 1 && inner.kind != TokenKind::KwStruct { self.reject_current();return 0; }
+        if inner.kind == TokenKind::KwMould {
+            self.advance();
+            self.expect(TokenKind::OpenBrace);
+            let declaration: usize = self.alloc_node(AstKind::MouldBlock,inner.span);
+            if declaration == 0 || self.error_count != 0 { return 0; }
+            while self.match_token(TokenKind::KwProbe) {
+                let assertion: usize = self.parse_statement();
+                if assertion == 0 || !self.append_child(declaration,assertion) { return 0; }
+            }
+            self.expect(TokenKind::CloseBrace);
+            if self.error_count != 0 { return 0; }
+            return declaration;
+        }
         if inner.kind == TokenKind::KwFn || inner.kind == TokenKind::KwTrapfn {
             self.advance();
             let mut fn_kind: AstKind = AstKind::FnDecl;

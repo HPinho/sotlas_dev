@@ -417,6 +417,8 @@ pub fn native_match_error_text(reason: u32) -> *const u8 {
     if reason == 8 { return "float match pattern requires constant numbers other than NaN"; }
     if reason == 9 { return "discern requires an enum selector"; }
     if reason == 10 { return "unknown or mismatched enum variant in discern"; }
+    if reason == 11 { return "static mould assertion failed"; }
+    if reason == 12 { return "mould probe requires a constant boolean condition"; }
     return "unsupported native form";
 }
 
@@ -10661,6 +10663,28 @@ pub fn lower_scalar_module(
         }
         constant_slot = constant_slot + 1;
     }
+    // Evaluate assertions against the completed layouts and constant table.
+    // The constant evaluator restores its scratch instructions and values.
+    let mut mould_index: usize = module_node.first_child;
+    while mould_index != 0 {
+        if mould_index >= lowering.node_count { return lowering.reject(mould_index); }
+        let declaration: AstNode = unsafe { *(lowering.nodes+mould_index) };
+        if declaration.kind == AstKind::MouldBlock {
+            let mut assertion: usize = declaration.first_child;
+            while assertion != 0 {
+                if assertion >= lowering.node_count { return lowering.reject(mould_index); }
+                let probe_node: AstNode = unsafe { *(lowering.nodes+assertion) };
+                let mut bits: u64 = 0;
+                if probe_node.kind != AstKind::ProbeStmt
+                    || !lowering.constant_literal_bits(probe_node.first_child,TargetTypeTag::Bool,&mut bits) {
+                    return lowering.reject_match(assertion,12);
+                }
+                if bits != 1 { return lowering.reject_match(assertion,11); }
+                assertion = probe_node.next_sibling;
+            }
+        }
+        mould_index = declaration.next_sibling;
+    }
     struct_scan_index = module_node.first_child;
     while struct_scan_index != 0 {
         if struct_scan_index >= lowering.node_count { return lowering.reject(struct_scan_index); }
@@ -10826,7 +10850,8 @@ pub fn lower_scalar_module(
             || function_node.kind == AstKind::StructDecl
             || function_node.kind == AstKind::EnumDecl
             || function_node.kind == AstKind::MeshDecl
-            || function_node.kind == AstKind::LetStmt {
+            || function_node.kind == AstKind::LetStmt
+            || function_node.kind == AstKind::MouldBlock {
             function_index = function_node.next_sibling;
             continue;
         }

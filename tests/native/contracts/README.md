@@ -143,4 +143,6 @@ nested and empty blocks, cleanup, scope, raw pointers and syntax. The suite
 also covers exhaustive `discern` statements, qualified and relative enum
 variants, guards, payloads and invalid selectors or variants. Six `pulse`
 cases cover all fence orders, default syntax, cleanup and malformed
-statements. The suite has 134 contracts.
+statements. Seven `mould` cases cover module constants and layout checks,
+false or non-constant assertions, non-boolean predicates and invalid
+block statements. The suite has 141 contracts.

@@ -1,0 +1,18 @@
+module mould_assertions;
+
+mould {
+    probe ENABLED && CAPACITY >= 8, "minimum capacity";
+    probe span_of::<Header>() == 8, "wire header layout";
+    probe span_of::<[Header; CAPACITY]>() == 64, "array layout";
+    probe 1 + 2 == 3;
+}
+
+const ENABLED: bool = true;
+const CAPACITY: usize = 8;
+struct Header { pub length: u32; pub flags: u32; }
+
+mould { probe CAPACITY == 8; }
+
+pub fn main_entry() -> u32 {
+    return 0;
+}

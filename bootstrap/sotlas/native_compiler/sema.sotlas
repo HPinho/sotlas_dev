@@ -720,11 +720,14 @@ impl Sema {
             }
             if node.kind == AstKind::ExprBitAccess
                 && !self.check_native_bit_access(nodes,node_count,node,source,source_len) { return self.reject_node(node); }
+            // A false module assertion is diagnosed by the typed constant evaluator.
+            let mould_probe: bool = node.kind == AstKind::ProbeStmt && node.parent != 0 && node.parent < node_count
+                && unsafe { (*(nodes+node.parent)).kind } == AstKind::MouldBlock;
             if node.kind == AstKind::ProbeStmt || node.kind == AstKind::GateStmt {
                 let condition: AstNode = unsafe { *(nodes+node.first_child) };
                 if condition.kind == AstKind::ExprLiteral
                     && !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"true",4)
-                    && (node.kind == AstKind::ProbeStmt
+                    && ((node.kind == AstKind::ProbeStmt && !mould_probe)
                         || !self.source_slice_equals(source,source_len,condition.str_offset,condition.str_len,"false",5)) {
                     return self.reject_node(node);
                 }

@@ -1,0 +1,9 @@
+module mould_false;
+
+struct Header { pub length: u32; pub flags: u32; }
+
+mould {
+    probe span_of::<Header>() == 4, "header ABI changed";
+}
+
+pub fn main_entry() -> u32 { return 0; }

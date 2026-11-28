@@ -133,3 +133,10 @@ syntax pulse_unknown_order cases/pulse_unknown_order.sotlas
 syntax pulse_value cases/pulse_value.sotlas
 syntax pulse_multiple_orders cases/pulse_multiple_orders.sotlas
 syntax pulse_missing_semicolon cases/pulse_missing_semicolon.sotlas
+pass mould_assertions cases/mould_assertions.sotlas
+reject mould_false cases/mould_false.sotlas
+reject mould_literal_false cases/mould_literal_false.sotlas
+reject mould_call cases/mould_call.sotlas
+reject mould_runtime_value cases/mould_runtime_value.sotlas
+reject mould_type cases/mould_type.sotlas
+syntax mould_statement cases/mould_statement.sotlas

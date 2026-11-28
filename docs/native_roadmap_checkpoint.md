@@ -61,6 +61,7 @@ python -m unittest discover -s tests -p test_sotlas_reality_gate.py
 | Native memory ordering | Issue x86-64 store and full fences before a [`quench` block](native_quench.md). |
 | Native enum dispatch | Require exhaustive enum patterns with [`discern`](native_discern.md). |
 | Native ordered fences | Select an x86-64 acquire, release or full fence with [`pulse`](native_pulse.md). |
+| Native static assertions | Check module constants and layouts with [`mould`](native_mould.md). |
 
 See the [ABI](native_embedded_abi.md), [libraries](native_static_libraries.md),
 [targets](native_library_targets.md), [module builds](native_module_builds.md)
